@@ -1,0 +1,292 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222.2 47.4% 11.2%;
+    
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 47.4% 11.2%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+    
+    /* MANDERA CRM Brand Deep Teal/Blue */
+    --primary: 192 85% 30%;
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 192 85% 30%;
+    
+    --radius: 0.75rem;
+
+    /* Status Indicators */
+    --status-upcoming: 142.1 76.2% 36.3%;
+    --status-overdue: 0 84.2% 60.2%;
+
+    /* Compact Card Design Tokens */
+    --card-compact-h: 140px;
+    --card-compact-p-desktop: 1rem;
+    --card-compact-p-mobile: 0.75rem;
+    --text-scale-compact: 0.875rem;
+    --shadow-subtle: 0 2px 8px -2px rgba(0, 0, 0, 0.05);
+    --shadow-hover: 0 8px 20px -4px rgba(0, 0, 0, 0.12);
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    
+    --primary: 192 85% 30%;
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 192 85% 30%;
+
+    /* Status Indicators */
+    --status-upcoming: 142.1 70.6% 45.3%;
+    --status-overdue: 0 72.2% 50.6%;
+
+    /* Compact Card Dark Shadow Tokens */
+    --shadow-subtle: 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+    --shadow-hover: 0 8px 20px -4px rgba(0, 0, 0, 0.6);
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "Plus Jakarta Sans", sans-serif;
+    overflow-x: hidden;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* RTL Layout Support */
+  html[dir="rtl"] {
+    direction: rtl;
+    text-align: right;
+    font-family: "Cairo", "Plus Jakarta Sans", sans-serif;
+  }
+  
+  html[dir="ltr"] {
+    direction: ltr;
+    text-align: left;
+  }
+}
+
+@layer components {
+  .container {
+    max-width: 1280px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
+
+  /* Compact Card Component Class */
+  .card-compact {
+    height: var(--card-compact-h);
+    padding: var(--card-compact-p-desktop);
+    box-shadow: var(--shadow-subtle);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    border-radius: var(--radius);
+    background-color: hsl(var(--card));
+    border: 1px solid hsl(var(--border) / 0.6);
+  }
+  
+  .card-compact:hover {
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-2px) scale(1.02);
+    border-color: hsl(var(--primary) / 0.3);
+  }
+
+  @media (max-width: 640px) {
+    .card-compact {
+      height: auto;
+      min-height: 120px;
+      padding: var(--card-compact-p-mobile);
+    }
+  }
+
+  /* Rich Text and Prose Styles */
+  .rich-text-content {
+    color: hsl(var(--foreground));
+    line-height: 1.75;
+    word-wrap: break-word;
+  }
+  .rich-text-content h1 {
+    font-size: 2.25rem;
+    font-weight: 700;
+    margin-top: 2.5rem;
+    margin-bottom: 1.25rem;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+  .rich-text-content h2 {
+    font-size: 1.875rem;
+    font-weight: 600;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  .rich-text-content h3 {
+    font-size: 1.5rem;
+    font-weight: 500;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .rich-text-content p {
+    color: hsl(var(--muted-foreground));
+    margin-bottom: 1.25rem;
+  }
+  .rich-text-content ul {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+    margin-bottom: 1.25rem;
+    color: hsl(var(--muted-foreground));
+  }
+  .rich-text-content ol {
+    list-style-type: decimal;
+    padding-left: 1.5rem;
+    margin-bottom: 1.25rem;
+    color: hsl(var(--muted-foreground));
+  }
+  .rich-text-content li {
+    margin-bottom: 0.5rem;
+  }
+  .rich-text-content a {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .rich-text-content a:hover {
+    color: hsl(var(--primary) / 0.8);
+  }
+  .rich-text-content blockquote {
+    border-left: 4px solid hsl(var(--primary));
+    padding-left: 1.25rem;
+    font-style: italic;
+    color: hsl(var(--muted-foreground));
+    background-color: hsl(var(--muted) / 0.5);
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+    border-radius: 0 0.5rem 0.5rem 0;
+  }
+  .rich-text-content code {
+    background-color: hsl(var(--muted));
+    color: hsl(var(--foreground));
+    padding: 0.2rem 0.4rem;
+    border-radius: 0.25rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.875em;
+  }
+  
+  /* RTL Support for Rich Text */
+  html[dir="rtl"] .rich-text-content ul,
+  html[dir="rtl"] .rich-text-content ol {
+    padding-left: 0;
+    padding-right: 1.5rem;
+  }
+  html[dir="rtl"] .rich-text-content blockquote {
+    border-left: none;
+    border-right: 4px solid hsl(var(--primary));
+    padding-left: 0;
+    padding-right: 1.25rem;
+    border-radius: 0.5rem 0 0 0.5rem;
+  }
+
+  /* Tiptap Editor Core */
+  .ProseMirror {
+    outline: none;
+    min-height: 300px;
+    padding: 1rem;
+  }
+  .ProseMirror p.is-editor-empty:first-child::before {
+    color: hsl(var(--muted-foreground) / 0.6);
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+  }
+  html[dir="rtl"] .ProseMirror p.is-editor-empty:first-child::before {
+    float: right;
+  }
+}
+
+@layer utilities {
+  .bg-status-upcoming {
+    background-color: hsl(var(--status-upcoming));
+  }
+  .text-status-upcoming {
+    color: hsl(var(--status-upcoming));
+  }
+  .bg-status-overdue {
+    background-color: hsl(var(--status-overdue));
+  }
+  .text-status-overdue {
+    color: hsl(var(--status-overdue));
+  }
+}

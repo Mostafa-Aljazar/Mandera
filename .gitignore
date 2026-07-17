@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+apps/web/.next/
+apps/web/out/
+dist/
+
+# Environment variables / secrets
+.env
+.env.local
+.env.*.local
+
+# PocketBase runtime data (regenerates from pb_migrations)
+apps/pocketbase/pb_data/
+apps/pocketbase/pb_data.locked-backup/
+apps/pocketbase/pb_snapshots/
+
+# PocketBase Windows binary (local-dev only; production/deploy uses the committed Linux binary)
+apps/pocketbase/pocketbase.exe
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/settings.json
+
+# Claude Code local session artifacts (keep architecture docs, ignore anything transient)
+.claude/scheduled_tasks.lock

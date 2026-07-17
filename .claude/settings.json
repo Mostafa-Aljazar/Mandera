@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(export PB_ENCRYPTION_KEY=*)",
+      "Bash(export PB_SUPERUSER_EMAIL=*)",
+      "Bash(export PB_SUPERUSER_PASSWORD=*)",
+      "Bash(./pocketbase.exe serve *)"
+    ]
+  }
+}
