@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Building2, Lock, Unlock, Loader2 } from 'lucide-react';
 import { useEmployeeCount } from '@/hooks/useEmployeeCount';
 import { useTranslation } from 'react-i18next';
-import type { Company } from '../../../../types/pocketbase.types';
+import type { Company } from '@/types/pocketbase.types';
 
 interface CompanyRowProps {
   company: Company;

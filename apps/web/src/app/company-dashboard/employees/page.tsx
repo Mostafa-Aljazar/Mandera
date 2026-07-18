@@ -15,7 +15,7 @@ import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
 import pb from '@/lib/pocketbaseClient';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, UserCheck, UserX, Users } from 'lucide-react';
-import type { Employee } from '../../../../types/pocketbase.types';
+import type { Employee } from '@/types/pocketbase.types';
 
 interface DeletionTarget {
   id: string;

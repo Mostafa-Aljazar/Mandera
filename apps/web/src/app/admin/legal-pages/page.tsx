@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Helmet } from 'react-helmet';
 import { useTranslation } from 'react-i18next';
 import MasterAdminHeader from '@/components/MasterAdminHeader';
@@ -12,18 +14,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Loader2, Eye, Save, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
-import type { LegalPage, LegalPageType } from '../../../../types/pocketbase.types';
-
-interface LegalPageFormState {
-  id: string | null;
-  title: string;
-  content: string;
-  updated: string | null;
-}
+import type { LegalPage, LegalPageType } from '@/types/pocketbase.types';
+import { LegalPageSchema, type TLegalPageSchema } from '@/validations/legal-page.schema';
 
 interface PreviewModalState {
   isOpen: boolean;
@@ -38,8 +35,19 @@ const LegalPagesManagementPage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState({ privacy: false, terms: false });
 
-  const [privacyData, setPrivacyData] = useState<LegalPageFormState>({ id: null, title: '', content: '', updated: null });
-  const [termsData, setTermsData] = useState<LegalPageFormState>({ id: null, title: '', content: '', updated: null });
+  const [privacyId, setPrivacyId] = useState<string | null>(null);
+  const [privacyUpdated, setPrivacyUpdated] = useState<string | null>(null);
+  const [termsId, setTermsId] = useState<string | null>(null);
+  const [termsUpdated, setTermsUpdated] = useState<string | null>(null);
+
+  const privacyForm = useForm<TLegalPageSchema>({
+    resolver: zodResolver(LegalPageSchema(t)),
+    defaultValues: { title: '', content: '' },
+  });
+  const termsForm = useForm<TLegalPageSchema>({
+    resolver: zodResolver(LegalPageSchema(t)),
+    defaultValues: { title: '', content: '' },
+  });
 
   const [previewModal, setPreviewModal] = useState<PreviewModalState>({ isOpen: false, title: '', content: '' });
 
@@ -55,22 +63,16 @@ const LegalPagesManagementPage = () => {
 
       const privacy = records.find(r => r.page_type === 'privacy_policy');
       if (privacy) {
-        setPrivacyData({
-          id: privacy.id,
-          title: privacy.title,
-          content: privacy.content,
-          updated: privacy.updated
-        });
+        setPrivacyId(privacy.id);
+        setPrivacyUpdated(privacy.updated);
+        privacyForm.reset({ title: privacy.title, content: privacy.content });
       }
 
       const terms = records.find(r => r.page_type === 'terms_of_service');
       if (terms) {
-        setTermsData({
-          id: terms.id,
-          title: terms.title,
-          content: terms.content,
-          updated: terms.updated
-        });
+        setTermsId(terms.id);
+        setTermsUpdated(terms.updated);
+        termsForm.reset({ title: terms.title, content: terms.content });
       }
     } catch (err) {
       console.error("Error fetching legal pages:", err);
@@ -80,14 +82,13 @@ const LegalPagesManagementPage = () => {
     }
   };
 
-  const handleSave = async (type: LegalPageType, data: LegalPageFormState) => {
+  const saveLegalPage = async (
+    type: LegalPageType,
+    id: string | null,
+    data: TLegalPageSchema,
+  ) => {
     const isPrivacy = type === 'privacy_policy';
     const stateKey: 'privacy' | 'terms' = isPrivacy ? 'privacy' : 'terms';
-
-    if (!data.title || !data.content) {
-      toast.error(t('Title and content are required.'));
-      return;
-    }
 
     setSaving(prev => ({ ...prev, [stateKey]: true }));
 
@@ -101,14 +102,14 @@ const LegalPagesManagementPage = () => {
       // and the collection expects a user from _pb_users_auth_ to prevent FK errors.
       // If we *must* send it, we try, but catch the error if relation fails.
       try {
-        await pb.collection('legal_pages').update(data.id as string, {
+        await pb.collection('legal_pages').update(id as string, {
           ...payload,
           updated_by: currentUser?.id
         }, { $autoCancel: false });
       } catch (updateErr: any) {
         if (updateErr.status === 400) {
           // Fallback without updated_by if relation fails
-          await pb.collection('legal_pages').update(data.id as string, payload, { $autoCancel: false });
+          await pb.collection('legal_pages').update(id as string, payload, { $autoCancel: false });
         } else {
           throw updateErr;
         }
@@ -125,6 +126,13 @@ const LegalPagesManagementPage = () => {
       setSaving(prev => ({ ...prev, [stateKey]: false }));
     }
   };
+
+  const handleSavePrivacy = privacyForm.handleSubmit((data) =>
+    saveLegalPage('privacy_policy', privacyId, data),
+  );
+  const handleSaveTerms = termsForm.handleSubmit((data) =>
+    saveLegalPage('terms_of_service', termsId, data),
+  );
 
   const openPreview = (title: string, content: string) => {
     setPreviewModal({ isOpen: true, title, content });
@@ -164,144 +172,182 @@ const LegalPagesManagementPage = () => {
 
             {/* Privacy Policy Tab */}
             <TabsContent value="privacy">
-              <Card className="shadow-sm border-border/60">
-                <CardHeader>
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <CardTitle>{t('Privacy Policy Editor')}</CardTitle>
-                      <CardDescription>
-                        {privacyData.updated && (
-                          <span className="flex items-center gap-1.5 mt-1 text-xs">
-                            {t('Last updated:')} {format(new Date(privacyData.updated), 'MMM d, yyyy HH:mm')}
-                          </span>
-                        )}
-                      </CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => openPreview(privacyData.title, privacyData.content)}
-                        className="gap-2"
-                      >
-                        <Eye className="h-4 w-4" /> {t('Preview')}
-                      </Button>
-                      <Button
-                        onClick={() => handleSave('privacy_policy', privacyData)}
-                        disabled={saving.privacy || !privacyData.id}
-                        className="gap-2"
-                      >
-                        {saving.privacy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        {t('Save Changes')}
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {!privacyData.id && (
-                    <div className="bg-destructive/10 text-destructive p-4 rounded-lg flex items-start gap-3">
-                      <AlertCircle className="h-5 w-5 mt-0.5" />
+              <Form {...privacyForm}>
+                <Card className="shadow-sm border-border/60">
+                  <CardHeader>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
-                        <h4 className="font-semibold">{t('Missing Database Record')}</h4>
-                        <p className="text-sm mt-1">{t('The privacy_policy record was not found in the database. Please ensure migrations ran successfully.')}</p>
+                        <CardTitle>{t('Privacy Policy Editor')}</CardTitle>
+                        <CardDescription>
+                          {privacyUpdated && (
+                            <span className="flex items-center gap-1.5 mt-1 text-xs">
+                              {t('Last updated:')} {format(new Date(privacyUpdated), 'MMM d, yyyy HH:mm')}
+                            </span>
+                          )}
+                        </CardDescription>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => openPreview(privacyForm.getValues('title'), privacyForm.getValues('content'))}
+                          className="gap-2"
+                        >
+                          <Eye className="h-4 w-4" /> {t('Preview')}
+                        </Button>
+                        <Button
+                          onClick={handleSavePrivacy}
+                          disabled={saving.privacy || !privacyId}
+                          className="gap-2"
+                        >
+                          {saving.privacy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          {t('Save Changes')}
+                        </Button>
                       </div>
                     </div>
-                  )}
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {!privacyId && (
+                      <div className="bg-destructive/10 text-destructive p-4 rounded-lg flex items-start gap-3">
+                        <AlertCircle className="h-5 w-5 mt-0.5" />
+                        <div>
+                          <h4 className="font-semibold">{t('Missing Database Record')}</h4>
+                          <p className="text-sm mt-1">{t('The privacy_policy record was not found in the database. Please ensure migrations ran successfully.')}</p>
+                        </div>
+                      </div>
+                    )}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="privacy-title">{t('Page Title')}</Label>
-                    <Input
-                      id="privacy-title"
-                      value={privacyData.title}
-                      onChange={(e) => setPrivacyData({ ...privacyData, title: e.target.value })}
-                      placeholder={t('e.g., Privacy Policy')}
-                      className="max-w-md bg-background"
-                      disabled={!privacyData.id}
+                    <FormField
+                      control={privacyForm.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem className="space-y-2">
+                          <Label htmlFor="privacy-title">{t('Page Title')}</Label>
+                          <FormControl>
+                            <Input
+                              id="privacy-title"
+                              placeholder={t('e.g., Privacy Policy')}
+                              className="max-w-md bg-background"
+                              disabled={!privacyId}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label>{t('Page Content')}</Label>
-                    <div className={!privacyData.id ? 'opacity-50 pointer-events-none' : ''}>
-                      <RichTextEditor
-                        content={privacyData.content}
-                        onChange={(val) => setPrivacyData({ ...privacyData, content: val })}
-                        placeholder=""
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                    <FormField
+                      control={privacyForm.control}
+                      name="content"
+                      render={({ field }) => (
+                        <FormItem className="space-y-2">
+                          <Label>{t('Page Content')}</Label>
+                          <div className={!privacyId ? 'opacity-50 pointer-events-none' : ''}>
+                            <FormControl>
+                              <RichTextEditor
+                                content={field.value}
+                                onChange={field.onChange}
+                                placeholder=""
+                              />
+                            </FormControl>
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </CardContent>
+                </Card>
+              </Form>
             </TabsContent>
 
             {/* Terms of Service Tab */}
             <TabsContent value="terms">
-              <Card className="shadow-sm border-border/60">
-                <CardHeader>
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <CardTitle>{t('Terms of Service Editor')}</CardTitle>
-                      <CardDescription>
-                        {termsData.updated && (
-                          <span className="flex items-center gap-1.5 mt-1 text-xs">
-                            {t('Last updated:')} {format(new Date(termsData.updated), 'MMM d, yyyy HH:mm')}
-                          </span>
-                        )}
-                      </CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => openPreview(termsData.title, termsData.content)}
-                        className="gap-2"
-                      >
-                        <Eye className="h-4 w-4" /> {t('Preview')}
-                      </Button>
-                      <Button
-                        onClick={() => handleSave('terms_of_service', termsData)}
-                        disabled={saving.terms || !termsData.id}
-                        className="gap-2"
-                      >
-                        {saving.terms ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        {t('Save Changes')}
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {!termsData.id && (
-                    <div className="bg-destructive/10 text-destructive p-4 rounded-lg flex items-start gap-3">
-                      <AlertCircle className="h-5 w-5 mt-0.5" />
+              <Form {...termsForm}>
+                <Card className="shadow-sm border-border/60">
+                  <CardHeader>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
-                        <h4 className="font-semibold">{t('Missing Database Record')}</h4>
-                        <p className="text-sm mt-1">{t('The terms_of_service record was not found in the database. Please ensure migrations ran successfully.')}</p>
+                        <CardTitle>{t('Terms of Service Editor')}</CardTitle>
+                        <CardDescription>
+                          {termsUpdated && (
+                            <span className="flex items-center gap-1.5 mt-1 text-xs">
+                              {t('Last updated:')} {format(new Date(termsUpdated), 'MMM d, yyyy HH:mm')}
+                            </span>
+                          )}
+                        </CardDescription>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => openPreview(termsForm.getValues('title'), termsForm.getValues('content'))}
+                          className="gap-2"
+                        >
+                          <Eye className="h-4 w-4" /> {t('Preview')}
+                        </Button>
+                        <Button
+                          onClick={handleSaveTerms}
+                          disabled={saving.terms || !termsId}
+                          className="gap-2"
+                        >
+                          {saving.terms ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          {t('Save Changes')}
+                        </Button>
                       </div>
                     </div>
-                  )}
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {!termsId && (
+                      <div className="bg-destructive/10 text-destructive p-4 rounded-lg flex items-start gap-3">
+                        <AlertCircle className="h-5 w-5 mt-0.5" />
+                        <div>
+                          <h4 className="font-semibold">{t('Missing Database Record')}</h4>
+                          <p className="text-sm mt-1">{t('The terms_of_service record was not found in the database. Please ensure migrations ran successfully.')}</p>
+                        </div>
+                      </div>
+                    )}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="terms-title">{t('Page Title')}</Label>
-                    <Input
-                      id="terms-title"
-                      value={termsData.title}
-                      onChange={(e) => setTermsData({ ...termsData, title: e.target.value })}
-                      placeholder={t('e.g., Terms of Service')}
-                      className="max-w-md bg-background"
-                      disabled={!termsData.id}
+                    <FormField
+                      control={termsForm.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem className="space-y-2">
+                          <Label htmlFor="terms-title">{t('Page Title')}</Label>
+                          <FormControl>
+                            <Input
+                              id="terms-title"
+                              placeholder={t('e.g., Terms of Service')}
+                              className="max-w-md bg-background"
+                              disabled={!termsId}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label>{t('Page Content')}</Label>
-                    <div className={!termsData.id ? 'opacity-50 pointer-events-none' : ''}>
-                      <RichTextEditor
-                        content={termsData.content}
-                        onChange={(val) => setTermsData({ ...termsData, content: val })}
-                        placeholder=""
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                    <FormField
+                      control={termsForm.control}
+                      name="content"
+                      render={({ field }) => (
+                        <FormItem className="space-y-2">
+                          <Label>{t('Page Content')}</Label>
+                          <div className={!termsId ? 'opacity-50 pointer-events-none' : ''}>
+                            <FormControl>
+                              <RichTextEditor
+                                content={field.value}
+                                onChange={field.onChange}
+                                placeholder=""
+                              />
+                            </FormControl>
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </CardContent>
+                </Card>
+              </Form>
             </TabsContent>
           </Tabs>
         </div>

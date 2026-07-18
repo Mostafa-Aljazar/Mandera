@@ -2,24 +2,26 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Helmet } from 'react-helmet';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import MasterAdminHeader from '@/components/MasterAdminHeader';
 import pb from '@/lib/pocketbaseClient';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
-
-interface CompanyFormData {
-  companyName: string;
-  email: string;
-  subscriptionStartDate: string;
-  subscriptionEndDate: string;
-  maxEmployeeCount: number;
-}
+import { CompanySchema, type TCompanySchema } from '@/validations/company.schema';
 
 const CompanyEditPage = () => {
   const { t } = useTranslation();
@@ -27,19 +29,25 @@ const CompanyEditPage = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
-  const [formData, setFormData] = useState<CompanyFormData>({
-    companyName: '',
-    email: '',
-    subscriptionStartDate: '',
-    subscriptionEndDate: '',
-    maxEmployeeCount: 10
+
+  const form = useForm<TCompanySchema>({
+    resolver: zodResolver(CompanySchema(t)),
+    defaultValues: {
+      companyName: '',
+      email: '',
+      subscriptionStartDate: '',
+      subscriptionEndDate: '',
+      maxEmployeeCount: 10,
+    },
   });
+
+  const subscriptionStartDate = form.watch('subscriptionStartDate');
 
   useEffect(() => {
     const fetchCompany = async () => {
       try {
         const company = await pb.collection('companies').getOne(id as string, { $autoCancel: false });
-        setFormData({
+        form.reset({
           companyName: company.companyName,
           email: company.email,
           subscriptionStartDate: company.subscriptionStartDate,
@@ -56,18 +64,10 @@ const CompanyEditPage = () => {
     };
 
     fetchCompany();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, router]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'maxEmployeeCount' ? parseInt(value) || 0 : value
-    }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = form.handleSubmit(async (formData) => {
     setLoading(true);
 
     try {
@@ -87,7 +87,7 @@ const CompanyEditPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  });
 
   if (fetchLoading) {
     return (
@@ -126,88 +126,104 @@ const CompanyEditPage = () => {
               <CardTitle className="text-2xl">{t('Edit company')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="companyName">{t('Company name')}</Label>
-                  <Input
-                    id="companyName"
+              <Form {...form}>
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <FormField
+                    control={form.control}
                     name="companyName"
-                    value={formData.companyName}
-                    onChange={handleChange}
-                    required
-                    className="text-foreground"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Company name')}</FormLabel>
+                        <FormControl>
+                          <Input {...field} className="text-foreground" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="email">{t('Email')}</Label>
-                  <Input
-                    id="email"
+                  <FormField
+                    control={form.control}
                     name="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    required
-                    className="text-foreground"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Email')}</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="email" className="text-foreground" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="subscriptionStartDate">{t('Subscription start date')}</Label>
-                    <Input
-                      id="subscriptionStartDate"
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
                       name="subscriptionStartDate"
-                      type="date"
-                      value={formData.subscriptionStartDate}
-                      onChange={handleChange}
-                      required
-                      className="text-foreground"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Subscription start date')}</FormLabel>
+                          <FormControl>
+                            <Input {...field} type="date" className="text-foreground" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="subscriptionEndDate">{t('Subscription end date')}</Label>
-                    <Input
-                      id="subscriptionEndDate"
+                    <FormField
+                      control={form.control}
                       name="subscriptionEndDate"
-                      type="date"
-                      value={formData.subscriptionEndDate}
-                      onChange={handleChange}
-                      required
-                      min={formData.subscriptionStartDate}
-                      className="text-foreground"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Subscription end date')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type="date"
+                              min={subscriptionStartDate}
+                              className="text-foreground"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="maxEmployeeCount">{t('Maximum employee count')}</Label>
-                  <Input
-                    id="maxEmployeeCount"
+                  <FormField
+                    control={form.control}
                     name="maxEmployeeCount"
-                    type="number"
-                    min={1}
-                    value={formData.maxEmployeeCount}
-                    onChange={handleChange}
-                    required
-                    className="text-foreground"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Maximum employee count')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="number"
+                            min={1}
+                            className="text-foreground"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                </div>
 
-                <div className="flex gap-3">
-                  <Button type="submit" disabled={loading} className="flex-1">
-                    {loading ? t('Saving...') : t('Save changes')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => router.push('/master-dashboard/companies')}
-                  >
-                    {t('Cancel')}
-                  </Button>
-                </div>
-              </form>
+                  <div className="flex gap-3">
+                    <Button type="submit" disabled={loading} className="flex-1">
+                      {loading ? t('Saving...') : t('Save changes')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => router.push('/master-dashboard/companies')}
+                    >
+                      {t('Cancel')}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
             </CardContent>
           </Card>
         </div>

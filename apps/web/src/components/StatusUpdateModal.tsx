@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
 import { ListPlus, CalendarPlus as CalendarIcon, Clock, Loader2, ShieldAlert, User } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -15,6 +18,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
 import { useStatusUpdate } from '@/hooks/useStatusUpdate';
+import { StatusUpdateSchema, type TStatusUpdateSchema } from '@/validations/status-update.schema';
 
 const PROPERTY_STATUS_OPTIONS = ['Available', 'Sold', 'Rented', 'Hold', 'Deal Completed'];
 
@@ -33,25 +37,20 @@ interface StatusUpdateModalProps {
   onSuccess?: () => void;
 }
 
-interface StatusForm {
-  status_id: string;
-  status_name: string;
-  note: string;
-  follow_up_date: Date | null;
-  follow_up_time: string;
-}
-
 const StatusUpdateModal = ({ entityType, entityData, statuses = [], onSuccess }: StatusUpdateModalProps) => {
   const { t } = useTranslation();
   const { currentUser } = useCompanyAuth();
   const { canUpdate, updateStatus, isLoading } = useStatusUpdate();
 
-  const [form, setForm] = useState<StatusForm>({
-    status_id: '',
-    status_name: '',
-    note: '',
-    follow_up_date: null,
-    follow_up_time: ''
+  const form = useForm<TStatusUpdateSchema>({
+    resolver: zodResolver(StatusUpdateSchema(t, entityType)),
+    defaultValues: {
+      status_id: '',
+      status_name: '',
+      note: '',
+      follow_up_date: null,
+      follow_up_time: ''
+    },
   });
 
   const hasPermission = canUpdate(entityType, entityData);
@@ -70,29 +69,19 @@ const StatusUpdateModal = ({ entityType, entityData, statuses = [], onSuccess }:
     );
   }
 
-  const handleSubmit = async () => {
-    // Validation
-    if (entityType === 'property' && !form.status_name) {
-      toast.error(t('Please select a status.'));
-      return;
-    }
-    if ((entityType === 'client' || entityType === 'owner') && !form.status_id) {
-      toast.error(t('Please select a status.'));
-      return;
-    }
-
+  const handleSubmit = form.handleSubmit(async (formValues) => {
     try {
       // Find status name for relations if needed
-      let statusName = form.status_name;
-      if (form.status_id && entityType !== 'property') {
-        const found = statuses.find(s => s.id === form.status_id);
+      let statusName = formValues.status_name;
+      if (formValues.status_id && entityType !== 'property') {
+        const found = statuses.find(s => s.id === formValues.status_id);
         if (found) statusName = found.name;
       }
 
       const updatePayload = {
-        ...form,
+        ...formValues,
         status_name: statusName,
-        follow_up_date: form.follow_up_date ? form.follow_up_date.toISOString() : null
+        follow_up_date: formValues.follow_up_date ? new Date(formValues.follow_up_date).toISOString() : null
       };
 
       console.log(`--- DEBUG: StatusUpdateModal preparing payload for ${entityType} ---`);
@@ -101,12 +90,12 @@ const StatusUpdateModal = ({ entityType, entityData, statuses = [], onSuccess }:
       await updateStatus(entityType, entityData, updatePayload);
 
       toast.success(t('Status updated successfully'));
-      setForm({ status_id: '', status_name: '', note: '', follow_up_date: null, follow_up_time: '' });
+      form.reset({ status_id: '', status_name: '', note: '', follow_up_date: null, follow_up_time: '' });
       if (onSuccess) onSuccess();
     } catch (err) {
       toast.error((err as Error).message);
     }
-  };
+  });
 
   return (
     <div className="space-y-4 bg-muted/30 rounded-xl p-5 border border-border/50 h-fit">
@@ -120,98 +109,140 @@ const StatusUpdateModal = ({ entityType, entityData, statuses = [], onSuccess }:
         </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">{t('Status')} *</Label>
-          
-          {entityType === 'property' ? (
-            <Select value={form.status_name} onValueChange={v => setForm({...form, status_name: v})}>
-              <SelectTrigger className="bg-background"><SelectValue placeholder={t('Select Status...')} /></SelectTrigger>
-              <SelectContent>
-                {PROPERTY_STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{t(s)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Select value={form.status_id} onValueChange={v => setForm({...form, status_id: v})}>
-              <SelectTrigger className="bg-background">
-                <SelectValue placeholder={statuses?.length === 0 ? t("No statuses available") : t("Select Status...")} />
-              </SelectTrigger>
-              <SelectContent>
-                {statuses?.length === 0 ? (
-                  <SelectItem value="none" disabled>{t('No statuses configured')}</SelectItem>
-                ) : (
-                  statuses?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)
-                )}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+      <Form {...form}>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">{t('Status')} *</Label>
 
-        {/* Date/Time pickers primarily relevant for clients, but useful generally */}
-        {entityType === 'client' && (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">{t('Follow-up Date')}</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal bg-background px-3 text-xs",
-                      !form.follow_up_date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-3.5 w-3.5 shrink-0" />
-                    {form.follow_up_date ? format(form.follow_up_date, "MMM d, yyyy") : <span className="truncate">{t('Pick date')}</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={form.follow_up_date ?? undefined}
-                    onSelect={(date) => setForm({...form, follow_up_date: date ?? null})}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">{t('Follow-up Time')}</Label>
-              <div className="relative">
-                <Clock className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                <Input 
-                  type="time" 
-                  value={form.follow_up_time} 
-                  onChange={e => setForm({...form, follow_up_time: e.target.value})}
-                  className="pl-8 rtl:pr-8 rtl:pl-3 text-xs bg-background"
+            {entityType === 'property' ? (
+              <FormField
+                control={form.control}
+                name="status_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="bg-background"><SelectValue placeholder={t('Select Status...')} /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {PROPERTY_STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{t(s)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : (
+              <FormField
+                control={form.control}
+                name="status_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="bg-background">
+                          <SelectValue placeholder={statuses?.length === 0 ? t("No statuses available") : t("Select Status...")} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {statuses?.length === 0 ? (
+                          <SelectItem value="none" disabled>{t('No statuses configured')}</SelectItem>
+                        ) : (
+                          statuses?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+          </div>
+
+          {/* Date/Time pickers primarily relevant for clients, but useful generally */}
+          {entityType === 'client' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">{t('Follow-up Date')}</Label>
+                <FormField
+                  control={form.control}
+                  name="follow_up_date"
+                  render={({ field }) => (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal bg-background px-3 text-xs",
+                            !field.value && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-3.5 w-3.5 shrink-0" />
+                          {field.value ? format(field.value, "MMM d, yyyy") : <span className="truncate">{t('Pick date')}</span>}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value ?? undefined}
+                          onSelect={(date) => field.onChange(date ?? null)}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">{t('Follow-up Time')}</Label>
+                <FormField
+                  control={form.control}
+                  name="follow_up_time"
+                  render={({ field }) => (
+                    <div className="relative">
+                      <Clock className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        type="time"
+                        className="pl-8 rtl:pr-8 rtl:pl-3 text-xs bg-background"
+                        {...field}
+                      />
+                    </div>
+                  )}
                 />
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <div className="space-y-1.5">
-          <div className="flex justify-between">
-            <Label className="text-xs text-muted-foreground">{t('Interaction Note')}</Label>
-            <span className="text-[10px] text-muted-foreground">{form.note.length}/300</span>
-          </div>
-          <Textarea 
-            placeholder={t('Enter details about this update...')} 
-            maxLength={300}
-            value={form.note}
-            onChange={e => setForm({...form, note: e.target.value})}
-            className="bg-background min-h-[100px] resize-none text-sm"
+          <FormField
+            control={form.control}
+            name="note"
+            render={({ field }) => (
+              <FormItem className="space-y-1.5">
+                <div className="flex justify-between">
+                  <Label className="text-xs text-muted-foreground">{t('Interaction Note')}</Label>
+                  <span className="text-[10px] text-muted-foreground">{(field.value ?? '').length}/300</span>
+                </div>
+                <FormControl>
+                  <Textarea
+                    placeholder={t('Enter details about this update...')}
+                    maxLength={300}
+                    className="bg-background min-h-[100px] resize-none text-sm"
+                    {...field}
+                  />
+                </FormControl>
+              </FormItem>
+            )}
           />
-        </div>
 
-        <Button 
-          onClick={handleSubmit} 
-          className="w-full mt-2" 
-          disabled={isLoading || (entityType !== 'property' && statuses?.length === 0)}
-        >
-          {isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('Saving...')}</> : t('Save Status Update')}
-        </Button>
-      </div>
+          <Button
+            onClick={handleSubmit}
+            className="w-full mt-2"
+            disabled={isLoading || (entityType !== 'property' && statuses?.length === 0)}
+          >
+            {isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('Saving...')}</> : t('Save Status Update')}
+          </Button>
+        </div>
+      </Form>
     </div>
   );
 };

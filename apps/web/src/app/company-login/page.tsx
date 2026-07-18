@@ -1,35 +1,40 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { Helmet } from 'react-helmet';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
 import PublicHeader from '@/components/PublicHeader';
 import { toast } from 'sonner';
+import { LoginSchema, type TLoginSchema } from '@/validations/login.schema';
 
 const CompanyLoginPage = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [freezeError, setFreezeError] = useState('');
   const { login } = useCompanyAuth();
   const { t } = useTranslation();
   const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const form = useForm<TLoginSchema>({
+    resolver: zodResolver(LoginSchema(t)),
+    defaultValues: { email: '', password: '' },
+  });
+
+  const handleSubmit = form.handleSubmit(async (formData) => {
     setLoading(true);
     setFreezeError('');
 
     try {
-      await login(email, password);
+      await login(formData.email, formData.password);
       router.push('/company-dashboard');
     } catch (error: any) {
       console.error('Login error:', error);
@@ -44,7 +49,7 @@ const CompanyLoginPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  });
 
   return (
     <>
@@ -72,38 +77,48 @@ const CompanyLoginPage = () => {
               </Alert>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="email">{t('Email address')}</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder={t('name@company.com')}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="text-foreground"
+            <Form {...form}>
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Email address')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          placeholder={t('name@company.com')}
+                          className="text-foreground"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">{t('Password')}</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="text-foreground"
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Password')}</FormLabel>
+                      <FormControl>
+                        <Input type="password" className="text-foreground" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              <Button
-                type="submit"
-                className="w-full transition-all duration-200 active:scale-[0.98]"
-                disabled={loading}
-              >
-                {loading ? t('Authenticating...') : t('Sign in')}
-              </Button>
-            </form>
+                <Button
+                  type="submit"
+                  className="w-full transition-all duration-200 active:scale-[0.98]"
+                  disabled={loading}
+                >
+                  {loading ? t('Authenticating...') : t('Sign in')}
+                </Button>
+              </form>
+            </Form>
           </CardContent>
         </Card>
       </div>

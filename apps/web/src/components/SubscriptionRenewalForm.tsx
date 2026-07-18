@@ -1,13 +1,34 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import pb from '@/lib/pocketbaseClient';
-import { toast } from 'sonner';
-import type { Company } from '../../types/pocketbase.types';
+import React, { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import pb from "@/lib/pocketbaseClient";
+import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+import type { Company } from "../types/pocketbase.types";
+import {
+  SubscriptionRenewalSchema,
+  type TSubscriptionRenewalSchema,
+} from "@/validations/subscription-renewal.schema";
 
 interface SubscriptionRenewalFormProps {
   company: Company | null;
@@ -16,69 +37,96 @@ interface SubscriptionRenewalFormProps {
   onSuccess: () => void;
 }
 
-const SubscriptionRenewalForm = ({ company, open, onOpenChange, onSuccess }: SubscriptionRenewalFormProps) => {
-  const [newEndDate, setNewEndDate] = useState('');
+const SubscriptionRenewalForm = ({
+  company,
+  open,
+  onOpenChange,
+  onSuccess,
+}: SubscriptionRenewalFormProps) => {
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const form = useForm<TSubscriptionRenewalSchema>({
+    resolver: zodResolver(SubscriptionRenewalSchema(t)),
+    defaultValues: { newEndDate: "" },
+  });
+
+  const handleSubmit = form.handleSubmit(async (formData) => {
     setLoading(true);
 
     try {
-      await pb.collection('companies').update(company!.id, {
-        subscriptionEndDate: newEndDate
-      }, { $autoCancel: false });
+      await pb.collection("companies").update(
+        company!.id,
+        {
+          subscriptionEndDate: formData.newEndDate,
+        },
+        { $autoCancel: false },
+      );
 
-      toast('Subscription renewed successfully');
+      toast("Subscription renewed successfully");
       onSuccess();
       onOpenChange(false);
-      setNewEndDate('');
+      form.reset({ newEndDate: "" });
     } catch (error) {
-      console.error('Error renewing subscription:', error);
-      toast('Failed to renew subscription');
+      console.error("Error renewing subscription:", error);
+      toast("Failed to renew subscription");
     } finally {
       setLoading(false);
     }
-  };
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Renew subscription for {company?.companyName}</DialogTitle>
+          <DialogTitle>
+            Renew subscription for {company?.companyName}
+          </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="currentEndDate">Current end date</Label>
-              <Input
-                id="currentEndDate"
-                type="date"
-                value={company?.subscriptionEndDate || ''}
-                disabled
+        <Form {...form}>
+          <form onSubmit={handleSubmit}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="currentEndDate">Current end date</Label>
+                <Input
+                  id="currentEndDate"
+                  type="date"
+                  value={company?.subscriptionEndDate || ""}
+                  disabled
+                />
+              </div>
+              <FormField
+                control={form.control}
+                name="newEndDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>New end date</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="date"
+                        min={company?.subscriptionEndDate}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="newEndDate">New end date</Label>
-              <Input
-                id="newEndDate"
-                type="date"
-                value={newEndDate}
-                onChange={(e) => setNewEndDate(e.target.value)}
-                required
-                min={company?.subscriptionEndDate}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? 'Renewing...' : 'Renew subscription'}
-            </Button>
-          </DialogFooter>
-        </form>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading}>
+                {loading ? "Renewing..." : "Renew subscription"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

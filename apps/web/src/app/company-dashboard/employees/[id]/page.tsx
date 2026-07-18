@@ -2,22 +2,26 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Helmet } from 'react-helmet';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import CompanyAdminHeader from '@/components/CompanyAdminHeader';
 import pb from '@/lib/pocketbaseClient';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
-
-interface EmployeeFormData {
-  firstName: string;
-  lastName: string;
-  email: string;
-}
+import { EmployeeEditSchema, type TEmployeeEditSchema } from '@/validations/employee-edit.schema';
 
 const EmployeeEditPage = () => {
   const { t } = useTranslation();
@@ -25,17 +29,21 @@ const EmployeeEditPage = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
-  const [formData, setFormData] = useState<EmployeeFormData>({
-    firstName: '',
-    lastName: '',
-    email: ''
+
+  const form = useForm<TEmployeeEditSchema>({
+    resolver: zodResolver(EmployeeEditSchema(t)),
+    defaultValues: {
+      firstName: '',
+      lastName: '',
+      email: '',
+    },
   });
 
   useEffect(() => {
     const fetchEmployee = async () => {
       try {
         const employee = await pb.collection('employees').getOne(id as string, { $autoCancel: false });
-        setFormData({
+        form.reset({
           firstName: employee.firstName,
           lastName: employee.lastName,
           email: employee.email
@@ -50,15 +58,10 @@ const EmployeeEditPage = () => {
     };
 
     fetchEmployee();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, router]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = form.handleSubmit(async (formData) => {
     setLoading(true);
 
     try {
@@ -76,7 +79,7 @@ const EmployeeEditPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  });
 
   if (fetchLoading) {
     return (
@@ -115,59 +118,66 @@ const EmployeeEditPage = () => {
               <CardTitle className="text-2xl">{t('Edit employee')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="firstName">{t('First Name')}</Label>
-                    <Input
-                      id="firstName"
+              <Form {...form}>
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
                       name="firstName"
-                      value={formData.firstName}
-                      onChange={handleChange}
-                      required
-                      className="text-foreground"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('First Name')}</FormLabel>
+                          <FormControl>
+                            <Input {...field} className="text-foreground" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="lastName">{t('Last Name')}</Label>
-                    <Input
-                      id="lastName"
+                    <FormField
+                      control={form.control}
                       name="lastName"
-                      value={formData.lastName}
-                      onChange={handleChange}
-                      required
-                      className="text-foreground"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Last Name')}</FormLabel>
+                          <FormControl>
+                            <Input {...field} className="text-foreground" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="email">{t('Email')}</Label>
-                  <Input
-                    id="email"
+                  <FormField
+                    control={form.control}
                     name="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    required
-                    className="text-foreground"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Email')}</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="email" className="text-foreground" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                </div>
 
-                <div className="flex gap-3">
-                  <Button type="submit" disabled={loading} className="flex-1">
-                    {loading ? t('Saving...') : t('Save changes')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => router.push('/company-dashboard/employees')}
-                  >
-                    {t('Cancel')}
-                  </Button>
-                </div>
-              </form>
+                  <div className="flex gap-3">
+                    <Button type="submit" disabled={loading} className="flex-1">
+                      {loading ? t('Saving...') : t('Save changes')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => router.push('/company-dashboard/employees')}
+                    >
+                      {t('Cancel')}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
             </CardContent>
           </Card>
         </div>

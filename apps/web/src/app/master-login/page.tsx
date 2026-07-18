@@ -1,31 +1,36 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { Helmet } from 'react-helmet';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMasterAuth } from '@/contexts/MasterAuthContext';
 import PublicHeader from '@/components/PublicHeader';
 import { toast } from 'sonner';
+import { LoginSchema, type TLoginSchema } from '@/validations/login.schema';
 
 const MasterLoginPage = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useMasterAuth();
   const { t } = useTranslation();
   const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const form = useForm<TLoginSchema>({
+    resolver: zodResolver(LoginSchema(t)),
+    defaultValues: { email: '', password: '' },
+  });
+
+  const handleSubmit = form.handleSubmit(async (formData) => {
     setLoading(true);
 
     try {
-      await login(email, password);
+      await login(formData.email, formData.password);
       router.push('/master-dashboard');
     } catch (error) {
       console.error('Login error:', error);
@@ -33,7 +38,7 @@ const MasterLoginPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  });
 
   return (
     <>
@@ -49,34 +54,44 @@ const MasterLoginPage = () => {
             <CardDescription>{t('Enter your credentials to access the platform')}</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">{t('Email address')}</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder={t('admin@example.com')}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="text-foreground"
+            <Form {...form}>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Email address')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          placeholder={t('admin@example.com')}
+                          className="text-foreground"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">{t('Password')}</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="text-foreground"
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Password')}</FormLabel>
+                      <FormControl>
+                        <Input type="password" className="text-foreground" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? t('Authenticating...') : t('Sign in')}
-              </Button>
-            </form>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? t('Authenticating...') : t('Sign in')}
+                </Button>
+              </form>
+            </Form>
           </CardContent>
         </Card>
       </div>
