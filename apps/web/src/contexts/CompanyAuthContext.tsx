@@ -7,9 +7,29 @@ import React, {
   useEffect,
   ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import supabase from "@/lib/supabase/client";
 import type { AuthUser, Company } from "@/types/supabase-entities.types";
+
+const COMPANY_AUTH_PATHS = [
+  "/company-login",
+  "/company-dashboard",
+  "/employees",
+  "/settings",
+  "/owners",
+  "/properties",
+  "/clients",
+  "/revenue",
+];
+
+function needsCompanyAuth(pathname: string) {
+  return COMPANY_AUTH_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+}
+
+type ProfileWithCompany = AuthUser & { companies: Company | Company[] | null };
 
 interface CompanyAuthContextValue {
   currentUser: AuthUser | null;
@@ -23,19 +43,36 @@ interface CompanyAuthContextValue {
 
 const CompanyAuthContext = createContext<CompanyAuthContextValue | null>(null);
 
+function resolveCompany(
+  companies: Company | Company[] | null | undefined,
+): Company | null {
+  if (!companies) return null;
+  return Array.isArray(companies) ? (companies[0] ?? null) : companies;
+}
+
 export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
+  const pathname = usePathname();
+  const shouldInit = needsCompanyAuth(pathname);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(shouldInit);
   const { i18n } = useTranslation();
 
   useEffect(() => {
-    const initAuth = async () => {
-      console.log("[CompanyAuth] Initializing auth state...");
+    if (!shouldInit) {
+      setInitialLoading(false);
+      return;
+    }
 
+    let cancelled = false;
+    setInitialLoading(true);
+
+    const initAuth = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
+
+      if (cancelled) return;
 
       if (!session?.user) {
         setInitialLoading(false);
@@ -44,47 +81,34 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("*")
+        .select("*, companies(*)")
         .eq("id", session.user.id)
         .single();
+
+      if (cancelled) return;
 
       if (
         profile &&
         (profile.role === "company_super_admin" ||
           profile.role === "company_employee")
       ) {
-        const user = { ...profile, email: session.user.email } as AuthUser;
+        const { companies, ...profileFields } = profile as ProfileWithCompany;
+        const user = { ...profileFields, email: session.user.email } as AuthUser;
         user.name = user.name || user.email || "Unknown User";
 
-        console.log("[CompanyAuth] Valid user session found:", {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          companyId: user.company_id,
-          employeeId: user.employee_id || "N/A",
-        });
-
         setCurrentUser(user);
-
-        try {
-          if (user.company_id) {
-            const { data: companyData } = await supabase
-              .from("companies")
-              .select("*")
-              .eq("id", user.company_id)
-              .single();
-            setCurrentCompany(companyData as Company);
-          }
-        } catch (err) {
-          console.error("[CompanyAuth] Error fetching company details:", err);
-        }
+        setCurrentCompany(resolveCompany(companies));
       }
+
       setInitialLoading(false);
     };
 
     initAuth();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, shouldInit]);
 
   const login = async (email: string, password: string) => {
     console.log(`[CompanyAuth] Starting login process for email: ${email}`);
@@ -101,7 +125,7 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("*")
+        .select("*, companies(*)")
         .eq("id", authData.user.id)
         .single();
 
@@ -116,7 +140,8 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
         );
       }
 
-      const userRecord = { ...profile, email: authData.user.email } as AuthUser;
+      const { companies, ...profileFields } = profile as ProfileWithCompany;
+      const userRecord = { ...profileFields, email: authData.user.email } as AuthUser;
       userRecord.name = userRecord.name || userRecord.email || "Unknown User";
 
       if (!userRecord.company_id) {
@@ -125,13 +150,9 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
         );
       }
 
-      const { data: companyData, error: companyError } = await supabase
-        .from("companies")
-        .select("*")
-        .eq("id", userRecord.company_id)
-        .single();
+      const companyData = resolveCompany(companies);
 
-      if (companyError || !companyData) {
+      if (!companyData) {
         throw new Error(
           "An error occurred during login validation.",
         );
@@ -169,7 +190,8 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
       });
 
       setCurrentUser(userRecord);
-      setCurrentCompany(companyData as Company);
+      setCurrentCompany(companyData);
+      setInitialLoading(false);
       return userRecord;
     } catch (error) {
       console.error("[CompanyAuth] Validation phase failed:", error);

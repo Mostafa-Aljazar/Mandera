@@ -2,6 +2,7 @@
 
 import { ReactNode } from 'react';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
+import PageLoading from '@/components/PageLoading';
 
 // Middleware already blocks unauthenticated requests to company-protected
 // routes server-side. This gate only covers the client-side gap between a
@@ -12,17 +13,10 @@ import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
 // loading state, since `initialLoading` was previously checked one level up
 // by the now-removed ProtectedCompanyRoute wrapper.
 export default function CompanyAuthGate({ children }: { children: ReactNode }) {
-  const { initialLoading } = useCompanyAuth();
+  const { initialLoading, isAuthenticated } = useCompanyAuth();
 
-  if (initialLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
+  if (initialLoading && !isAuthenticated) {
+    return <PageLoading />;
   }
 
   return children;

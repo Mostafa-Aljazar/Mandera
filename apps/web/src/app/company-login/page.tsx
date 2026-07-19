@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
@@ -12,15 +12,16 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import PageLoading from '@/components/PageLoading';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
 import PublicHeader from '@/components/PublicHeader';
 import { toast } from 'sonner';
 import { LoginSchema, type TLoginSchema } from '@/validations/login.schema';
 
 const CompanyLoginPage = () => {
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [freezeError, setFreezeError] = useState('');
-  const { login } = useCompanyAuth();
+  const { login, initialLoading, isAuthenticated } = useCompanyAuth();
   const { t } = useTranslation();
   const router = useRouter();
 
@@ -29,12 +30,19 @@ const CompanyLoginPage = () => {
     defaultValues: { email: '', password: '' },
   });
 
+  useEffect(() => {
+    if (!initialLoading && isAuthenticated) {
+      router.replace('/company-dashboard');
+    }
+  }, [initialLoading, isAuthenticated, router]);
+
   const handleSubmit = form.handleSubmit(async (formData) => {
-    setLoading(true);
+    setSubmitting(true);
     setFreezeError('');
 
     try {
       await login(formData.email, formData.password);
+      router.refresh();
       router.push('/company-dashboard');
     } catch (error: any) {
       console.error('Login error:', error);
@@ -46,10 +54,23 @@ const CompanyLoginPage = () => {
       } else {
         toast.error(error.message || t('Invalid credentials. Please try again.'));
       }
-    } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   });
+
+  const showLoader = initialLoading || submitting || isAuthenticated;
+
+  if (showLoader) {
+    return (
+      <>
+        <Helmet>
+          <title>{t('Company Login')} | MANDERA CRM</title>
+          <meta name="description" content="Login to your company dashboard" />
+        </Helmet>
+        <PageLoading label={submitting ? t('Authenticating...') : undefined} />
+      </>
+    );
+  }
 
   return (
     <>
@@ -113,9 +134,9 @@ const CompanyLoginPage = () => {
                 <Button
                   type="submit"
                   className="w-full transition-all duration-200 active:scale-[0.98]"
-                  disabled={loading}
+                  disabled={submitting}
                 >
-                  {loading ? t('Authenticating...') : t('Sign in')}
+                  {submitting ? t('Authenticating...') : t('Sign in')}
                 </Button>
               </form>
             </Form>

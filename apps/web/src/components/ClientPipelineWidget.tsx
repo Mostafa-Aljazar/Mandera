@@ -5,7 +5,6 @@ import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import { useClientPipeline } from "@/hooks/queries/useClientPipeline";
 import { TrendingUp, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { motion } from "framer-motion";
 
 const ClientPipelineWidget = () => {
   const { company } = useCompanyAuth();
@@ -44,11 +43,8 @@ const ClientPipelineWidget = () => {
               : 0;
 
           return (
-            <motion.div
+            <div
               key={status.id}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: index * 0.05 }}
               className="flex-1 min-w-[160px] max-w-[200px] snap-start shrink-0"
             >
               <div className="group box-border relative flex flex-col bg-card shadow-sm hover:shadow-md p-3 border border-border/60 hover:border-primary/40 rounded-xl h-[115px] transition-all hover:-translate-y-1 duration-300">
@@ -94,7 +90,7 @@ const ClientPipelineWidget = () => {
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
           );
         })}
       </div>

@@ -349,4 +349,11 @@
   .text-status-overdue {
     color: hsl(var(--status-overdue));
   }
+
+  .pattern-grid-lg {
+    background-image:
+      linear-gradient(to right, hsl(var(--primary) / 0.08) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--primary) / 0.08) 1px, transparent 1px);
+    background-size: 2.5rem 2.5rem;
+  }
 }

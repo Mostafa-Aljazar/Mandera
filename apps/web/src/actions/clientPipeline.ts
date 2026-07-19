@@ -32,35 +32,39 @@ export async function getClientPipeline(
   const statusCounts = new Map<string, number>();
   let totalClients = 0;
 
-  const clientsWithStatus = (clientsData ?? []).filter((c) => c.status_id);
+  (clientsData ?? []).forEach((client) => {
+    if (!client.status_id) return;
+    statusCounts.set(client.status_id, (statusCounts.get(client.status_id) ?? 0) + 1);
+    totalClients++;
+  });
 
-  if (clientsWithStatus.length > 0) {
-    clientsWithStatus.forEach((c) => {
-      statusCounts.set(c.status_id!, (statusCounts.get(c.status_id!) ?? 0) + 1);
-      totalClients++;
-    });
-  } else {
-    // Fallback: derive each client's latest status from history, matching
-    // the original PocketBase-era behavior when status_id isn't set directly.
+  // Legacy fallback for rows created before status_id was synced on clients.
+  const clientsMissingStatus = (clientsData ?? []).filter((client) => !client.status_id);
+  if (clientsMissingStatus.length > 0) {
     const { data: historyData, error: historyError } = await supabase
       .from("client_status_history")
       .select("client_id, status_id")
       .eq("company_id", companyId)
+      .in(
+        "client_id",
+        clientsMissingStatus.map((client) => client.id),
+      )
       .order("created_at", { ascending: false });
 
     if (historyError) return { error: historyError.message };
 
     const latestStatusMap = new Map<string, string | null>();
-    (historyData ?? []).forEach((h) => {
-      if (!latestStatusMap.has(h.client_id)) latestStatusMap.set(h.client_id, h.status_id);
+    (historyData ?? []).forEach((history) => {
+      if (!latestStatusMap.has(history.client_id)) {
+        latestStatusMap.set(history.client_id, history.status_id);
+      }
     });
 
-    (clientsData ?? []).forEach((c) => {
-      const statusId = latestStatusMap.get(c.id);
-      if (statusId) {
-        statusCounts.set(statusId, (statusCounts.get(statusId) ?? 0) + 1);
-        totalClients++;
-      }
+    clientsMissingStatus.forEach((client) => {
+      const statusId = latestStatusMap.get(client.id);
+      if (!statusId) return;
+      statusCounts.set(statusId, (statusCounts.get(statusId) ?? 0) + 1);
+      totalClients++;
     });
   }
 

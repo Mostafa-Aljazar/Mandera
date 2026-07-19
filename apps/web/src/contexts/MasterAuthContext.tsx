@@ -7,8 +7,17 @@ import React, {
   useEffect,
   ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import supabase from "@/lib/supabase/client";
 import type { AuthUser } from "@/types/supabase-entities.types";
+
+const MASTER_AUTH_PATHS = ["/master-login", "/master-dashboard", "/admin"];
+
+function needsMasterAuth(pathname: string) {
+  return MASTER_AUTH_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+}
 
 interface MasterAuthContextValue {
   currentUser: AuthUser | null;
@@ -21,31 +30,53 @@ interface MasterAuthContextValue {
 const MasterAuthContext = createContext<MasterAuthContextValue | null>(null);
 
 export const MasterAuthProvider = ({ children }: { children: ReactNode }) => {
+  const pathname = usePathname();
+  const shouldInit = needsMasterAuth(pathname);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(shouldInit);
 
   useEffect(() => {
+    if (!shouldInit) {
+      setInitialLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setInitialLoading(true);
+
     const initAuth = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
+      if (cancelled) return;
 
-        if (profile?.role === "master_admin") {
-          setCurrentUser({ ...profile, email: session.user.email } as AuthUser);
-        }
+      if (!session?.user) {
+        setInitialLoading(false);
+        return;
       }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", session.user.id)
+        .single();
+
+      if (cancelled) return;
+
+      if (profile?.role === "master_admin") {
+        setCurrentUser({ ...profile, email: session.user.email } as AuthUser);
+      }
+
       setInitialLoading(false);
     };
 
     initAuth();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, shouldInit]);
 
   const login = async (email: string, password: string) => {
     const { data: authData, error: authError } =
@@ -68,6 +99,7 @@ export const MasterAuthProvider = ({ children }: { children: ReactNode }) => {
 
     const user = { ...profile, email: authData.user.email } as AuthUser;
     setCurrentUser(user);
+    setInitialLoading(false);
     return user;
   };
 

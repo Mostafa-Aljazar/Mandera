@@ -38,7 +38,19 @@ export async function updateEntityStatus(
     if (error) return { error: error.message };
   }
 
-  if (entityType === "client" && payload.follow_up_date) {
+  if (entityType === "client" && payload.status_id) {
+    const clientUpdate: Record<string, unknown> = { status_id: payload.status_id };
+    if (payload.follow_up_date) {
+      clientUpdate.follow_up_date = payload.follow_up_date;
+      clientUpdate.follow_up_time = payload.follow_up_time || null;
+    }
+
+    const { error } = await supabase
+      .from("clients")
+      .update(clientUpdate)
+      .eq("id", entityId);
+    if (error) return { error: error.message };
+  } else if (entityType === "client" && payload.follow_up_date) {
     const { error } = await supabase
       .from("clients")
       .update({

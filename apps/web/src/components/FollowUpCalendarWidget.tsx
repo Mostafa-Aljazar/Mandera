@@ -69,11 +69,11 @@ const FollowUpCalendarWidget = () => {
     refetch: refetchFollowUps,
   } = useUpcomingFollowUps(company?.id, restrictToEmployeeId);
 
-  const { data: propertiesData } = useProperties(company?.id);
+  const { data: propertiesData } = useProperties(isModalOpen ? company?.id : undefined);
   const properties = propertiesData ?? [];
-  const { data: statusesData } = useClientStatuses(company?.id);
+  const { data: statusesData } = useClientStatuses(isModalOpen ? company?.id : undefined);
   const statuses = statusesData ?? [];
-  const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
+  const { data: employeesData } = useCompanyEmployeesLookup(isModalOpen ? company?.id : undefined);
   const employees = employeesData ?? [];
   const { data: historyData } = useClientStatusHistory(
     isModalOpen ? activeClient?.id : undefined,

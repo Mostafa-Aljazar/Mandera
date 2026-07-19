@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Trophy, Users, Home, Loader2, Medal, ChevronDown } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useEmployeeLeaderboard } from '@/hooks/queries/useEmployeeLeaderboard';
 import { cn } from '@/lib/utils';
 
@@ -113,53 +112,47 @@ const EmployeeLeaderboard = ({ companyId }: EmployeeLeaderboardProps) => {
                       </TableRow>
 
                       {/* Expandable Status Breakdown Row */}
-                      <AnimatePresence initial={false}>
-                        {isExpanded && (
-                          <TableRow className={cn(
-                            "hover:bg-transparent",
-                            isTop ? "bg-amber-500/5" : "bg-muted/10"
-                          )}>
-                            <TableCell colSpan={5} className="p-0 border-b">
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: "auto", opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.3, ease: "easeInOut" }}
-                                className="overflow-hidden"
-                              >
-                                <div className="px-4 py-4 md:px-16 flex flex-col sm:flex-row sm:items-center gap-3 md:gap-4 border-t border-border/50 shadow-inner">
-                                  <span className="text-sm font-semibold text-foreground/80 shrink-0">
-                                    {t('Status Breakdown:')}
-                                  </span>
-                                  
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    {Object.entries(emp.statusCounts).length > 0 ? (
-                                      Object.entries(emp.statusCounts).map(([status, count]) => {
-                                        const displayName = status === '__NEW__' ? t('New') : status;
-                                        return (
-                                          <span 
-                                            key={status} 
-                                            className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary border border-primary/20 shadow-sm"
-                                          >
-                                            {displayName}
-                                            <span className="ml-1.5 rtl:mr-1.5 rtl:ml-0 bg-primary/20 text-primary-foreground/90 px-1.5 rounded-full min-w-[1.25rem] text-center">
-                                              {count}
-                                            </span>
+                      {isExpanded && (
+                        <TableRow
+                          className={cn(
+                            'hover:bg-transparent',
+                            isTop ? 'bg-amber-500/5' : 'bg-muted/10',
+                          )}
+                        >
+                          <TableCell colSpan={5} className="border-b p-0">
+                            <div className="overflow-hidden">
+                              <div className="flex flex-col gap-3 border-t border-border/50 px-4 py-4 shadow-inner sm:flex-row sm:items-center md:gap-4 md:px-16">
+                                <span className="shrink-0 text-sm font-semibold text-foreground/80">
+                                  {t('Status Breakdown:')}
+                                </span>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {Object.entries(emp.statusCounts).length > 0 ? (
+                                    Object.entries(emp.statusCounts).map(([status, count]) => {
+                                      const displayName = status === '__NEW__' ? t('New') : status;
+                                      return (
+                                        <span
+                                          key={status}
+                                          className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary shadow-sm"
+                                        >
+                                          {displayName}
+                                          <span className="ml-1.5 min-w-[1.25rem] rounded-full bg-primary/20 px-1.5 text-center text-primary-foreground/90 rtl:ml-0 rtl:mr-1.5">
+                                            {count}
                                           </span>
-                                        );
-                                      })
-                                    ) : (
-                                      <span className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-full border border-border/50">
-                                        {t('No client data')}
-                                      </span>
-                                    )}
-                                  </div>
+                                        </span>
+                                      );
+                                    })
+                                  ) : (
+                                    <span className="rounded-full border border-border/50 bg-muted px-3 py-1 text-sm text-muted-foreground">
+                                      {t('No client data')}
+                                    </span>
+                                  )}
                                 </div>
-                              </motion.div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </AnimatePresence>
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </React.Fragment>
                   );
                 })}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
@@ -10,14 +10,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import PageLoading from '@/components/PageLoading';
 import { useMasterAuth } from '@/contexts/MasterAuthContext';
 import PublicHeader from '@/components/PublicHeader';
 import { toast } from 'sonner';
 import { LoginSchema, type TLoginSchema } from '@/validations/login.schema';
 
 const MasterLoginPage = () => {
-  const [loading, setLoading] = useState(false);
-  const { login } = useMasterAuth();
+  const [submitting, setSubmitting] = useState(false);
+  const { login, initialLoading, isAuthenticated } = useMasterAuth();
   const { t } = useTranslation();
   const router = useRouter();
 
@@ -26,19 +27,39 @@ const MasterLoginPage = () => {
     defaultValues: { email: '', password: '' },
   });
 
+  useEffect(() => {
+    if (!initialLoading && isAuthenticated) {
+      router.replace('/master-dashboard');
+    }
+  }, [initialLoading, isAuthenticated, router]);
+
   const handleSubmit = form.handleSubmit(async (formData) => {
-    setLoading(true);
+    setSubmitting(true);
 
     try {
       await login(formData.email, formData.password);
+      router.refresh();
       router.push('/master-dashboard');
     } catch (error) {
       console.error('Login error:', error);
       toast.error(t('Invalid email or password'));
-    } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   });
+
+  const showLoader = initialLoading || submitting || isAuthenticated;
+
+  if (showLoader) {
+    return (
+      <>
+        <Helmet>
+          <title>{t('Master admin login')} | MANDERA CRM</title>
+          <meta name="description" content="Login to the master admin dashboard" />
+        </Helmet>
+        <PageLoading label={submitting ? t('Authenticating...') : undefined} />
+      </>
+    );
+  }
 
   return (
     <>
@@ -87,8 +108,8 @@ const MasterLoginPage = () => {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? t('Authenticating...') : t('Sign in')}
+                <Button type="submit" className="w-full" disabled={submitting}>
+                  {submitting ? t('Authenticating...') : t('Sign in')}
                 </Button>
               </form>
             </Form>

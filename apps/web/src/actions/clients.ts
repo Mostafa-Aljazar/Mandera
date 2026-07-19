@@ -316,41 +316,23 @@ export async function getUpcomingFollowUps(
 
   let clientQuery = supabase
     .from("clients")
-    .select(CLIENTS_SELECT)
-    .eq("company_id", companyId);
-  if (restrictToEmployeeId) clientQuery = clientQuery.eq("employee_id", restrictToEmployeeId);
+    .select(`${CLIENTS_SELECT}, status:client_statuses(id, name)`)
+    .eq("company_id", companyId)
+    .not("follow_up_date", "is", null)
+    .order("follow_up_date", { ascending: true });
 
-  const [{ data: clients, error: clientsError }, { data: histories, error: histError }] =
-    await Promise.all([
-      clientQuery,
-      supabase
-        .from("client_status_history")
-        .select("*, status:client_statuses(id, name)")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false }),
-    ]);
+  if (restrictToEmployeeId) {
+    clientQuery = clientQuery.eq("employee_id", restrictToEmployeeId);
+  }
+
+  const { data: clients, error: clientsError } = await clientQuery;
 
   if (clientsError) return { error: clientsError.message };
-  if (histError) return { error: histError.message };
 
-  const latestHistoryMap = new Map<string, any>();
-  (histories ?? []).forEach((h: any) => {
-    if (!latestHistoryMap.has(h.client_id)) latestHistoryMap.set(h.client_id, h);
-  });
-
-  const results: FollowUpClient[] = (clients ?? [])
-    .filter((c: any) => {
-      const latest = latestHistoryMap.get(c.id);
-      return latest?.follow_up_date;
-    })
-    .map((c: any) => {
-      const latest = latestHistoryMap.get(c.id);
-      return {
-        ...(c as ClientWithRelations),
-        latest_status_name: latest?.status?.name ?? null,
-        follow_up_date: latest.follow_up_date,
-      };
-    });
+  const results: FollowUpClient[] = (clients ?? []).map((client: any) => ({
+    ...(client as ClientWithRelations),
+    latest_status_name: client.status?.name ?? null,
+  }));
 
   return { data: results };
 }
@@ -393,6 +375,17 @@ export async function addClientStatus(
     employee_id: input.employeeId,
   });
   if (historyError) return { error: historyError.message };
+
+  const clientUpdate: Record<string, unknown> = { status_id: input.statusId };
+  if (input.followUpDate) {
+    clientUpdate.follow_up_date = input.followUpDate;
+  }
+
+  const { error: clientError } = await supabase
+    .from("clients")
+    .update(clientUpdate)
+    .eq("id", input.clientId);
+  if (clientError) return { error: clientError.message };
 
   return { data: null };
 }
