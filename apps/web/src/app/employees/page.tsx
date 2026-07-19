@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Helmet } from "react-helmet";
+import DocumentHead from "@/components/DocumentHead";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
@@ -125,11 +125,7 @@ const EmployeesPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>
-          {t("platformName")} - {t("Employees")}
-        </title>
-      </Helmet>
+      <DocumentHead title={`${t("platformName")} - ${t("Employees")}`} />
       <CompanyAdminHeader />
 
       <main className="bg-muted/20 py-8 min-h-[calc(100vh-80px)]">

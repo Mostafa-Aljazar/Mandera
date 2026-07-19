@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Helmet } from 'react-helmet';
+import DocumentHead from "@/components/DocumentHead";
 import Link from 'next/link';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -68,9 +68,7 @@ const CompanyDashboardPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{t('platformName')} - {t('Dashboard Overview')}</title>
-      </Helmet>
+      <DocumentHead title={`${t('platformName')} - ${t('Dashboard Overview')}`} />
       <CompanyAdminHeader />
 
       <main className="min-h-[calc(100vh-80px)] bg-muted/20 py-8">

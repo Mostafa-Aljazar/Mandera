@@ -1,11 +1,9 @@
 "use client";
 
-import { Helmet } from "react-helmet";
-import PublicHeader from "@/components/PublicHeader";
+import DocumentHead from "@/components/DocumentHead";
 import AndroidAppSection from "@/components/AndroidAppSection";
 import FeaturesSection from "@/components/home/FeaturesSection";
 import HeroSection from "@/components/home/HeroSection";
-import LandingFooter from "@/components/home/LandingFooter";
 import PricingSection from "@/components/home/PricingSection";
 import StepsSection from "@/components/home/StepsSection";
 import TrialBannerSection from "@/components/home/TrialBannerSection";
@@ -16,12 +14,7 @@ export default function HomePage() {
 
   return (
     <>
-      <Helmet>
-        <title>{t("platformName")}</title>
-        <meta name="description" content={t("hero_subtitle")} />
-      </Helmet>
-
-      <PublicHeader />
+      <DocumentHead title={t("platformName")} description={t("hero_subtitle")} />
 
       <main>
         <HeroSection />
@@ -31,8 +24,6 @@ export default function HomePage() {
         <PricingSection />
         <AndroidAppSection />
       </main>
-
-      <LandingFooter />
     </>
   );
 }

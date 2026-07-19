@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Helmet } from 'react-helmet';
+import DocumentHead from "@/components/DocumentHead";
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -100,10 +100,7 @@ const EmployeeEditPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{t('Edit employee')}</title>
-        <meta name="description" content="Edit employee details" />
-      </Helmet>
+      <DocumentHead title={t('Edit employee')} description="Edit employee details" />
       <CompanyAdminHeader />
       <div className="min-h-[calc(100vh-80px)] bg-muted/30">
         <div className="container mx-auto px-4 py-12">

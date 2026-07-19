@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Helmet } from 'react-helmet';
+import DocumentHead from "@/components/DocumentHead";
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -108,10 +108,7 @@ const EmployeeListPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{t('platformName')} - {t('Manage employees')}</title>
-        <meta name="description" content="View and manage company employees" />
-      </Helmet>
+      <DocumentHead title={`${t('platformName')} - ${t('Manage employees')}`} description="View and manage company employees" />
       <CompanyAdminHeader />
       <div className="min-h-[calc(100vh-80px)] bg-muted/30">
         <div className="container mx-auto px-4 py-12 max-w-7xl">

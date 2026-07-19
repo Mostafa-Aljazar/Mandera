@@ -3,7 +3,7 @@
 import React from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Helmet } from 'react-helmet';
+import DocumentHead from "@/components/DocumentHead";
 import { useTranslation } from 'react-i18next';
 import CompanyAdminHeader from '@/components/CompanyAdminHeader';
 import { Button } from '@/components/ui/button';
@@ -15,9 +15,7 @@ const PropertyDetailPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{t('Property Details')} | MANDERA CRM</title>
-      </Helmet>
+      <DocumentHead title={`${t('Property Details')} | MANDERA CRM`} />
       <CompanyAdminHeader />
       <main className="min-h-[calc(100vh-80px)] bg-muted/30 py-8">
         <div className="container mx-auto px-4">

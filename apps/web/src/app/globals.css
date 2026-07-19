@@ -107,13 +107,13 @@
   /* RTL Layout Support */
   html[dir="rtl"] {
     direction: rtl;
-    text-align: right;
+    text-align: start;
     font-family: "Cairo", "Plus Jakarta Sans", sans-serif;
   }
   
   html[dir="ltr"] {
     direction: ltr;
-    text-align: left;
+    text-align: start;
   }
 }
 
@@ -202,13 +202,13 @@
   }
   .rich-text-content ul {
     list-style-type: disc;
-    padding-left: 1.5rem;
+    padding-inline-start: 1.5rem;
     margin-bottom: 1.25rem;
     color: hsl(var(--muted-foreground));
   }
   .rich-text-content ol {
     list-style-type: decimal;
-    padding-left: 1.5rem;
+    padding-inline-start: 1.5rem;
     margin-bottom: 1.25rem;
     color: hsl(var(--muted-foreground));
   }
@@ -244,18 +244,115 @@
     font-size: 0.875em;
   }
   
-  /* RTL Support for Rich Text */
-  html[dir="rtl"] .rich-text-content ul,
-  html[dir="rtl"] .rich-text-content ol {
-    padding-left: 0;
-    padding-right: 1.5rem;
-  }
-  html[dir="rtl"] .rich-text-content blockquote {
+  /* RTL Support for Rich Text — scoped to each block's own direction */
+  .rich-text-content:dir(rtl) blockquote {
     border-left: none;
     border-right: 4px solid hsl(var(--primary));
     padding-left: 0;
     padding-right: 1.25rem;
     border-radius: 0.5rem 0 0 0.5rem;
+  }
+
+  .legal-document-body.rich-text-content {
+    font-size: 1rem;
+    line-height: 1.85;
+  }
+  @media (min-width: 640px) {
+    .legal-document-body.rich-text-content {
+      font-size: 1.05rem;
+    }
+  }
+  .legal-document-body.rich-text-content > :first-child {
+    margin-top: 0;
+  }
+  .legal-document-body.rich-text-content h2 {
+    font-family: Outfit, Cairo, sans-serif;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+    margin-top: 1.75rem;
+    margin-bottom: 0.75rem;
+  }
+  @media (min-width: 640px) {
+    .legal-document-body.rich-text-content h2 {
+      font-size: 1.35rem;
+      margin-top: 2rem;
+      margin-bottom: 0.85rem;
+    }
+  }
+  .legal-document-body.rich-text-content h3 {
+    font-family: Outfit, Cairo, sans-serif;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    margin-top: 1.25rem;
+    margin-bottom: 0.55rem;
+  }
+  @media (min-width: 640px) {
+    .legal-document-body.rich-text-content h3 {
+      font-size: 1.125rem;
+      margin-top: 1.5rem;
+      margin-bottom: 0.65rem;
+    }
+  }
+  .legal-document-body.rich-text-content p {
+    margin-bottom: 1rem;
+  }
+  @media (min-width: 640px) {
+    .legal-document-body.rich-text-content p {
+      margin-bottom: 1.25rem;
+    }
+  }
+  .legal-document-body.rich-text-content p:last-child,
+  .legal-document-body.rich-text-content ul:last-child,
+  .legal-document-body.rich-text-content ol:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Force reading direction + start alignment for legal/preview content */
+  .preview-modal-content[dir="ltr"],
+  .preview-modal-content[dir="ltr"] .rich-text-content,
+  .legal-document-body[dir="ltr"] {
+    direction: ltr;
+    text-align: left;
+  }
+  .preview-modal-content[dir="rtl"],
+  .preview-modal-content[dir="rtl"] .rich-text-content,
+  .legal-document-body[dir="rtl"] {
+    direction: rtl;
+    text-align: right;
+  }
+  .preview-modal-content[dir="ltr"] .rich-text-content :is(h1, h2, h3, h4, li, blockquote),
+  .legal-document-body[dir="ltr"] :is(h1, h2, h3, h4, li, blockquote) {
+    direction: ltr;
+    text-align: left;
+  }
+  .preview-modal-content[dir="rtl"] .rich-text-content :is(h1, h2, h3, h4, li, blockquote),
+  .legal-document-body[dir="rtl"] :is(h1, h2, h3, h4, li, blockquote) {
+    direction: rtl;
+    text-align: right;
+  }
+  .preview-modal-content .rich-text-content p,
+  .legal-document-body p {
+    text-align: justify;
+    text-justify: inter-word;
+  }
+  .rich-text-content:dir(rtl) ul,
+  .rich-text-content:dir(rtl) ol {
+    list-style-position: outside;
+    padding-inline-start: 1.75rem;
+    padding-inline-end: 0;
+  }
+  .rich-text-content:dir(ltr) ul,
+  .rich-text-content:dir(ltr) ol {
+    list-style-position: outside;
+    padding-inline-start: 1.75rem;
+  }
+
+  .legal-document-body.rich-text-content ul,
+  .legal-document-body.rich-text-content ol {
+    padding-inline-start: 1.75rem;
+    margin-inline-start: 0.25rem;
   }
 
   /* react-phone-number-input, skinned to match the shadcn Input/Select tokens.

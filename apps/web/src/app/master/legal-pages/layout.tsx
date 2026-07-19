@@ -1,5 +1,9 @@
 import MasterAuthGate from '@/components/MasterAuthGate';
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default function MasterLegalPagesLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return <MasterAuthGate>{children}</MasterAuthGate>;
 }

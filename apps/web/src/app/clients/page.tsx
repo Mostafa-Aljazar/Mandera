@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Helmet } from "react-helmet";
+import DocumentHead from "@/components/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import {
@@ -326,9 +326,7 @@ const ClientsPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{t("Clients")} | MANDERA CRM</title>
-      </Helmet>
+      <DocumentHead title={`${t("Clients")} | MANDERA CRM`} />
       <CompanyAdminHeader />
 
       <main className="bg-muted/20 py-8 min-h-[calc(100vh-80px)]">

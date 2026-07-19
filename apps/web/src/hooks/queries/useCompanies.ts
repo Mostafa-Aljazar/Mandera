@@ -13,6 +13,11 @@ import {
   type CreateCompanyInput,
   type UpdateCompanyInput,
 } from "@/actions/companies";
+import {
+  getCompanyDocuments,
+  createCompanyDocument,
+  deleteCompanyDocument,
+} from "@/actions/companyDocuments";
 
 export function useCompanies() {
   return useQuery({
@@ -97,6 +102,41 @@ export function useDeleteCompanyCascade() {
     mutationFn: (companyId: string) => deleteCompanyCascade(companyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["companies"] });
+    },
+  });
+}
+
+export function useCompanyDocuments(companyId?: string) {
+  return useQuery({
+    queryKey: ["company_documents", companyId],
+    queryFn: async () => {
+      const result = await getCompanyDocuments(companyId!);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!companyId,
+  });
+}
+
+export function useCreateCompanyDocument(companyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { title: string; note?: string; file?: File | null }) =>
+      createCompanyDocument({ companyId, ...input }),
+    onSuccess: (result) => {
+      if (result.error) return;
+      queryClient.invalidateQueries({ queryKey: ["company_documents", companyId] });
+    },
+  });
+}
+
+export function useDeleteCompanyDocument(companyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (documentId: string) => deleteCompanyDocument(documentId),
+    onSuccess: (result) => {
+      if (result.error) return;
+      queryClient.invalidateQueries({ queryKey: ["company_documents", companyId] });
     },
   });
 }

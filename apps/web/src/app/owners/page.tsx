@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Helmet } from "react-helmet";
+import DocumentHead from "@/components/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -526,9 +526,7 @@ const OwnersPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{t("Owners")} | MANDERA CRM</title>
-      </Helmet>
+      <DocumentHead title={`${t("Owners")} | MANDERA CRM`} />
       <CompanyAdminHeader />
 
       <main className="bg-muted/20 py-8 min-h-[calc(100vh-80px)]">

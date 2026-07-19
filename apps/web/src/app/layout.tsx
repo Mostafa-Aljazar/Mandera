@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import Providers from '@/components/Providers';
+import LandingFooter from '@/components/home/LandingFooter';
 
 export const metadata: Metadata = {
   title: 'MANDERA CRM',
@@ -13,7 +14,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
-        <Providers>{children}</Providers>
+        <Providers>
+          <div className="flex flex-col min-h-screen">
+            <div className="flex-1">{children}</div>
+            <LandingFooter />
+          </div>
+        </Providers>
       </body>
     </html>
   );

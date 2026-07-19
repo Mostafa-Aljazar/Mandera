@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Helmet } from "react-helmet";
+import DocumentHead from "@/components/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import CompanyAdminHeader from "@/components/CompanyAdminHeader";
@@ -123,9 +123,7 @@ const RevenuePage = () => {
   if (currentUser?.role !== "company_super_admin") {
     return (
       <>
-        <Helmet>
-          <title>{t("Access Denied")} | MANDERA CRM</title>
-        </Helmet>
+        <DocumentHead title={`${t("Access Denied")} | MANDERA CRM`} />
         <CompanyAdminHeader />
         <main className="flex justify-center items-center bg-muted/20 px-4 py-16 min-h-[calc(100vh-80px)]">
           <div className="bg-card shadow-sm mx-auto p-8 border rounded-2xl max-w-md text-center">
@@ -146,9 +144,7 @@ const RevenuePage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{t("Revenue")} | MANDERA CRM</title>
-      </Helmet>
+      <DocumentHead title={`${t("Revenue")} | MANDERA CRM`} />
       <CompanyAdminHeader />
 
       <main className="bg-muted/20 py-8 min-h-[calc(100vh-80px)]">

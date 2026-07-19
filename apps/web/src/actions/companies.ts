@@ -5,6 +5,26 @@ import type { Company } from "@/types/supabase-entities.types";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
+async function uploadCompanyDocumentFile(
+  companyId: string,
+  file: File,
+): Promise<{ url: string; error?: undefined } | { url?: undefined; error: string }> {
+  const admin = getSupabaseAdmin();
+  const safeName = file.name.replace(/[^\w.\-()+ ]+/g, "_");
+  const path = `${companyId}/${crypto.randomUUID()}-${safeName}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  const { error } = await admin.storage.from("company-files").upload(path, buffer, {
+    contentType: file.type || "application/octet-stream",
+    upsert: false,
+  });
+
+  if (error) return { error: error.message };
+
+  const { data } = admin.storage.from("company-files").getPublicUrl(path);
+  return { url: data.publicUrl };
+}
+
 export async function getCompanies(): Promise<ActionResult<Company[]>> {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
@@ -67,16 +87,20 @@ async function generateCompanyCode(): Promise<string> {
 
 export interface CreateCompanyInput {
   companyName: string;
+  phone: string;
+  adminName: string;
   email: string;
   password: string;
   subscriptionStartDate: string;
   subscriptionEndDate: string;
   maxEmployeeCount: number;
+  notes?: string;
+  files?: File[];
 }
 
 export async function createCompany(
   input: CreateCompanyInput,
-): Promise<ActionResult<{ companyCode: string }>> {
+): Promise<ActionResult<{ companyCode: string; companyId: string }>> {
   const admin = getSupabaseAdmin();
   const companyCode = await generateCompanyCode();
 
@@ -85,6 +109,9 @@ export async function createCompany(
     .insert({
       company_code: companyCode,
       company_name: input.companyName,
+      phone: input.phone,
+      admin_name: input.adminName,
+      notes: input.notes?.trim() || null,
       email: input.email,
       subscription_start_date: input.subscriptionStartDate,
       subscription_end_date: input.subscriptionEndDate,
@@ -110,7 +137,7 @@ export async function createCompany(
     id: authData.user.id,
     role: "company_super_admin",
     company_id: companyRecord.id,
-    name: input.companyName,
+    name: input.adminName,
   });
 
   if (profileError) {
@@ -119,16 +146,41 @@ export async function createCompany(
     return { error: profileError.message };
   }
 
-  return { data: { companyCode } };
+  if (input.files?.length) {
+    const supabase = await getServerSupabase();
+    const {
+      data: { user: masterUser },
+    } = await supabase.auth.getUser();
+
+    for (const file of input.files) {
+      const upload = await uploadCompanyDocumentFile(companyRecord.id, file);
+      if (upload.error) continue;
+
+      await admin.from("company_documents").insert({
+        company_id: companyRecord.id,
+        title: file.name,
+        file_url: upload.url,
+        file_name: file.name,
+        file_size: file.size,
+        file_mime: file.type || null,
+        created_by: masterUser?.id ?? null,
+      });
+    }
+  }
+
+  return { data: { companyCode, companyId: companyRecord.id } };
 }
 
 export interface UpdateCompanyInput {
   id: string;
   companyName: string;
+  phone: string;
+  adminName: string;
   email: string;
   subscriptionStartDate: string;
   subscriptionEndDate: string;
   maxEmployeeCount: number;
+  notes?: string;
 }
 
 export async function updateCompany(input: UpdateCompanyInput): Promise<ActionResult<null>> {
@@ -137,6 +189,9 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<ActionRe
     .from("companies")
     .update({
       company_name: input.companyName,
+      phone: input.phone,
+      admin_name: input.adminName,
+      notes: input.notes?.trim() || null,
       email: input.email,
       subscription_start_date: input.subscriptionStartDate,
       subscription_end_date: input.subscriptionEndDate,
@@ -174,6 +229,7 @@ export async function deleteCompanyCascade(companyId: string): Promise<ActionRes
   const admin = getSupabaseAdmin();
 
   const tablesToClear = [
+    "company_documents",
     "client_status_history",
     "owner_status_history",
     "property_status_history",

@@ -11,7 +11,7 @@ import { usePathname } from "next/navigation";
 import supabase from "@/lib/supabase/client";
 import type { AuthUser } from "@/types/supabase-entities.types";
 
-const MASTER_AUTH_PATHS = ["/master-login", "/master-dashboard", "/admin"];
+const MASTER_AUTH_PATHS = ["/master"];
 
 function needsMasterAuth(pathname: string) {
   return MASTER_AUTH_PATHS.some(

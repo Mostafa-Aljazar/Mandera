@@ -41,7 +41,12 @@ export async function getBaseEmployees(
 
 export async function getEmployeeCount(companyId?: string): Promise<ActionResult<number>> {
   const supabase = await getServerSupabase();
-  let query = supabase.from("employees").select("id", { count: "exact", head: true });
+  // Seat usage includes the company admin + employees (profiles), not only
+  // rows in `employees` — admin is provisioned without an employees record.
+  let query = supabase
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .in("role", ["company_super_admin", "company_employee"]);
   if (companyId) query = query.eq("company_id", companyId);
   const { count, error } = await query;
   if (error) return { error: error.message };

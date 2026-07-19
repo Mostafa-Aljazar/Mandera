@@ -19,11 +19,28 @@ export interface Company {
   company_code: string;
   company_name: string;
   email: string;
+  phone: string | null;
+  admin_name: string | null;
+  notes: string | null;
   subscription_start_date: string;
   subscription_end_date: string;
   max_employee_count: number;
   is_active: boolean | null;
   is_frozen: boolean | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompanyDocument {
+  id: string;
+  company_id: string;
+  title: string;
+  note: string | null;
+  file_url: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  file_mime: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -229,8 +246,10 @@ export type LegalPageType = 'privacy_policy' | 'terms_of_service';
 export interface LegalPage {
   id: string;
   page_type: LegalPageType;
-  title: string;
-  content: string;
+  title_en: string;
+  title_ar: string;
+  content_en: string;
+  content_ar: string;
   updated_by: string | null;
   created_at: string;
   updated_at: string;

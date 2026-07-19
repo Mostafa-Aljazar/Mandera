@@ -27,6 +27,7 @@ export async function getLegalPage(
 
 export interface UpdateLegalPageInput {
   id: string;
+  language: "en" | "ar";
   title: string;
   content: string;
   updatedBy: string | null;
@@ -36,13 +37,22 @@ export async function updateLegalPage(
   input: UpdateLegalPageInput,
 ): Promise<ActionResult<LegalPage>> {
   const supabase = await getServerSupabase();
+  const payload =
+    input.language === "ar"
+      ? {
+          title_ar: input.title,
+          content_ar: input.content,
+          updated_by: input.updatedBy,
+        }
+      : {
+          title_en: input.title,
+          content_en: input.content,
+          updated_by: input.updatedBy,
+        };
+
   const { data, error } = await supabase
     .from("legal_pages")
-    .update({
-      title: input.title,
-      content: input.content,
-      updated_by: input.updatedBy,
-    })
+    .update(payload)
     .eq("id", input.id)
     .select()
     .single();

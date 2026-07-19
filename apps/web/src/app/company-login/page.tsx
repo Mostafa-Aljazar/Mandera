@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
-import { Helmet } from 'react-helmet';
+import DocumentHead from "@/components/DocumentHead";
 import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -63,10 +63,7 @@ const CompanyLoginPage = () => {
   if (showLoader) {
     return (
       <>
-        <Helmet>
-          <title>{t('Company Login')} | MANDERA CRM</title>
-          <meta name="description" content="Login to your company dashboard" />
-        </Helmet>
+        <DocumentHead title={`${t('Company Login')} | MANDERA CRM`} description="Login to your company dashboard" />
         <PageLoading label={submitting ? t('Authenticating...') : undefined} />
       </>
     );
@@ -74,10 +71,7 @@ const CompanyLoginPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{t('Company Login')} | MANDERA CRM</title>
-        <meta name="description" content="Login to your company dashboard" />
-      </Helmet>
+      <DocumentHead title={`${t('Company Login')} | MANDERA CRM`} description="Login to your company dashboard" />
       <PublicHeader />
       <div className="min-h-[calc(100vh-80px)] flex items-center justify-center bg-muted/30 px-4 py-12">
         <Card className="w-full max-w-md shadow-lg rounded-2xl border-border/50">

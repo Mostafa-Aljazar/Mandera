@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Helmet } from "react-helmet";
+import DocumentHead from "@/components/DocumentHead";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import CompanyAdminHeader from "@/components/CompanyAdminHeader";
 import OwnerStatusesTab from "@/components/OwnerStatusesTab";
@@ -419,9 +419,7 @@ const SettingsPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{t("Settings")} | MANDERA CRM</title>
-      </Helmet>
+      <DocumentHead title={`${t("Settings")} | MANDERA CRM`} />
       <CompanyAdminHeader />
 
       <main className="bg-muted/30 py-8 min-h-[calc(100vh-80px)]">
