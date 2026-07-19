@@ -1,22 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Trophy, Users, Home, Loader2, Medal, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import pb from '@/lib/pocketbaseClient';
-import { toast } from 'sonner';
+import { useEmployeeLeaderboard } from '@/hooks/queries/useEmployeeLeaderboard';
 import { cn } from '@/lib/utils';
-
-interface LeaderboardEmployee {
-  id: string;
-  name: string;
-  clientsCount: number;
-  propertiesCount: number;
-  statusCounts: Record<string, number>;
-}
 
 interface EmployeeLeaderboardProps {
   companyId?: string;
@@ -24,99 +15,9 @@ interface EmployeeLeaderboardProps {
 
 const EmployeeLeaderboard = ({ companyId }: EmployeeLeaderboardProps) => {
   const { t } = useTranslation();
-  const [employeesData, setEmployeesData] = useState<LeaderboardEmployee[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: leaderboardData, isLoading } = useEmployeeLeaderboard(companyId);
+  const employeesData = leaderboardData ?? [];
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    const fetchLeaderboard = async () => {
-      if (!companyId) return;
-      setIsLoading(true);
-      try {
-        // Fetch all employees
-        const empRes = await pb.collection('company_employees').getList(1, 500, {
-          filter: `companyId="${companyId}"`,
-          $autoCancel: false
-        });
-
-        // Process each employee
-        const promises = empRes.items.map(async (emp) => {
-          // 1. Fetch clients for this employee
-          const clientsRes = await pb.collection('clients').getFullList({
-            filter: `employee_id="${emp.id}"`,
-            $autoCancel: false
-          });
-          
-          // Fetch properties for this employee
-          const propsRes = await pb.collection('properties').getList(1, 1, {
-            filter: `employee_id="${emp.id}"`,
-            $autoCancel: false
-          });
-
-          // 2. Retrieve latest status for each client
-          const statusCounts: Record<string, number> = {};
-          const clientIds = clientsRes.map(c => c.id);
-          
-          if (clientIds.length > 0) {
-            // Chunk fetching to avoid URL length limits
-            const chunkSize = 50;
-            for (let i = 0; i < clientIds.length; i += chunkSize) {
-              const chunk = clientIds.slice(i, i + chunkSize);
-              const filterStr = chunk.map(id => `client_id="${id}"`).join(' || ');
-              
-              const historyRes = await pb.collection('client_status_history').getFullList({
-                filter: filterStr,
-                sort: '-created', // Newest first
-                expand: 'status_id',
-                $autoCancel: false
-              });
-
-              const clientCurrentStatus: Record<string, string> = {};
-              // First occurrence in sorted array is the latest
-              historyRes.forEach(h => {
-                if (!clientCurrentStatus[h.client_id]) {
-                  clientCurrentStatus[h.client_id] = h.expand?.status_id?.name || 'Unknown';
-                }
-              });
-
-              // 3. Group by status and count
-              Object.values(clientCurrentStatus).forEach(status => {
-                statusCounts[status] = (statusCounts[status] || 0) + 1;
-              });
-
-              // Account for clients with NO status history (New)
-              const clientsWithHistory = Object.keys(clientCurrentStatus).length;
-              if (clientsWithHistory < chunk.length) {
-                statusCounts['__NEW__'] = (statusCounts['__NEW__'] || 0) + (chunk.length - clientsWithHistory);
-              }
-            }
-          }
-
-          return {
-            id: emp.id,
-            name: emp.name || emp.firstName || emp.email,
-            clientsCount: clientsRes.length,
-            propertiesCount: propsRes.totalItems,
-            statusCounts
-          };
-        });
-
-        const results = await Promise.all(promises);
-        
-        // Sort descending by clients count
-        results.sort((a, b) => b.clientsCount - a.clientsCount);
-        
-        setEmployeesData(results);
-      } catch (error) {
-        console.error('Leaderboard error:', error);
-        toast.error(t('Failed to load employee leaderboard.'));
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchLeaderboard();
-  }, [companyId, t]);
 
   const toggleRow = (id: string) => {
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));

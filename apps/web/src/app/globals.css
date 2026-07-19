@@ -258,18 +258,37 @@
     border-radius: 0.5rem 0 0 0.5rem;
   }
 
-  /* react-phone-number-input, skinned to match the shadcn Input/Select tokens */
+  /* react-phone-number-input, skinned to match the shadcn Input/Select tokens.
+     The single visible border/radius lives on the .phone-input wrapper
+     itself (like a normal shadcn Input); the country box and the number
+     input are both borderless/transparent inside it, separated by one
+     inner divider. This avoids fighting the library's own logical-property
+     layout (country box is always the first flex child; flexbox reverses
+     child order under dir="rtl" automatically), so it looks the same and
+     stays a single joined pill in both LTR and RTL. */
+  .phone-input {
+    border: 1px solid hsl(var(--input));
+    border-radius: calc(var(--radius) - 2px);
+    background-color: hsl(var(--background));
+    height: 2.25rem;
+    overflow: hidden;
+  }
+  .phone-input.PhoneInput--focus {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px hsl(var(--ring));
+  }
   .phone-input .PhoneInputCountry {
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    border: 1px solid hsl(var(--input));
-    border-inline-end: none;
-    border-start-start-radius: calc(var(--radius) - 2px);
-    border-end-start-radius: calc(var(--radius) - 2px);
+    border: none;
+    border-inline-end: 1px solid hsl(var(--input));
+    border-radius: 0;
     background-color: transparent;
     padding-inline: 0.75rem;
-    height: 2.25rem;
+    height: 100%;
+    margin-inline-end: 0;
   }
   .phone-input .PhoneInputCountryIcon {
     width: 1.25rem;
@@ -288,8 +307,15 @@
     opacity: 1;
   }
   .phone-input .PhoneInputInput {
-    border-start-start-radius: 0;
-    border-end-start-radius: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    background-color: transparent;
+  }
+  .phone-input .PhoneInputInput:focus {
+    outline: none;
   }
 
   /* Tiptap Editor Core */

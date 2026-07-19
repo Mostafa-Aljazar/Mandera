@@ -60,17 +60,16 @@ import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import StatusUpdateModal from "@/components/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/StatusHistoryDisplay";
 import { cn } from "@/lib/utils";
-import pb from "@/lib/pocketbaseClient";
 import { ClientSchema, type TClientSchema } from "@/validations/client.schema";
 import type {
-  Client,
-  Property,
+  ClientWithRelations as Client,
+  PropertyWithRelations as Property,
   ClientStatus,
   CompanyEmployee,
   MarketingChannelRecord,
-} from "@/types/pocketbase.types";
+} from "@/types/supabase-entities.types";
 
-type SelectableEmployee = CompanyEmployee & { firstName?: string };
+type SelectableEmployee = CompanyEmployee;
 
 const COUNTRIES = [
   "UAE",
@@ -401,7 +400,7 @@ const ClientDetailModal = ({
                         <SelectContent>
                           {employees.map((e) => (
                             <SelectItem key={e.id} value={e.id}>
-                              {e.name || e.firstName || e.email}
+                              {e.name || e.id}
                             </SelectItem>
                           ))}
                         </SelectContent>

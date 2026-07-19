@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
-import pb from "@/lib/pocketbaseClient";
 import {
   Card,
   CardContent,
@@ -45,84 +44,64 @@ import {
   MarketingChannelSchema,
   type TMarketingChannelSchema,
 } from "@/validations/marketing-channel.schema";
-import type { MarketingChannelRecord } from "../types/pocketbase.types";
+import type { MarketingChannelRecord } from "@/types/supabase-entities.types";
+import {
+  useMarketingChannelsSettings,
+  useCreateMarketingChannel,
+  useUpdateMarketingChannel,
+  useDeleteMarketingChannel,
+} from "@/hooks/queries/useSettings";
 
 const MarketingChannelsTab = () => {
   const { company } = useCompanyAuth();
   const { t } = useTranslation();
 
-  const [channels, setChannels] = useState<MarketingChannelRecord[]>([]);
+  const { data: channelsData } = useMarketingChannelsSettings(company?.id);
+  const channels = channelsData ?? [];
+
+  const createMutation = useCreateMarketingChannel();
+  const updateMutation = useUpdateMarketingChannel();
+  const deleteMutation = useDeleteMarketingChannel();
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+
   const [open, setOpen] = useState(false);
   const [editItem, setEditItem] = useState<MarketingChannelRecord | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<TMarketingChannelSchema>({
     resolver: zodResolver(MarketingChannelSchema(t)),
     defaultValues: { name: "" },
   });
 
-  useEffect(() => {
-    fetchChannels();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company?.id]);
-
-  const fetchChannels = async () => {
+  const handleSave = form.handleSubmit(async (formData) => {
     if (!company?.id) return;
     try {
-      const records = await pb.collection("marketing_channels").getFullList({
-        filter: `company_id = "${company.id}"`,
-        sort: "-created",
-        $autoCancel: false,
-      });
-      setChannels(records as unknown as MarketingChannelRecord[]);
-    } catch (error) {
-      console.error(error);
-      toast.error(t("Failed to load marketing channels."));
-    }
-  };
-
-  const handleSave = form.handleSubmit(async (formData) => {
-    setIsSubmitting(true);
-    try {
-      const payload = {
-        name: formData.name,
-        company_id: company!.id,
-      };
+      const name = formData.name.trim();
 
       if (editItem) {
-        await pb
-          .collection("marketing_channels")
-          .update(editItem.id, payload, { $autoCancel: false });
+        const result = await updateMutation.mutateAsync({ id: editItem.id, name });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Marketing channel updated successfully."));
       } else {
-        await pb
-          .collection("marketing_channels")
-          .create(payload, { $autoCancel: false });
+        const result = await createMutation.mutateAsync({ companyId: company.id, name });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Marketing channel created successfully."));
       }
 
       setOpen(false);
-      setEditItem(null);
-      form.reset({ name: "" });
-      fetchChannels();
+      resetForm();
     } catch (error) {
       console.error(error);
       toast.error((error as Error).message || t("An error occurred."));
-    } finally {
-      setIsSubmitting(false);
     }
   });
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm(t("Are you sure you want to delete this channel?")))
-      return;
+    if (!window.confirm(t("Are you sure you want to delete this channel?"))) return;
 
     try {
-      await pb
-        .collection("marketing_channels")
-        .delete(id, { $autoCancel: false });
+      const result = await deleteMutation.mutateAsync(id);
+      if (result.error) throw new Error(result.error);
       toast.success(t("Channel deleted successfully."));
-      fetchChannels();
     } catch (error) {
       console.error(error);
       toast.error(t("Failed to delete. This channel might be in use."));

@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import CompanyAdminHeader from '@/components/CompanyAdminHeader';
-import pb from '@/lib/pocketbaseClient';
+import { useBaseEmployee, useUpdateBaseEmployee } from '@/hooks/queries/useEmployees';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 import { EmployeeEditSchema, type TEmployeeEditSchema } from '@/validations/employee-edit.schema';
@@ -28,7 +28,9 @@ const EmployeeEditPage = () => {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [fetchLoading, setFetchLoading] = useState(true);
+
+  const { data: employee, isLoading: fetchLoading, isError } = useBaseEmployee(id as string);
+  const updateEmployeeMutation = useUpdateBaseEmployee();
 
   const form = useForm<TEmployeeEditSchema>({
     resolver: zodResolver(EmployeeEditSchema(t)),
@@ -40,36 +42,37 @@ const EmployeeEditPage = () => {
   });
 
   useEffect(() => {
-    const fetchEmployee = async () => {
-      try {
-        const employee = await pb.collection('employees').getOne(id as string, { $autoCancel: false });
-        form.reset({
-          firstName: employee.firstName,
-          lastName: employee.lastName,
-          email: employee.email
-        });
-      } catch (error) {
-        console.error('Error fetching employee:', error);
-        toast(t('Failed to load employee details'));
-        router.push('/company-dashboard/employees');
-      } finally {
-        setFetchLoading(false);
-      }
-    };
-
-    fetchEmployee();
+    if (employee) {
+      form.reset({
+        firstName: employee.first_name,
+        lastName: employee.last_name,
+        email: employee.email,
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, router]);
+  }, [employee]);
+
+  useEffect(() => {
+    if (isError) {
+      toast(t('Failed to load employee details'));
+      router.push('/company-dashboard/employees');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isError]);
 
   const handleSubmit = form.handleSubmit(async (formData) => {
     setLoading(true);
 
     try {
-      await pb.collection('employees').update(id as string, {
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email
-      }, { $autoCancel: false });
+      const result = await updateEmployeeMutation.mutateAsync({
+        id: id as string,
+        input: {
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          email: formData.email,
+        },
+      });
+      if (result.error) throw new Error(result.error);
 
       toast(t('Employee updated successfully'));
       router.push('/company-dashboard/employees');

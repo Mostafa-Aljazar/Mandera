@@ -12,10 +12,14 @@ import { Badge } from '@/components/ui/badge';
 import CompanyAdminHeader from '@/components/CompanyAdminHeader';
 import EmployeeDeletionDialog from '@/components/EmployeeDeletionDialog';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
-import pb from '@/lib/pocketbaseClient';
+import {
+  useBaseEmployees,
+  useUpdateEmployeeDisabled,
+} from '@/hooks/queries/useEmployees';
+import { useCompanyEmployees } from '@/hooks/queries/useEmployees';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, UserCheck, UserX, Users } from 'lucide-react';
-import type { Employee } from '@/types/pocketbase.types';
+import type { EmployeeRecord as Employee } from '@/types/supabase-entities.types';
 
 interface DeletionTarget {
   id: string;
@@ -29,36 +33,21 @@ const EmployeeListPage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
   const router = useRouter();
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // Deletion Dialog State
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; employee: DeletionTarget | null }>({ open: false, employee: null });
 
   const isSuperAdmin = currentUser?.role === 'company_super_admin';
 
-  const fetchEmployees = async () => {
-    if (!company || !isSuperAdmin) return;
+  const { data: employeesData, isLoading: loading, refetch: refetchEmployees } =
+    useBaseEmployees(isSuperAdmin ? company?.id : undefined);
+  const employees = employeesData ?? [];
+  const { data: companyEmployeesData } = useCompanyEmployees(
+    isSuperAdmin ? company?.id : undefined,
+  );
+  const updateDisabledMutation = useUpdateEmployeeDisabled();
 
-    try {
-      setLoading(true);
-      const records = await pb.collection('employees').getFullList<Employee>({
-        filter: `companyId = "${company.id}"`,
-        sort: '-created',
-        $autoCancel: false
-      });
-      setEmployees(records);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
-      toast.error(t('Failed to load employees'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchEmployees();
-  }, [company, isSuperAdmin]);
+  const fetchEmployees = () => refetchEmployees();
 
   useEffect(() => {
     if (!isSuperAdmin) {
@@ -68,43 +57,46 @@ const EmployeeListPage = () => {
 
   const handleToggleDisable = async (employee: Employee) => {
     try {
-      await pb.collection('employees').update(employee.id, {
-        disabled: !employee.disabled
-      }, { $autoCancel: false });
+      const result = await updateDisabledMutation.mutateAsync({
+        employeeId: employee.id,
+        disabled: !employee.disabled,
+      });
+      if (result.error) throw new Error(result.error);
       toast.success(employee.disabled ? t('Employee enabled') : t('Employee disabled'));
-      fetchEmployees();
     } catch (error) {
       console.error('Error toggling employee status:', error);
       toast.error(t('Failed to update employee status'));
     }
   };
 
-  const initiateDelete = async (emp: Employee) => {
-    try {
-      // Find the corresponding company_employee record for complete reassignment
-      const ceList = await pb.collection('company_employees').getFullList<DeletionTarget>({
-        filter: `employeeId="${emp.id}"`,
-        $autoCancel: false
-      });
+  const initiateDelete = (emp: Employee) => {
+    // Find the corresponding profiles/company_employee record for complete reassignment
+    const matchingProfile = (companyEmployeesData ?? []).find(
+      (ce) => ce.employee_id === emp.id,
+    );
 
-      if (ceList.length > 0) {
-        setDeleteDialog({ open: true, employee: ceList[0] });
-      } else {
-        // Fallback for base-only employee records
-        setDeleteDialog({
-          open: true,
-          employee: {
-            id: emp.id,
-            name: `${emp.firstName} ${emp.lastName}`,
-            email: emp.email,
-            employeeId: emp.id,
-            _isBase: true
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error locating company employee data:', error);
-      toast.error(t('Could not prepare employee for deletion.'));
+    if (matchingProfile) {
+      setDeleteDialog({
+        open: true,
+        employee: {
+          id: matchingProfile.id,
+          name: matchingProfile.name || '',
+          email: emp.email,
+          employeeId: emp.id,
+        },
+      });
+    } else {
+      // Fallback for base-only employee records
+      setDeleteDialog({
+        open: true,
+        employee: {
+          id: emp.id,
+          name: `${emp.first_name} ${emp.last_name}`,
+          email: emp.email,
+          employeeId: emp.id,
+          _isBase: true
+        }
+      });
     }
   };
 
@@ -127,11 +119,11 @@ const EmployeeListPage = () => {
             <div>
               <h1 className="text-4xl font-bold tracking-tight mb-2 font-outfit">{t('Employees')}</h1>
               <p className="text-muted-foreground text-lg">
-                {currentCount} / {company?.maxEmployeeCount} {t('employees')}
+                {currentCount} / {company?.max_employee_count} {t('employees')}
               </p>
             </div>
             <Link href="/company-dashboard/employees/new">
-              <Button className="flex items-center gap-2 rounded-xl shadow-sm" disabled={currentCount >= company?.maxEmployeeCount}>
+              <Button className="flex items-center gap-2 rounded-xl shadow-sm" disabled={currentCount >= company?.max_employee_count}>
                 <Plus className="h-4 w-4" />
                 {t('Add employee')}
               </Button>
@@ -171,7 +163,7 @@ const EmployeeListPage = () => {
                     {employees.map((employee) => (
                       <TableRow key={employee.id} className="hover:bg-muted/30 transition-colors">
                         <TableCell className="font-medium text-foreground">
-                          {employee.firstName} {employee.lastName}
+                          {employee.first_name} {employee.last_name}
                         </TableCell>
                         <TableCell className="text-muted-foreground">{employee.email}</TableCell>
                         <TableCell>

@@ -1,39 +1,16 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { Helmet } from "react-helmet";
 import { useTranslation } from "react-i18next";
 import PublicHeader from "@/components/PublicHeader";
-import pb from "@/lib/pocketbaseClient";
+import { useLegalPage } from "@/hooks/queries/useLegalPages";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
-import type { LegalPage } from "../../types/pocketbase.types";
 
 const TermsOfServicePage = () => {
   const { t } = useTranslation();
-  const [pageData, setPageData] = useState<LegalPage | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchPage = async () => {
-      try {
-        const record = await pb
-          .collection("legal_pages")
-          .getFirstListItem<LegalPage>('page_type="terms_of_service"', {
-            $autoCancel: false,
-          });
-        setPageData(record);
-      } catch (err) {
-        console.error("Error fetching terms of service:", err);
-        setError(t("Failed to load page content. Please try again later."));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPage();
-  }, [t]);
+  const { data: pageData, isLoading: loading, isError } = useLegalPage("terms_of_service");
 
   return (
     <>
@@ -60,10 +37,10 @@ const TermsOfServicePage = () => {
                 <Skeleton className="w-full h-4" />
               </div>
             </div>
-          ) : error ? (
+          ) : isError || !pageData ? (
             <div className="py-20 text-center">
               <h2 className="mb-2 font-semibold text-destructive text-2xl">
-                {error}
+                {t("Failed to load page content. Please try again later.")}
               </h2>
               <p className="text-muted-foreground">
                 {t("If the problem persists, please contact support.")}
@@ -77,7 +54,7 @@ const TermsOfServicePage = () => {
                 </h1>
                 <p className="font-medium text-muted-foreground text-sm">
                   {t("Last updated:")}{" "}
-                  {format(new Date(pageData.updated), "MMMM d, yyyy")}
+                  {format(new Date(pageData.updated_at), "MMMM d, yyyy")}
                 </p>
               </header>
 

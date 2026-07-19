@@ -21,25 +21,13 @@ import {
   FileText,
   User,
 } from "lucide-react";
-import pb from "@/lib/pocketbaseClient";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import StatusUpdateModal from "@/components/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/StatusHistoryDisplay";
-import type { Property } from "../types/pocketbase.types";
+import type { PropertyWithRelations } from "@/types/supabase-entities.types";
 
-interface PropertyDetailData extends Property {
-  expand?: {
-    employee_id?: {
-      name?: string;
-      firstName?: string;
-      lastName?: string;
-      email?: string;
-    };
-    type?: { name?: string };
-    area_district?: { name?: string };
-  };
-}
+type PropertyDetailData = PropertyWithRelations;
 
 interface PropertyDetailModalProps {
   property: PropertyDetailData | null;
@@ -72,25 +60,21 @@ const PropertyDetailModal = ({
 
   if (!property) return null;
 
-  const agent = property.expand?.employee_id;
-  const propertyType = property.expand?.type?.name || t("Unknown");
+  const agent = property.employee
+    ? {
+        name: property.employee.name,
+        email: property.employee.employee_record?.email,
+      }
+    : undefined;
+  const propertyType = property.property_type?.name || t("Unknown");
 
-  const areaDisplayName = property.expand?.area_district?.name
-    ? `${property.expand.area_district.name}${property.area ? ` (${property.area})` : ""}`
+  const areaDisplayName = property.area_district_ref?.name
+    ? `${property.area_district_ref.name}${property.area ? ` (${property.area})` : ""}`
     : property.area || "Unknown Area";
 
   const hasImages = property.images && property.images.length > 0;
   const images = hasImages
-    ? property.images!.map((img) =>
-        pb.files.getUrl(
-          property as unknown as {
-            id: string;
-            collectionId: string;
-            collectionName: string;
-          },
-          img,
-        ),
-      )
+    ? property.images!
     : [
         "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&auto=format&fit=crop&q=80",
       ];
@@ -247,15 +231,13 @@ const PropertyDetailModal = ({
                     {agent ? (
                       <div className="space-y-6 text-center">
                         <div className="flex justify-center items-center bg-primary/10 mx-auto rounded-full ring-4 ring-primary/5 w-20 h-20 font-bold text-primary text-3xl">
-                          {(agent.name || agent.firstName || agent.email || "A")
+                          {(agent.name || agent.email || "A")
                             .charAt(0)
                             .toUpperCase()}
                         </div>
                         <div>
                           <p className="font-medium text-foreground text-lg">
-                            {agent.name ||
-                              `${agent.firstName || ""} ${agent.lastName || ""}`.trim() ||
-                              "Agent"}
+                            {agent.name || "Agent"}
                           </p>
                           <p className="mt-0.5 text-muted-foreground text-sm">
                             {agent.email}

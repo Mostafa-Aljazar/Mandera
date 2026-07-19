@@ -5,7 +5,11 @@ import { Helmet } from "react-helmet";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
-import pb from "@/lib/pocketbaseClient";
+import {
+  useCompanyEmployees,
+  useCreateEmployee,
+  useUpdateEmployee,
+} from "@/hooks/queries/useEmployees";
 import CompanyAdminHeader from "@/components/CompanyAdminHeader";
 import EmployeeModal from "@/components/EmployeeModal";
 import EmployeeDeletionDialog from "@/components/EmployeeDeletionDialog";
@@ -22,11 +26,13 @@ import {
 } from "@/components/ui/table";
 import { Plus, Users, Edit2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import type { CompanyEmployee } from "../../types/pocketbase.types";
+import type { CompanyEmployeeWithDetails } from "@/types/supabase-entities.types";
 
 interface EmployeeFormData {
   name: string;
   email: string;
+  phone: string;
+  job_title: string;
   role: string;
   password?: string;
 }
@@ -35,40 +41,26 @@ const EmployeesPage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
   const router = useRouter();
-  const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [activeEmployee, setActiveEmployee] = useState<CompanyEmployee | null>(
-    null,
-  );
+  const [activeEmployee, setActiveEmployee] =
+    useState<CompanyEmployeeWithDetails | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Deletion Dialog State
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedEmployeeForDeletion, setSelectedEmployeeForDeletion] =
-    useState<CompanyEmployee | null>(null);
+    useState<CompanyEmployeeWithDetails | null>(null);
 
   const isSuperAdmin = currentUser?.role === "company_super_admin";
 
-  const fetchEmployees = async () => {
-    if (!company?.id || !isSuperAdmin) return;
-    try {
-      const data = await pb
-        .collection("company_employees")
-        .getFullList<CompanyEmployee>({
-          filter: `companyId = "${company.id}"`,
-          expand: "employeeId",
-          sort: "-created",
-          $autoCancel: false,
-        });
-      setEmployees(data);
-    } catch (err) {
-      toast.error(t("Failed to load employees."));
-    }
-  };
+  const { data: employeesData, refetch: refetchEmployees } = useCompanyEmployees(
+    isSuperAdmin ? company?.id : undefined,
+  );
+  const employees = employeesData ?? [];
+  const createEmployeeMutation = useCreateEmployee();
+  const updateEmployeeMutation = useUpdateEmployee();
 
-  useEffect(() => {
-    fetchEmployees();
-  }, [company?.id, isSuperAdmin, t]);
+  const fetchEmployees = () => refetchEmployees();
 
   useEffect(() => {
     if (!isSuperAdmin) {
@@ -76,7 +68,7 @@ const EmployeesPage = () => {
     }
   }, [isSuperAdmin, router]);
 
-  const handleOpenModal = (employee: CompanyEmployee | null = null) => {
+  const handleOpenModal = (employee: CompanyEmployeeWithDetails | null = null) => {
     setActiveEmployee(employee);
     setIsModalOpen(true);
   };
@@ -90,61 +82,31 @@ const EmployeesPage = () => {
     setIsSubmitting(true);
     try {
       if (activeEmployee?.id) {
-        // Update existing
-        await pb.collection("company_employees").update(
-          activeEmployee.id,
-          {
-            name: formData.name,
-            email: formData.email,
-            role: formData.role,
-          },
-          { $autoCancel: false },
-        );
-
-        if (activeEmployee.employeeId) {
-          const [firstName, ...lastNames] = formData.name.split(" ");
-          await pb.collection("employees").update(
-            activeEmployee.employeeId,
-            {
-              firstName: firstName || "",
-              lastName: lastNames.join(" ") || "",
-              email: formData.email,
-            },
-            { $autoCancel: false },
-          );
-        }
+        const result = await updateEmployeeMutation.mutateAsync({
+          profileId: activeEmployee.id,
+          employeeId: activeEmployee.employee_id,
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          job_title: formData.job_title,
+          role: formData.role,
+        });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Employee updated successfully."));
       } else {
-        // Create new
-        const [firstName, ...lastNames] = formData.name.split(" ");
-        const baseEmployee = await pb.collection("employees").create(
-          {
-            firstName: firstName || "",
-            lastName: lastNames.join(" ") || "",
-            email: formData.email,
-            companyId: company!.id,
-            disabled: false,
-          },
-          { $autoCancel: false },
-        );
-
-        await pb.collection("company_employees").create(
-          {
-            name: formData.name,
-            email: formData.email,
-            role: formData.role,
-            companyId: company!.id,
-            employeeId: baseEmployee.id,
-            password: formData.password,
-            passwordConfirm: formData.password,
-          },
-          { $autoCancel: false },
-        );
-
+        const result = await createEmployeeMutation.mutateAsync({
+          companyId: company!.id,
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          job_title: formData.job_title,
+          role: formData.role,
+          password: formData.password || "",
+        });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Employee created successfully."));
       }
       handleCloseModal();
-      fetchEmployees();
     } catch (err: any) {
       toast.error(err.message || t("Error saving employee."));
     } finally {
@@ -152,7 +114,7 @@ const EmployeesPage = () => {
     }
   };
 
-  const initiateDelete = (employee: CompanyEmployee) => {
+  const initiateDelete = (employee: CompanyEmployeeWithDetails) => {
     setSelectedEmployeeForDeletion(employee);
     setIsDeleteDialogOpen(true);
   };
@@ -223,10 +185,10 @@ const EmployeesPage = () => {
                         {emp.name}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {emp.email}
+                        {emp.employee?.email || t("N/A")}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {t("N/A")}
+                        {emp.employee?.phone || t("N/A")}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -245,17 +207,15 @@ const EmployeesPage = () => {
                       <TableCell>
                         <Badge
                           variant={
-                            emp.expand?.employeeId?.disabled
-                              ? "destructive"
-                              : "outline"
+                            emp.employee?.disabled ? "destructive" : "outline"
                           }
                           className={
-                            !emp.expand?.employeeId?.disabled
+                            !emp.employee?.disabled
                               ? "bg-emerald-500/10 text-emerald-600 border-emerald-200"
                               : ""
                           }
                         >
-                          {emp.expand?.employeeId?.disabled
+                          {emp.employee?.disabled
                             ? t("Inactive")
                             : t("Active")}
                         </Badge>

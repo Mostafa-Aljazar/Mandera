@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, UserMinus, AlertTriangle } from 'lucide-react';
 import { useEmployeeDeletion } from '@/hooks/useEmployeeDeletion';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
-import pb from '@/lib/pocketbaseClient';
+import { useCompanyEmployeesLookup } from '@/hooks/queries/useProperties';
 
 interface EmployeeToDelete {
   id: string;
@@ -41,28 +41,25 @@ const EmployeeDeletionDialog = ({ isOpen, onClose, employeeToDelete, onSuccess, 
   const activeCompanyId = propCompanyId || company?.id;
   const { deleteEmployeeWorkflow, isDeleting, deletionProgress, deletionError } = useEmployeeDeletion();
 
-  const [employees, setEmployees] = useState<ReassignableEmployee[]>([]);
   const [reassignOwnersTo, setReassignOwnersTo] = useState('');
   const [reassignClientsTo, setReassignClientsTo] = useState('');
   const [reassignPropertiesTo, setReassignPropertiesTo] = useState('');
 
+  const { data: employeesData } = useCompanyEmployeesLookup(
+    isOpen ? activeCompanyId : undefined,
+  );
+  const employees: ReassignableEmployee[] = (employeesData ?? []).filter(
+    (e) => e.id !== employeeToDelete?.id && e.id !== employeeToDelete?.employeeId,
+  );
+
   useEffect(() => {
-    if (isOpen && activeCompanyId) {
-      pb.collection('company_employees').getFullList({
-        filter: `companyId="${activeCompanyId}"`,
-        $autoCancel: false
-      }).then(data => {
-        // Exclude the employee being deleted
-        const filtered = data.filter(e => e.id !== employeeToDelete?.id && e.employeeId !== employeeToDelete?.id);
-        setEmployees(filtered as unknown as ReassignableEmployee[]);
-      }).catch(console.error);
-    } else {
+    if (!isOpen) {
       // Reset form on close
       setReassignOwnersTo('');
       setReassignClientsTo('');
       setReassignPropertiesTo('');
     }
-  }, [isOpen, activeCompanyId, employeeToDelete]);
+  }, [isOpen]);
 
   // If it's a base-only employee missing company_employees, we technically bypass reassignment selection validation
   // but to maintain UI consistency, we still demand form completion or hide it.

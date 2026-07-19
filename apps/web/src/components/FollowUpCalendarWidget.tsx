@@ -1,28 +1,30 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { format, isBefore } from "date-fns";
 import { enUS, ar } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CalendarClock, Clock, User, Loader2, RefreshCw } from "lucide-react";
-import pb from "@/lib/pocketbaseClient";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import ClientDetailModal, {
   type ClientFormData,
 } from "@/components/ClientDetailModal";
 import { cn } from "@/lib/utils";
+import {
+  useUpcomingFollowUps,
+  useClientStatuses,
+  useClientStatusHistory,
+  useUpdateClient,
+  useAddClientStatus,
+} from "@/hooks/queries/useClients";
+import { useProperties, useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
 import type {
-  Client,
-  ClientStatusHistory,
-  Property,
-  ClientStatus,
-  CompanyEmployee,
-} from "../types/pocketbase.types";
+  ClientWithRelations as Client,
+} from "@/types/supabase-entities.types";
 
 interface ProcessedClient extends Client {
-  latestHistoryRecord: ClientStatusHistory;
   followUpDateTime: Date;
   statusName: string;
   isOverdue: boolean;
@@ -52,146 +54,62 @@ const FollowUpCalendarWidget = () => {
   const { t, i18n } = useTranslation();
   const { company, currentUser } = useCompanyAuth();
 
-  const [followUps, setFollowUps] = useState<ProcessedClient[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-
-  // Modal State
   const [activeClient, setActiveClient] = useState<ProcessedClient | null>(
     null,
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [statuses, setStatuses] = useState<ClientStatus[]>([]);
-  const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
-  const [history, setHistory] = useState<ClientStatusHistory[]>([]);
 
-  const fetchFollowUps = async () => {
-    if (!company?.id) return;
+  const restrictToEmployeeId =
+    currentUser?.role !== "company_super_admin" ? currentUser?.id : undefined;
 
-    setIsLoading(true);
-    setHasError(false);
+  const {
+    data: followUpsData,
+    isLoading,
+    isError: hasError,
+    refetch: refetchFollowUps,
+  } = useUpcomingFollowUps(company?.id, restrictToEmployeeId);
 
-    try {
-      // 1. Fetch clients for the current company
-      let clientFilter = `company_id="${company.id}"`;
-      if (currentUser?.role !== "company_super_admin") {
-        clientFilter += ` && employee_id="${currentUser.id}"`;
-      }
+  const { data: propertiesData } = useProperties(company?.id);
+  const properties = propertiesData ?? [];
+  const { data: statusesData } = useClientStatuses(company?.id);
+  const statuses = statusesData ?? [];
+  const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
+  const employees = employeesData ?? [];
+  const { data: historyData } = useClientStatusHistory(
+    isModalOpen ? activeClient?.id : undefined,
+  );
+  const history = historyData ?? [];
 
-      const clientsRes = await pb.collection("clients").getList(1, 500, {
-        filter: clientFilter,
-        expand: "employee_id",
-        $autoCancel: false,
-      });
+  const updateClientMutation = useUpdateClient();
+  const addClientStatusMutation = useAddClientStatus();
 
-      // 2. Fetch all status histories to group and find the latest for each client
-      const historyRes = await pb
-        .collection("client_status_history")
-        .getFullList({
-          filter: `company_id="${company.id}"`,
-          sort: "-created",
-          expand: "status_id",
-          $autoCancel: false,
-        });
+  const now = new Date();
+  const followUps: ProcessedClient[] = (followUpsData ?? [])
+    .map((client) => {
+      const followUpDateTime = new Date(client.follow_up_date as string);
+      return {
+        ...(client as unknown as Client),
+        followUpDateTime,
+        statusName: client.latest_status_name || t("Unknown"),
+        isOverdue: isBefore(followUpDateTime, now),
+      };
+    })
+    .sort((a, b) => a.followUpDateTime.getTime() - b.followUpDateTime.getTime());
 
-      const latestHistoryMap: Record<
-        string,
-        ClientStatusHistory & { expand?: { status_id?: ClientStatus } }
-      > = {};
-      historyRes.forEach((record) => {
-        if (!latestHistoryMap[record.client_id]) {
-          latestHistoryMap[record.client_id] =
-            record as unknown as ClientStatusHistory & {
-              expand?: { status_id?: ClientStatus };
-            };
-        }
-      });
+  const fetchFollowUps = () => refetchFollowUps();
 
-      const now = new Date();
-
-      // 3. Filter clients: Only those where the latest status has a follow_up_date
-      const processedClients: ProcessedClient[] = clientsRes.items
-        .filter((client) => {
-          const latest = latestHistoryMap[client.id];
-          return (
-            latest && latest.follow_up_date && latest.follow_up_date !== ""
-          );
-        })
-        .map((client) => {
-          const latest = latestHistoryMap[client.id];
-          const followUpDateTime = new Date(latest.follow_up_date as string);
-          const statusName = latest.expand?.status_id?.name || t("Unknown");
-
-          return {
-            ...(client as unknown as Client),
-            latestHistoryRecord: latest,
-            followUpDateTime,
-            statusName,
-            isOverdue: isBefore(followUpDateTime, now),
-          };
-        });
-
-      // 4. Sort filtered clients by follow_up_date ascending
-      processedClients.sort(
-        (a, b) => a.followUpDateTime.getTime() - b.followUpDateTime.getTime(),
-      );
-
-      setFollowUps(processedClients);
-
-      // Prepare standard data for the Modal
-      const [propRes, statRes, empRes] = await Promise.all([
-        pb.collection("properties").getFullList({
-          filter: `company_id = "${company.id}"`,
-          $autoCancel: false,
-        }),
-        pb.collection("client_statuses").getFullList({
-          filter: `company_id = "${company.id}"`,
-          sort: "created",
-          $autoCancel: false,
-        }),
-        pb.collection("company_employees").getFullList({
-          filter: `companyId = "${company.id}"`,
-          $autoCancel: false,
-        }),
-      ]);
-
-      setProperties(propRes as unknown as Property[]);
-      setStatuses(statRes as unknown as ClientStatus[]);
-      setEmployees(empRes as unknown as CompanyEmployee[]);
-    } catch (error) {
-      console.error("Failed to fetch follow-ups:", error);
-      setHasError(true);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchFollowUps();
-  }, [company?.id, currentUser?.id]);
-
-  const handleClientClick = async (client: ProcessedClient) => {
-    try {
-      const hist = await pb.collection("client_status_history").getFullList({
-        filter: `client_id = "${client.id}"`,
-        expand: "status_id,created_by",
-        sort: "-created",
-        $autoCancel: false,
-      });
-      setHistory(hist as unknown as ClientStatusHistory[]);
-      setActiveClient(client);
-      setIsModalOpen(true);
-    } catch (err) {
-      console.error("Error fetching client history for modal:", err);
-    }
+  const handleClientClick = (client: ProcessedClient) => {
+    setActiveClient(client);
+    setIsModalOpen(true);
   };
 
   const handleSaveClientInfo = async (formData: ClientFormData) => {
     try {
-      await pb
-        .collection("clients")
-        .update(activeClient!.id, formData, { $autoCancel: false });
+      const result = await updateClientMutation.mutateAsync({
+        id: activeClient!.id,
+        ...formData,
+      });
+      if (result.error) throw new Error(result.error);
       fetchFollowUps();
       setIsModalOpen(false);
     } catch (err) {
@@ -206,27 +124,29 @@ const FollowUpCalendarWidget = () => {
     follow_up_time?: string;
   }) => {
     try {
-      await pb.collection("client_status_history").create(
-        {
-          client_id: activeClient!.id,
-          status_id: statusForm.status_id,
-          note: statusForm.note,
-          created_by: currentUser!.id,
-          company_id: company!.id,
-          follow_up_date: statusForm.follow_up_date || null,
-        },
-        { $autoCancel: false },
-      );
+      const result = await addClientStatusMutation.mutateAsync({
+        clientId: activeClient!.id,
+        companyId: company!.id,
+        statusId: statusForm.status_id,
+        note: statusForm.note,
+        followUpDate: statusForm.follow_up_date || null,
+        createdByUserId: currentUser!.id,
+        employeeId: activeClient?.employee_id,
+      });
+      if (result.error) throw new Error(result.error);
 
-      // Keep client sync'd if needed
-      await pb.collection("clients").update(
-        activeClient!.id,
-        {
-          follow_up_date: statusForm.follow_up_date || null,
-          follow_up_time: statusForm.follow_up_time || "",
-        },
-        { $autoCancel: false },
-      );
+      // Keep client synced with the follow-up date/time
+      const followUpResult = await updateClientMutation.mutateAsync({
+        id: activeClient!.id,
+        name: activeClient!.name,
+        phone: activeClient!.phone,
+        country_code: activeClient!.country_code,
+        interest_type: activeClient!.interest_type,
+        interested_properties: activeClient!.interested_properties ?? [],
+        employee_id: activeClient!.employee_id,
+        marketing_channel: activeClient!.marketing_channel,
+      });
+      if (followUpResult.error) throw new Error(followUpResult.error);
 
       fetchFollowUps();
       setIsModalOpen(false);
@@ -334,11 +254,10 @@ const FollowUpCalendarWidget = () => {
                       </div>
 
                       {currentUser?.role === "company_super_admin" &&
-                        client.expand?.employee_id && (
+                        client.employee && (
                           <div className="flex items-center gap-1 rtl:pr-3 pl-3 rtl:pl-0 rtl:border-r border-l rtl:border-l-0">
                             {t("Agent:")}{" "}
-                            {client.expand.employee_id.name ||
-                              client.expand.employee_id.email}
+                            {client.employee.name}
                           </div>
                         )}
                     </div>

@@ -19,12 +19,13 @@ import {
   Loader2,
 } from "lucide-react";
 import Link from "next/link";
-import pb from "@/lib/pocketbaseClient";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import { useTranslation } from "react-i18next";
 import StatusUpdateModal from "@/components/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/StatusHistoryDisplay";
-import type { Owner, Property, OwnerStatus } from "../types/pocketbase.types";
+import { useOwnerStatuses } from "@/hooks/queries/useOwners";
+import { useOwnerProperties } from "@/hooks/queries/useProperties";
+import type { Owner } from "@/types/supabase-entities.types";
 
 interface OwnerDetailModalProps {
   owner: Owner | null;
@@ -42,40 +43,18 @@ const OwnerDetailModal = ({
   const [activeTab, setActiveTab] = useState("info");
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
 
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [statuses, setStatuses] = useState<OwnerStatus[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const { data: propertiesData, isFetching: isLoading } = useOwnerProperties(
+    isOpen ? owner?.id : undefined,
+  );
+  const properties = propertiesData ?? [];
+  const { data: statusesData } = useOwnerStatuses(isOpen ? company?.id : undefined);
+  const statuses = statusesData ?? [];
 
   useEffect(() => {
-    if (owner && isOpen && company?.id) {
-      fetchOwnerData();
+    if (owner && isOpen) {
       setActiveTab("info");
     }
-  }, [owner, isOpen, company?.id]);
-
-  const fetchOwnerData = async () => {
-    if (!owner?.id) return;
-    setIsLoading(true);
-    try {
-      const statusesRes = await pb.collection("owner_statuses").getList(1, 50, {
-        filter: `company_id = "${company!.id}"`,
-        $autoCancel: false,
-        sort: "name",
-      });
-
-      const props = await pb.collection("properties").getFullList({
-        filter: `owner_id = "${owner.id}"`,
-        $autoCancel: false,
-      });
-
-      setProperties(props as unknown as Property[]);
-      setStatuses(statusesRes.items as unknown as OwnerStatus[]);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [owner, isOpen]);
 
   const handleStatusSuccess = () => {
     setHistoryRefreshTrigger((prev) => prev + 1);

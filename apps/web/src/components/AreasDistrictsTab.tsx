@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -45,12 +45,20 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Edit2, Trash2, Plus, Loader2, MapPin } from "lucide-react";
-import pb from "@/lib/pocketbaseClient";
 import { toast } from "sonner";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import { useTranslation } from "react-i18next";
-import { AreaDistrictSchema, type TAreaDistrictSchema } from "@/validations/area-district.schema";
-import type { BaseRecord } from "../types/pocketbase.types";
+import {
+  AreaDistrictSchema,
+  type TAreaDistrictSchema,
+} from "@/validations/area-district.schema";
+import type { AreaDistrict } from "@/types/supabase-entities.types";
+import {
+  useAreasDistricts,
+  useCreateAreaDistrict,
+  useUpdateAreaDistrict,
+  useDeleteAreaDistrict,
+} from "@/hooks/queries/useSettings";
 
 const EMIRATES = [
   "Dubai",
@@ -62,20 +70,19 @@ const EMIRATES = [
   "Fujairah",
 ];
 
-interface AreaDistrict extends BaseRecord {
-  name: string;
-  emirate: string;
-  description?: string;
-  company_id: string;
-}
-
 const AreasDistrictsTab = () => {
   const { currentUser, company } = useCompanyAuth();
   const { t } = useTranslation();
   const [selectedEmirate, setSelectedEmirate] = useState("Dubai");
-  const [areas, setAreas] = useState<AreaDistrict[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const companyId = currentUser?.company_id || company?.id;
+
+  const { data: areasData, isLoading } = useAreasDistricts(companyId, selectedEmirate);
+  const areas = areasData ?? [];
+
+  const createMutation = useCreateAreaDistrict();
+  const updateMutation = useUpdateAreaDistrict();
+  const deleteMutation = useDeleteAreaDistrict();
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   const [openDialog, setOpenDialog] = useState(false);
   const [editItem, setEditItem] = useState<AreaDistrict | null>(null);
@@ -85,119 +92,41 @@ const AreasDistrictsTab = () => {
     defaultValues: { name: "", description: "" },
   });
 
-  const fetchAreas = async () => {
-    const companyId = currentUser?.companyId || company?.id;
-    if (!companyId || !selectedEmirate) return;
-    setIsLoading(true);
-    try {
-      const res = await pb.collection("areas_districts").getList(1, 100, {
-        filter: `company_id="${companyId}" && emirate="${selectedEmirate}"`,
-        $autoCancel: false,
-        sort: "-created",
-      });
-      setAreas(res.items as unknown as AreaDistrict[]);
-    } catch (error) {
-      console.error(error);
-      toast.error(t("Failed to load areas & districts."));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAreas();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.companyId, company?.id, selectedEmirate]);
-
   const handleSave = form.handleSubmit(async (formData) => {
-    setIsSubmitting(true);
+    if (!companyId) return;
     try {
-      const companyId = currentUser?.companyId || company?.id;
+      const name = formData.name.trim();
+      const description = formData.description?.trim() || undefined;
 
-      const payload = {
-        name: String(formData.name).trim(),
-        emirate: String(selectedEmirate).trim(),
-        description: formData.description
-          ? String(formData.description).trim()
-          : "",
-        company_id: String(companyId).trim(),
-      };
-
-      console.log("--- DEBUG: EXACT REQUEST START ---");
-      console.log("Collection: areas_districts");
-      console.log(
-        "Endpoint URL:",
-        pb.baseUrl + "/api/collections/areas_districts/records",
-      );
-      console.log(
-        "Headers Authorization Token:",
-        pb.authStore.token
-          ? `Bearer ${pb.authStore.token.substring(0, 15)}...`
-          : "No Token Available",
-      );
-      console.log("Payload Data:", JSON.stringify(payload, null, 2));
-      console.log("--- DEBUG: EXACT REQUEST END ---");
-
-      let response;
       if (editItem) {
-        response = await pb
-          .collection("areas_districts")
-          .update(String(editItem.id), payload, { $autoCancel: false });
-        console.log("--- DEBUG: UPDATE RESPONSE ---", response);
+        const result = await updateMutation.mutateAsync({ id: editItem.id, name, description });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Area updated successfully."));
       } else {
-        response = await pb
-          .collection("areas_districts")
-          .create(payload, { $autoCancel: false });
-        console.log("--- DEBUG: CREATE RESPONSE ---", response);
+        const result = await createMutation.mutateAsync({
+          companyId,
+          emirate: selectedEmirate,
+          name,
+          description,
+        });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Area created successfully."));
       }
 
       setOpenDialog(false);
       resetForm();
-      fetchAreas();
-    } catch (err) {
-      const error = err as {
-        status?: number;
-        message?: string;
-        response?: { message?: string; data?: Record<string, unknown> };
-      };
-      console.error("--- DEBUG: ERROR START ---");
-      console.error("Error Status:", error.status);
-      console.error("Error Message:", error.message);
-      console.error(
-        "Error Response Data (Validation details):",
-        JSON.stringify(error.response?.data, null, 2),
-      );
-      console.error("Full Error Object:", error);
-      console.error("--- DEBUG: ERROR END ---");
-
-      const errorMsg =
-        error.response?.message ||
-        error.message ||
-        t("An error occurred while saving.");
-      const validationDetails =
-        error.response?.data && Object.keys(error.response.data).length > 0
-          ? JSON.stringify(error.response.data)
-          : "";
-
-      toast.error(`${errorMsg} ${validationDetails}`.trim());
-    } finally {
-      setIsSubmitting(false);
+    } catch (error) {
+      console.error(error);
+      toast.error((error as Error).message || t("An error occurred while saving."));
     }
   });
 
   const handleDelete = async (id: string) => {
-    if (
-      !window.confirm(t("Are you sure you want to delete this area/district?"))
-    )
-      return;
+    if (!window.confirm(t("Are you sure you want to delete this area/district?"))) return;
     try {
-      await pb
-        .collection("areas_districts")
-        .delete(String(id), { $autoCancel: false });
+      const result = await deleteMutation.mutateAsync(id);
+      if (result.error) throw new Error(result.error);
       toast.success(t("Area deleted successfully."));
-      fetchAreas();
     } catch (error) {
       console.error(error);
       toast.error(t("Failed to delete. It might be linked to properties."));

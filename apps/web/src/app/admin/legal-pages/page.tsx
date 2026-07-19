@@ -8,8 +8,8 @@ import { useTranslation } from 'react-i18next';
 import MasterAdminHeader from '@/components/MasterAdminHeader';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewModal from '@/components/PreviewModal';
-import pb from '@/lib/pocketbaseClient';
 import { useMasterAuth } from '@/contexts/MasterAuthContext';
+import { useLegalPages, useUpdateLegalPage } from '@/hooks/queries/useLegalPages';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Loader2, Eye, Save, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
-import type { LegalPage, LegalPageType } from '@/types/pocketbase.types';
+import type { LegalPageType } from '@/types/supabase-entities.types';
 import { LegalPageSchema, type TLegalPageSchema } from '@/validations/legal-page.schema';
 
 interface PreviewModalState {
@@ -32,13 +32,13 @@ const LegalPagesManagementPage = () => {
   const { t } = useTranslation();
   const { currentUser } = useMasterAuth();
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState({ privacy: false, terms: false });
+  const { data: pagesData, isLoading: loading } = useLegalPages();
+  const updateMutation = useUpdateLegalPage();
 
-  const [privacyId, setPrivacyId] = useState<string | null>(null);
-  const [privacyUpdated, setPrivacyUpdated] = useState<string | null>(null);
-  const [termsId, setTermsId] = useState<string | null>(null);
-  const [termsUpdated, setTermsUpdated] = useState<string | null>(null);
+  const privacy = pagesData?.find((r) => r.page_type === 'privacy_policy');
+  const terms = pagesData?.find((r) => r.page_type === 'terms_of_service');
+
+  const [saving, setSaving] = useState({ privacy: false, terms: false });
 
   const privacyForm = useForm<TLegalPageSchema>({
     resolver: zodResolver(LegalPageSchema(t)),
@@ -52,86 +52,53 @@ const LegalPagesManagementPage = () => {
   const [previewModal, setPreviewModal] = useState<PreviewModalState>({ isOpen: false, title: '', content: '' });
 
   useEffect(() => {
-    fetchPages();
-  }, []);
-
-  const fetchPages = async () => {
-    try {
-      const records = await pb.collection('legal_pages').getFullList<LegalPage>({
-        $autoCancel: false
-      });
-
-      const privacy = records.find(r => r.page_type === 'privacy_policy');
-      if (privacy) {
-        setPrivacyId(privacy.id);
-        setPrivacyUpdated(privacy.updated);
-        privacyForm.reset({ title: privacy.title, content: privacy.content });
-      }
-
-      const terms = records.find(r => r.page_type === 'terms_of_service');
-      if (terms) {
-        setTermsId(terms.id);
-        setTermsUpdated(terms.updated);
-        termsForm.reset({ title: terms.title, content: terms.content });
-      }
-    } catch (err) {
-      console.error("Error fetching legal pages:", err);
-      toast.error(t('Failed to load legal pages.'));
-    } finally {
-      setLoading(false);
+    if (privacy) {
+      privacyForm.reset({ title: privacy.title, content: privacy.content });
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [privacy?.id, privacy?.updated_at]);
+
+  useEffect(() => {
+    if (terms) {
+      termsForm.reset({ title: terms.title, content: terms.content });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terms?.id, terms?.updated_at]);
 
   const saveLegalPage = async (
     type: LegalPageType,
-    id: string | null,
+    id: string | undefined,
     data: TLegalPageSchema,
   ) => {
+    if (!id) return;
     const isPrivacy = type === 'privacy_policy';
     const stateKey: 'privacy' | 'terms' = isPrivacy ? 'privacy' : 'terms';
 
-    setSaving(prev => ({ ...prev, [stateKey]: true }));
+    setSaving((prev) => ({ ...prev, [stateKey]: true }));
 
     try {
-      const payload = {
+      const result = await updateMutation.mutateAsync({
+        id,
         title: data.title,
-        content: data.content
-      };
-
-      // Note: We omit updated_by here if currentUser.id is from master_admins
-      // and the collection expects a user from _pb_users_auth_ to prevent FK errors.
-      // If we *must* send it, we try, but catch the error if relation fails.
-      try {
-        await pb.collection('legal_pages').update(id as string, {
-          ...payload,
-          updated_by: currentUser?.id
-        }, { $autoCancel: false });
-      } catch (updateErr: any) {
-        if (updateErr.status === 400) {
-          // Fallback without updated_by if relation fails
-          await pb.collection('legal_pages').update(id as string, payload, { $autoCancel: false });
-        } else {
-          throw updateErr;
-        }
-      }
+        content: data.content,
+        updatedBy: currentUser?.id ?? null,
+      });
+      if (result.error) throw new Error(result.error);
 
       toast.success(t('Content saved successfully.'));
-
-      // Refresh to get updated timestamp
-      fetchPages();
     } catch (err) {
-      console.error("Error saving legal page:", err);
+      console.error('Error saving legal page:', err);
       toast.error(t('Failed to save content.'));
     } finally {
-      setSaving(prev => ({ ...prev, [stateKey]: false }));
+      setSaving((prev) => ({ ...prev, [stateKey]: false }));
     }
   };
 
   const handleSavePrivacy = privacyForm.handleSubmit((data) =>
-    saveLegalPage('privacy_policy', privacyId, data),
+    saveLegalPage('privacy_policy', privacy?.id, data),
   );
   const handleSaveTerms = termsForm.handleSubmit((data) =>
-    saveLegalPage('terms_of_service', termsId, data),
+    saveLegalPage('terms_of_service', terms?.id, data),
   );
 
   const openPreview = (title: string, content: string) => {
@@ -179,9 +146,9 @@ const LegalPagesManagementPage = () => {
                       <div>
                         <CardTitle>{t('Privacy Policy Editor')}</CardTitle>
                         <CardDescription>
-                          {privacyUpdated && (
+                          {privacy?.updated_at && (
                             <span className="flex items-center gap-1.5 mt-1 text-xs">
-                              {t('Last updated:')} {format(new Date(privacyUpdated), 'MMM d, yyyy HH:mm')}
+                              {t('Last updated:')} {format(new Date(privacy.updated_at), 'MMM d, yyyy HH:mm')}
                             </span>
                           )}
                         </CardDescription>
@@ -196,7 +163,7 @@ const LegalPagesManagementPage = () => {
                         </Button>
                         <Button
                           onClick={handleSavePrivacy}
-                          disabled={saving.privacy || !privacyId}
+                          disabled={saving.privacy || !privacy}
                           className="gap-2"
                         >
                           {saving.privacy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -206,7 +173,7 @@ const LegalPagesManagementPage = () => {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    {!privacyId && (
+                    {!privacy && (
                       <div className="bg-destructive/10 text-destructive p-4 rounded-lg flex items-start gap-3">
                         <AlertCircle className="h-5 w-5 mt-0.5" />
                         <div>
@@ -227,7 +194,7 @@ const LegalPagesManagementPage = () => {
                               id="privacy-title"
                               placeholder={t('e.g., Privacy Policy')}
                               className="max-w-md bg-background"
-                              disabled={!privacyId}
+                              disabled={!privacy}
                               {...field}
                             />
                           </FormControl>
@@ -242,7 +209,7 @@ const LegalPagesManagementPage = () => {
                       render={({ field }) => (
                         <FormItem className="space-y-2">
                           <Label>{t('Page Content')}</Label>
-                          <div className={!privacyId ? 'opacity-50 pointer-events-none' : ''}>
+                          <div className={!privacy ? 'opacity-50 pointer-events-none' : ''}>
                             <FormControl>
                               <RichTextEditor
                                 content={field.value}
@@ -269,9 +236,9 @@ const LegalPagesManagementPage = () => {
                       <div>
                         <CardTitle>{t('Terms of Service Editor')}</CardTitle>
                         <CardDescription>
-                          {termsUpdated && (
+                          {terms?.updated_at && (
                             <span className="flex items-center gap-1.5 mt-1 text-xs">
-                              {t('Last updated:')} {format(new Date(termsUpdated), 'MMM d, yyyy HH:mm')}
+                              {t('Last updated:')} {format(new Date(terms.updated_at), 'MMM d, yyyy HH:mm')}
                             </span>
                           )}
                         </CardDescription>
@@ -286,7 +253,7 @@ const LegalPagesManagementPage = () => {
                         </Button>
                         <Button
                           onClick={handleSaveTerms}
-                          disabled={saving.terms || !termsId}
+                          disabled={saving.terms || !terms}
                           className="gap-2"
                         >
                           {saving.terms ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -296,7 +263,7 @@ const LegalPagesManagementPage = () => {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    {!termsId && (
+                    {!terms && (
                       <div className="bg-destructive/10 text-destructive p-4 rounded-lg flex items-start gap-3">
                         <AlertCircle className="h-5 w-5 mt-0.5" />
                         <div>
@@ -317,7 +284,7 @@ const LegalPagesManagementPage = () => {
                               id="terms-title"
                               placeholder={t('e.g., Terms of Service')}
                               className="max-w-md bg-background"
-                              disabled={!termsId}
+                              disabled={!terms}
                               {...field}
                             />
                           </FormControl>
@@ -332,7 +299,7 @@ const LegalPagesManagementPage = () => {
                       render={({ field }) => (
                         <FormItem className="space-y-2">
                           <Label>{t('Page Content')}</Label>
-                          <div className={!termsId ? 'opacity-50 pointer-events-none' : ''}>
+                          <div className={!terms ? 'opacity-50 pointer-events-none' : ''}>
                             <FormControl>
                               <RichTextEditor
                                 content={field.value}

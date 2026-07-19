@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Helmet } from 'react-helmet';
 import Link from 'next/link';
 import { useTranslation } from 'react-i18next';
@@ -13,9 +13,9 @@ import FollowUpCalendarWidget from '@/components/FollowUpCalendarWidget';
 import ClientPipelineWidget from '@/components/ClientPipelineWidget';
 import ClientsBySourceWidget from '@/components/ClientsBySourceWidget';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
-import pb from '@/lib/pocketbaseClient';
+import { useCompanyOperationsStats } from '@/hooks/queries/useProperties';
+import { useBaseEmployee } from '@/hooks/queries/useEmployees';
 import { Building2, Home, Key, Users, Briefcase, Settings, ArrowRight, type LucideIcon } from 'lucide-react';
-import { toast } from 'sonner';
 
 interface StatCardProps {
   title: string;
@@ -46,97 +46,25 @@ const StatCard = ({ title, value, icon: Icon, loading, colorClass = "text-primar
 const CompanyDashboardPage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
-  const [stats, setStats] = useState({
+
+  const isSuperAdmin = currentUser?.role === 'company_super_admin';
+
+  const { data: statsData, isLoading: loading } = useCompanyOperationsStats(company?.id);
+  const stats = statsData ?? {
     propertiesRent: 0,
     propertiesSale: 0,
     clients: 0,
     owners: 0,
-    employees: 0
-  });
-  const [loading, setLoading] = useState(true);
-  const [roleLoading, setRoleLoading] = useState(true);
-  const [canViewAdvancedStats, setCanViewAdvancedStats] = useState(false);
+    employees: 0,
+  };
 
-  const isSuperAdmin = currentUser?.role === 'company_super_admin';
+  const { data: employeeRecord, isLoading: employeeLoading } = useBaseEmployee(
+    !isSuperAdmin ? (currentUser?.employee_id ?? undefined) : undefined,
+  );
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      if (!company?.id) return;
-      try {
-        setLoading(true);
-        const [propRent, propSale, clients, owners, employees] = await Promise.all([
-          pb.collection('properties').getList(1, 1, { filter: `company_id = "${company.id}" && listing_type = "Rent"`, $autoCancel: false }),
-          pb.collection('properties').getList(1, 1, { filter: `company_id = "${company.id}" && listing_type = "Sale"`, $autoCancel: false }),
-          pb.collection('clients').getList(1, 1, { filter: `company_id = "${company.id}"`, $autoCancel: false }),
-          pb.collection('owners').getList(1, 1, { filter: `company_id = "${company.id}"`, $autoCancel: false }),
-          pb.collection('company_employees').getList(1, 1, { filter: `companyId = "${company.id}"`, $autoCancel: false })
-        ]);
-
-        setStats({
-          propertiesRent: propRent.totalItems,
-          propertiesSale: propSale.totalItems,
-          clients: clients.totalItems,
-          owners: owners.totalItems,
-          employees: employees.totalItems
-        });
-      } catch (err) {
-        console.error(err);
-        toast.error(t('Failed to load dashboard statistics.'));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStats();
-  }, [company?.id, t]);
-
-  useEffect(() => {
-    const checkRoleAccess = async () => {
-      if (!currentUser) {
-        setRoleLoading(false);
-        return;
-      }
-
-      try {
-        setRoleLoading(true);
-
-        // Super admins have access by default
-        if (currentUser.collectionName === 'company_super_admins') {
-          setCanViewAdvancedStats(true);
-          return;
-        }
-
-        // Fetch employee record to check job_title
-        let employeeRecord;
-        try {
-          // Utilizing employeeId if it exists as per schema, fallback to user_id just in case
-          const employeeId = currentUser.employeeId as string | undefined;
-          if (employeeId) {
-            employeeRecord = await pb.collection('employees').getOne(employeeId, { $autoCancel: false });
-          } else {
-            employeeRecord = await pb.collection('employees').getFirstListItem(`user_id="${currentUser.id}"`, { $autoCancel: false });
-          }
-        } catch (err) {
-          console.error('Error fetching employee details for RBAC:', err);
-        }
-
-        if (employeeRecord) {
-          const title = employeeRecord.job_title;
-          if (title === 'مدير' || title === 'مسؤول') {
-            setCanViewAdvancedStats(true);
-          } else {
-            setCanViewAdvancedStats(false);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to verify role permissions', err);
-      } finally {
-        setRoleLoading(false);
-      }
-    };
-
-    checkRoleAccess();
-  }, [currentUser]);
+  const roleLoading = !currentUser || (!isSuperAdmin && employeeLoading);
+  const canViewAdvancedStats =
+    isSuperAdmin || employeeRecord?.job_title === 'manager' || employeeRecord?.job_title === 'admin';
 
   return (
     <>
@@ -151,7 +79,7 @@ const CompanyDashboardPage = () => {
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 bg-card p-6 rounded-2xl border shadow-sm">
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-foreground font-outfit">{t('Dashboard Overview')}</h1>
-              <p className="text-muted-foreground mt-1">{t("Welcome back")}. {t("Here's a summary of operations at")} <span className="font-semibold text-foreground/80">{company?.companyName}</span>.</p>
+              <p className="text-muted-foreground mt-1">{t("Welcome back")}. {t("Here's a summary of operations at")} <span className="font-semibold text-foreground/80">{company?.company_name}</span>.</p>
             </div>
             {isSuperAdmin && (
               <Link href="/settings">

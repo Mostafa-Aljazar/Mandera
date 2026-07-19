@@ -4,7 +4,17 @@ import React, { useState, useEffect } from "react";
 import { Helmet } from "react-helmet";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
-import pb from "@/lib/pocketbaseClient";
+import {
+  useClients,
+  useClientStatuses,
+  useClientStatusHistory,
+  useCreateClient,
+  useUpdateClient,
+  useBulkAssignClients,
+  getClientsExportData,
+} from "@/hooks/queries/useClients";
+import { useProperties, useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
+import { useMarketingChannels } from "@/hooks/queries/useOwners";
 import CompanyAdminHeader from "@/components/CompanyAdminHeader";
 import ClientDetailModal from "@/components/ClientDetailModal";
 import FilterPanel from "@/components/FilterPanel";
@@ -44,13 +54,13 @@ import { format, isBefore } from "date-fns";
 import { toast } from "sonner";
 import { generateCSV, downloadCSV } from "@/utils/csvExport";
 import type {
-  Client,
+  ClientWithRelations as Client,
   CompanyEmployee,
-  Property,
+  PropertyWithRelations as Property,
   ClientStatus,
   ClientStatusHistory,
   MarketingChannelRecord,
-} from "../../types/pocketbase.types";
+} from "@/types/supabase-entities.types";
 
 // Mirrors ClientDetailModal's internal ClientFormData shape so the
 // onSaveInfo callback prop is structurally compatible.
@@ -78,17 +88,6 @@ const ClientsPage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
 
-  const [clients, setClients] = useState<Client[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [statuses, setStatuses] = useState<ClientStatus[]>([]);
-  const [history, setHistory] = useState<ClientStatusHistory[]>([]);
-  const [marketingChannels, setMarketingChannels] = useState<
-    MarketingChannelRecord[]
-  >([]);
-
   const [activeClient, setActiveClient] = useState<Client | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -107,153 +106,66 @@ const ClientsPage = () => {
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
-  const fetchData = async () => {
-    if (!company?.id || !currentUser?.id) return;
-
-    setIsLoading(true);
-    try {
-      const [emp, prop, stat, mchRes] = await Promise.all([
-        pb
-          .collection("company_employees")
-          .getFullList<CompanyEmployee>({
-            filter: `companyId = "${company.id}"`,
-            $autoCancel: false,
-          }),
-        pb
-          .collection("properties")
-          .getFullList<Property>({
-            filter: `company_id = "${company.id}"`,
-            $autoCancel: false,
-          }),
-        pb
-          .collection("client_statuses")
-          .getFullList<ClientStatus>({
-            filter: `company_id = "${company.id}"`,
-            sort: "created",
-            $autoCancel: false,
-          }),
-        pb
-          .collection("marketing_channels")
-          .getFullList<MarketingChannelRecord>({
-            filter: `company_id="${company.id}"`,
-            $autoCancel: false,
-          }),
-      ]);
-
-      setEmployees(emp);
-      setProperties(prop);
-      setStatuses(stat);
-      setMarketingChannels(mchRes);
-
-      let filterParts = [`company_id = "${company.id}"`];
-
-      // Strict data filtering based on employee role
-      if (currentUser.role === "company_employee") {
-        filterParts.push(`employee_id = "${currentUser.id}"`);
-      } else if (filterState.employeeId) {
-        filterParts.push(`employee_id = "${filterState.employeeId}"`);
-      }
-
-      if (filterState.marketingChannel) {
-        filterParts.push(
-          `marketing_channel = "${filterState.marketingChannel}"`,
-        );
-      }
-
-      if (filterState.createdFromDate) {
-        const d = new Date(filterState.createdFromDate);
-        d.setHours(0, 0, 0, 0);
-        filterParts.push(`created >= "${d.toISOString().replace("T", " ")}"`);
-      }
-      if (filterState.createdToDate) {
-        const d = new Date(filterState.createdToDate);
-        d.setHours(23, 59, 59, 999);
-        filterParts.push(`created <= "${d.toISOString().replace("T", " ")}"`);
-      }
-      if (filterState.updatedFromDate) {
-        const d = new Date(filterState.updatedFromDate);
-        d.setHours(0, 0, 0, 0);
-        filterParts.push(`updated >= "${d.toISOString().replace("T", " ")}"`);
-      }
-      if (filterState.updatedToDate) {
-        const d = new Date(filterState.updatedToDate);
-        d.setHours(23, 59, 59, 999);
-        filterParts.push(`updated <= "${d.toISOString().replace("T", " ")}"`);
-      }
-
-      const finalFilter = filterParts.join(" && ");
-
-      const fetchedClients = await pb
-        .collection("clients")
-        .getFullList<Client>({
-          filter: finalFilter,
-          expand: "employee_id,interested_properties",
-          sort: "-created",
-          $autoCancel: false,
-        });
-
-      // If status filter is applied, we fetch the status history in parallel
-      // to determine the *latest* status for each client
-      let allHistories: ClientStatusHistory[] | null = null;
-      if (filterState.statusId) {
-        allHistories = await pb
-          .collection("client_status_history")
-          .getFullList<ClientStatusHistory>({
-            filter: `company_id = "${company.id}"`,
-            sort: "-created",
-            fields: "client_id,status_id",
-            $autoCancel: false,
-          });
-      }
-
-      let processedClients = fetchedClients;
-
-      if (filterState.statusId && allHistories) {
-        const latestStatusMap: Record<string, string> = {};
-        for (const h of allHistories) {
-          // Since history is sorted by -created, the first one encountered is the latest
-          if (!latestStatusMap[h.client_id]) {
-            latestStatusMap[h.client_id] = h.status_id;
-          }
-        }
-
-        processedClients = processedClients.filter(
-          (c) => latestStatusMap[c.id] === filterState.statusId,
-        );
-      }
-
-      setClients(processedClients);
-    } catch (err) {
-      console.error(err);
-      toast.error(t("Failed to load clients data."));
-    } finally {
-      setIsLoading(false);
-    }
+  const clientFilters = {
+    employeeId:
+      currentUser?.role === "company_employee"
+        ? currentUser.id
+        : filterState.employeeId || undefined,
+    statusId: filterState.statusId || undefined,
+    marketingChannel: filterState.marketingChannel || undefined,
+    createdFrom: filterState.createdFromDate
+      ? (() => {
+          const d = new Date(filterState.createdFromDate!);
+          d.setHours(0, 0, 0, 0);
+          return d.toISOString();
+        })()
+      : undefined,
+    createdTo: filterState.createdToDate
+      ? (() => {
+          const d = new Date(filterState.createdToDate!);
+          d.setHours(23, 59, 59, 999);
+          return d.toISOString();
+        })()
+      : undefined,
+    updatedFrom: filterState.updatedFromDate
+      ? (() => {
+          const d = new Date(filterState.updatedFromDate!);
+          d.setHours(0, 0, 0, 0);
+          return d.toISOString();
+        })()
+      : undefined,
+    updatedTo: filterState.updatedToDate
+      ? (() => {
+          const d = new Date(filterState.updatedToDate!);
+          d.setHours(23, 59, 59, 999);
+          return d.toISOString();
+        })()
+      : undefined,
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [company?.id, currentUser?.id, filterState, t]);
+  const { data: clientsData, isLoading, refetch: refetchClients } = useClients(
+    company?.id,
+    clientFilters,
+  );
+  const clients = clientsData ?? [];
+  const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
+  const employees = employeesData ?? [];
+  const { data: propertiesData } = useProperties(company?.id);
+  const properties = propertiesData ?? [];
+  const { data: statusesData } = useClientStatuses(company?.id);
+  const statuses = statusesData ?? [];
+  const { data: marketingChannelsData } = useMarketingChannels(company?.id);
+  const marketingChannels = marketingChannelsData ?? [];
+  const { data: historyData } = useClientStatusHistory(
+    isModalOpen ? activeClient?.id : undefined,
+  );
+  const history = historyData ?? [];
 
-  const loadHistory = async (clientId: string | null | undefined) => {
-    if (!clientId) {
-      setHistory([]);
-      return;
-    }
-    try {
-      const hist = await pb
-        .collection("client_status_history")
-        .getFullList<ClientStatusHistory>({
-          filter: `client_id = "${clientId}"`,
-          expand: "status_id,created_by",
-          sort: "-created",
-          $autoCancel: false,
-        });
-      setHistory(hist);
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  const createClientMutation = useCreateClient();
+  const updateClientMutation = useUpdateClient();
+  const bulkAssignMutation = useBulkAssignClients();
+
+  const fetchData = () => refetchClients();
 
   const handleExportCSV = async () => {
     if (clients.length === 0) {
@@ -263,50 +175,29 @@ const ClientsPage = () => {
 
     const loadingToast = toast.loading(t("Exporting CSV..."));
     try {
-      // Fetch status histories in bulk to map statuses correctly
-      const histories = await pb
-        .collection("client_status_history")
-        .getFullList<
-          ClientStatusHistory & { expand?: { status_id?: ClientStatus } }
-        >({
-          filter: `company_id="${company?.id}"`,
-          sort: "-created",
-          expand: "status_id",
-          $autoCancel: false,
-        });
-
-      const statusMap: Record<
-        string,
-        ClientStatusHistory & { expand?: { status_id?: ClientStatus } }
-      > = {};
-      histories.forEach((h) => {
-        if (!statusMap[h.client_id]) statusMap[h.client_id] = h;
-      });
+      const result = await getClientsExportData(company!.id);
+      if (result.error) throw new Error(result.error);
+      const rows = result.data;
 
       const headers = [
         "اسم العميل",
         "رقم الهاتف",
-        "البريد الإلكتروني",
         "الموظف المسؤول",
         "قناة التسويق",
         "الحالة",
         "تاريخ الإنشاء",
       ];
       const columns = [
-        (c: Client) => c.name || "",
-        (c: Client) => c.phone || "",
-        (c: Client & { email?: string }) => c.email || "N/A",
-        (c: Client) =>
-          c.expand?.employee_id?.name ||
-          c.expand?.employee_id?.email ||
-          "غير مسند",
-        (c: Client) => c.marketing_channel || "",
-        (c: Client) => statusMap[c.id]?.expand?.status_id?.name || "بدون حالة",
-        (c: Client) =>
-          c.created ? format(new Date(c.created), "dd/MM/yyyy") : "",
+        (c: (typeof rows)[number]) => c.name || "",
+        (c: (typeof rows)[number]) => c.phone || "",
+        (c: (typeof rows)[number]) => c.employee_name || "غير مسند",
+        (c: (typeof rows)[number]) => c.marketing_channel || "",
+        (c: (typeof rows)[number]) => c.status_name || "بدون حالة",
+        (c: (typeof rows)[number]) =>
+          c.created_at ? format(new Date(c.created_at), "dd/MM/yyyy") : "",
       ];
 
-      const csvString = generateCSV(clients, columns, headers);
+      const csvString = generateCSV(rows, columns, headers);
       downloadCSV(csvString, `clients_${format(new Date(), "yyyy-MM-dd")}.csv`);
       toast.success(t("Exported successfully"), { id: loadingToast });
     } catch (err) {
@@ -317,102 +208,37 @@ const ClientsPage = () => {
 
   const handleOpenModal = (client: Client | null = null) => {
     setActiveClient(client);
-    if (client) loadHistory(client.id);
-    else setHistory([]);
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setActiveClient(null);
-    setHistory([]);
   };
 
   const handleSaveClientInfo = async (formData: ClientSaveFormData) => {
     setIsSubmitting(true);
     try {
-      const payload: Record<string, unknown> = {
-        ...formData,
-        company_id: company!.id,
-      };
-
-      if (!payload.marketing_channel) {
-        delete payload.marketing_channel;
-      }
-
-      console.log("--- DEBUG: ClientsPage EXACT REQUEST START ---");
-      console.log(
-        `Collection: clients | Operation: ${activeClient?.id ? "update" : "create"}`,
-      );
-      console.log("Auth token present:", !!pb.authStore.token);
-      console.log("Payload:", JSON.stringify(payload, null, 2));
-
-      let savedClient: Client;
       if (activeClient?.id) {
-        try {
-          savedClient = await pb
-            .collection("clients")
-            .update<Client>(activeClient.id, payload, {
-              expand: "employee_id,interested_properties",
-              $autoCancel: false,
-            });
-          console.log("Success:", savedClient.id);
-          toast.success(t("Client updated successfully."));
-        } catch (updateErr: any) {
-          console.error(
-            "PocketBase Error:",
-            updateErr.status,
-            updateErr.message,
-            updateErr.response,
-          );
-          throw updateErr;
-        }
+        const result = await updateClientMutation.mutateAsync({
+          id: activeClient.id,
+          ...formData,
+        });
+        if (result.error) throw new Error(result.error);
+        setActiveClient(result.data as unknown as Client);
+        toast.success(t("Client updated successfully."));
       } else {
-        try {
-          savedClient = await pb
-            .collection("clients")
-            .create<Client>(payload, {
-              expand: "employee_id,interested_properties",
-              $autoCancel: false,
-            });
-          console.log("Success:", savedClient.id);
-          toast.success(t("Client created successfully."));
-        } catch (createErr: any) {
-          console.error(
-            "PocketBase Client Create Error:",
-            createErr.status,
-            createErr.message,
-            createErr.response,
-          );
-          if (createErr.status === 400 || createErr.status === 403) {
-            throw new Error(
-              t(
-                "Permission denied or validation failed. Ensure you are allowed to create clients for this employee.",
-              ),
-            );
-          }
-          throw createErr;
-        }
+        const result = await createClientMutation.mutateAsync({
+          companyId: company!.id,
+          ...formData,
+        });
+        if (result.error) throw new Error(result.error);
+        setActiveClient(result.data as unknown as Client);
+        toast.success(t("Client created successfully."));
       }
-      setActiveClient(savedClient);
-      fetchData();
     } catch (err: any) {
-      console.error(
-        "PocketBase Client Save Error details:",
-        err.response || err,
-      );
-      let errorMsg = err.message || t("Error saving client.");
-
-      if (err.response?.data) {
-        const fieldErrors = Object.entries(err.response.data)
-          .map(([k, v]: [string, any]) => `${k}: ${v.message}`)
-          .join(", ");
-        if (fieldErrors) errorMsg += ` (${fieldErrors})`;
-      } else if (err.response?.message) {
-        errorMsg = err.response.message;
-      }
-
-      toast.error(errorMsg);
+      console.error("Client Save Error details:", err);
+      toast.error(err.message || t("Error saving client."));
     } finally {
       setIsSubmitting(false);
     }
@@ -436,65 +262,15 @@ const ClientsPage = () => {
     statusId?: string | null;
   }) => {
     try {
-      const selectedClientsData = clients.filter((c) =>
-        selectedClientIds.includes(c.id),
-      );
-      const newEmployee = employees.find((e) => e.id === employeeId);
-
-      for (const client of selectedClientsData) {
-        await pb.collection("clients").update(
-          client.id,
-          {
-            employee_id: employeeId,
-          },
-          { $autoCancel: false },
-        );
-
-        let resolvedStatusId = statusId;
-
-        if (!resolvedStatusId) {
-          try {
-            const latestHistory = await pb
-              .collection("client_status_history")
-              .getFirstListItem<ClientStatusHistory>(
-                `client_id="${client.id}"`,
-                {
-                  sort: "-created",
-                  $autoCancel: false,
-                },
-              );
-            resolvedStatusId = latestHistory.status_id;
-          } catch (err) {
-            resolvedStatusId = statuses.length > 0 ? statuses[0].id : null;
-          }
-        }
-
-        if (resolvedStatusId) {
-          const oldEmpName =
-            client.expand?.employee_id?.name ||
-            client.expand?.employee_id?.email ||
-            "Unassigned";
-          const newEmpName =
-            newEmployee?.name || newEmployee?.email || "Unknown";
-          const adminName = currentUser?.name || currentUser?.email || "Admin";
-
-          const note = `Transferred from ${oldEmpName} to ${newEmpName} by ${adminName}`;
-
-          await pb.collection("client_status_history").create(
-            {
-              client_id: client.id,
-              status_id: resolvedStatusId,
-              note: note,
-              created_by: currentUser!.id,
-              created_by_name: adminName,
-              company_id: company!.id,
-              transferred_from_employee: client.employee_id,
-              transferred_to_employee: employeeId,
-            },
-            { $autoCancel: false },
-          );
-        }
-      }
+      const result = await bulkAssignMutation.mutateAsync({
+        clientIds: selectedClientIds,
+        employeeId,
+        statusId,
+        companyId: company!.id,
+        createdByUserId: currentUser!.id,
+        createdByName: currentUser?.name || currentUser?.id || "Admin",
+      });
+      if (result.error) throw new Error(result.error);
 
       toast.success(
         t("Successfully reassigned clients.", {
@@ -503,7 +279,6 @@ const ClientsPage = () => {
       );
       setSelectedClientIds([]);
       setIsBulkModalOpen(false);
-      fetchData();
     } catch (error) {
       console.error(error);
       toast.error(
@@ -588,7 +363,7 @@ const ClientsPage = () => {
                     <SelectItem value="all">{t("All Employees")}</SelectItem>
                     {employees.map((emp) => (
                       <SelectItem key={emp.id} value={emp.id}>
-                        {emp.name || emp.email}
+                        {emp.name || emp.id}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -743,7 +518,7 @@ const ClientsPage = () => {
                           </h3>
                           <div className="flex items-center gap-1 text-muted-foreground text-xs">
                             <User className="w-3 h-3" /> {t("Agent")}:{" "}
-                            {c.expand?.employee_id?.name || t("Unassigned")}
+                            {c.employee?.name || t("Unassigned")}
                           </div>
                         </div>
                       </div>
@@ -809,7 +584,6 @@ const ClientsPage = () => {
             onClose={handleCloseModal}
             onSaveInfo={handleSaveClientInfo}
             onStatusAdded={() => {
-              loadHistory(activeClient?.id);
               fetchData();
             }}
             properties={properties}

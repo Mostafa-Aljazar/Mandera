@@ -3,6 +3,7 @@
 import * as React from "react"
 import RPNInput, { type Value as RPNValue } from "react-phone-number-input"
 import flags from "react-phone-number-input/flags"
+import "react-phone-number-input/style.css"
 
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
@@ -17,7 +18,14 @@ export interface PhoneInputProps
 
 const PhoneNumberInput = React.forwardRef<HTMLInputElement, React.ComponentPropsWithoutRef<"input">>(
   ({ className, ...props }, ref) => (
-    <Input ref={ref} className={cn("rounded-s-none", className)} {...props} />
+    <Input
+      ref={ref}
+      className={cn(
+        "border-0 rounded-none shadow-none bg-transparent focus-visible:ring-0",
+        className,
+      )}
+      {...props}
+    />
   )
 )
 PhoneNumberInput.displayName = "PhoneNumberInput"

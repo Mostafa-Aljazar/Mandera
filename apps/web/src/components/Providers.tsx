@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, ReactNode } from 'react';
+import React, { useEffect, useState, ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import '@/config/i18n'; // Initialize i18n before any context that uses it
 import { Toaster } from '@/components/ui/sonner';
@@ -20,16 +21,20 @@ function TitleSync() {
 }
 
 export default function Providers({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient());
+
   return (
-    <LanguageProvider>
-      <MasterAuthProvider>
-        <CompanyAuthProvider>
-          <TitleSync />
-          <ScrollToTop />
-          {children}
-          <Toaster />
-        </CompanyAuthProvider>
-      </MasterAuthProvider>
-    </LanguageProvider>
+    <QueryClientProvider client={queryClient}>
+      <LanguageProvider>
+        <MasterAuthProvider>
+          <CompanyAuthProvider>
+            <TitleSync />
+            <ScrollToTop />
+            {children}
+            <Toaster />
+          </CompanyAuthProvider>
+        </MasterAuthProvider>
+      </LanguageProvider>
+    </QueryClientProvider>
   );
 }

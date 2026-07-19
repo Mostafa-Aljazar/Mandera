@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { Helmet } from 'react-helmet';
 import { Button } from '@/components/ui/button';
@@ -8,12 +8,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import MasterAdminHeader from '@/components/MasterAdminHeader';
-import pb from '@/lib/pocketbaseClient';
+import {
+  useCompanies,
+  useToggleCompanyFreeze,
+  useDeleteCompanyCascade,
+} from '@/hooks/queries/useCompanies';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Building2, Lock, Unlock, Loader2 } from 'lucide-react';
 import { useEmployeeCount } from '@/hooks/useEmployeeCount';
 import { useTranslation } from 'react-i18next';
-import type { Company } from '@/types/pocketbase.types';
+import type { Company } from '@/types/supabase-entities.types';
 
 interface CompanyRowProps {
   company: Company;
@@ -27,7 +31,7 @@ const CompanyRow = ({ company, onDelete, onToggleFreeze }: CompanyRowProps) => {
 
   return (
     <TableRow>
-      <TableCell className="font-medium">{company.companyName || company.companyCode}</TableCell>
+      <TableCell className="font-medium">{company.company_name || company.company_code}</TableCell>
       <TableCell className="text-muted-foreground">{company.email}</TableCell>
       <TableCell>
         <span className="font-semibold">{employeeCount}</span>
@@ -44,7 +48,7 @@ const CompanyRow = ({ company, onDelete, onToggleFreeze }: CompanyRowProps) => {
         )}
       </TableCell>
       <TableCell className="text-muted-foreground text-sm">
-        {new Date(company.created).toLocaleDateString()}
+        {new Date(company.created_at).toLocaleDateString()}
       </TableCell>
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-1">
@@ -78,8 +82,6 @@ const CompanyRow = ({ company, onDelete, onToggleFreeze }: CompanyRowProps) => {
 
 const CompanyListPage = () => {
   const { t } = useTranslation();
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(true);
 
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; company: Company | null }>({ open: false, company: null });
   const [freezeDialog, setFreezeDialog] = useState<{ open: boolean; company: Company | null }>({ open: false, company: null });
@@ -87,76 +89,20 @@ const CompanyListPage = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isFreezing, setIsFreezing] = useState(false);
 
-  const fetchCompanies = async () => {
-    try {
-      setLoading(true);
-      const records = await pb.collection('companies').getFullList<Company>({
-        sort: '-created',
-        $autoCancel: false
-      });
-      setCompanies(records);
-    } catch (error) {
-      console.error('Error fetching companies:', error);
-      toast.error(t('Failed to load companies'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchCompanies();
-  }, []);
-
-  const cascadeDeleteCompany = async (companyId: string) => {
-    const collectionsToClear = [
-      { name: 'client_status_history', field: 'company_id' },
-      { name: 'owner_status_history', field: 'company_id' },
-      { name: 'property_status_history', field: 'company_id' },
-      { name: 'revenues', field: 'company_id' },
-      { name: 'clients', field: 'company_id' },
-      { name: 'properties', field: 'company_id' },
-      { name: 'owners', field: 'company_id' },
-      { name: 'client_statuses', field: 'company_id' },
-      { name: 'owner_statuses', field: 'company_id' },
-      { name: 'property_types', field: 'company_id' },
-      { name: 'areas_districts', field: 'company_id' },
-      { name: 'company_employees', field: 'companyId' },
-      { name: 'company_super_admins', field: 'companyId' },
-      { name: 'employees', field: 'companyId' }
-    ];
-
-    for (const { name, field } of collectionsToClear) {
-      try {
-        const records = await pb.collection(name).getFullList({
-          filter: `${field}="${companyId}"`,
-          $autoCancel: false
-        });
-
-        // Delete records in chunks/parallel
-        if (records.length > 0) {
-          await Promise.all(records.map(record =>
-            pb.collection(name).delete(record.id, { $autoCancel: false })
-          ));
-        }
-      } catch (err) {
-        console.warn(`Could not clear related collection ${name}:`, err);
-        // Continue attempting to delete other collections
-      }
-    }
-
-    // Finally delete the company itself
-    await pb.collection('companies').delete(companyId, { $autoCancel: false });
-  };
+  const { data: companiesData, isLoading: loading } = useCompanies();
+  const companies = companiesData ?? [];
+  const toggleFreezeMutation = useToggleCompanyFreeze();
+  const deleteCascadeMutation = useDeleteCompanyCascade();
 
   const handleDeleteConfirm = async () => {
     if (!deleteDialog.company) return;
     setIsDeleting(true);
 
     try {
-      await cascadeDeleteCompany(deleteDialog.company.id);
+      const result = await deleteCascadeMutation.mutateAsync(deleteDialog.company.id);
+      if (result.error) throw new Error(result.error);
       toast.success(t('Company deleted successfully'));
       setDeleteDialog({ open: false, company: null });
-      fetchCompanies();
     } catch (error) {
       console.error('Error deleting company:', error);
       toast.error(t('Failed to delete company. Try again.'), {
@@ -177,9 +123,11 @@ const CompanyListPage = () => {
     const isCurrentlyFrozen = freezeDialog.company.is_frozen;
 
     try {
-      await pb.collection('companies').update(freezeDialog.company.id, {
-        is_frozen: !isCurrentlyFrozen
-      }, { $autoCancel: false });
+      const result = await toggleFreezeMutation.mutateAsync({
+        id: freezeDialog.company.id,
+        isFrozen: !isCurrentlyFrozen,
+      });
+      if (result.error) throw new Error(result.error);
 
       toast.success(
         isCurrentlyFrozen
@@ -188,7 +136,6 @@ const CompanyListPage = () => {
       );
 
       setFreezeDialog({ open: false, company: null });
-      fetchCompanies();
     } catch (error) {
       console.error('Error toggling freeze state:', error);
       toast.error(t('Operation failed'));
@@ -281,7 +228,7 @@ const CompanyListPage = () => {
             <AlertDialogDescription className="text-foreground/80 pt-2 text-base">
               {t('Are you sure you want to delete this company? All related data will be permanently deleted.')}
               <div className="mt-4 font-medium p-3 bg-muted rounded-md border border-border">
-                {deleteDialog.company?.companyName}
+                {deleteDialog.company?.company_name}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -314,7 +261,7 @@ const CompanyListPage = () => {
                 ? t('Do you want to unfreeze this company?')
                 : t('Do you want to freeze this company?')}
               <div className="mt-4 font-medium p-3 bg-muted rounded-md border border-border">
-                {freezeDialog.company?.companyName}
+                {freezeDialog.company?.company_name}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

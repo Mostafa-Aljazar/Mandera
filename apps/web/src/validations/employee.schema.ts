@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isValidPhoneNumber } from "react-phone-number-input";
 import type { TFunction } from "i18next";
 
-const JOB_TITLES = ["وكيل مبيعات", "مسؤول", "مدير"] as const;
+const JOB_TITLES = ["sales_agent", "admin", "manager"] as const;
 
 export const EmployeeSchema = (t: TFunction, isEditing: boolean) =>
   z

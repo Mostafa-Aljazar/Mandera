@@ -150,9 +150,9 @@ const EmployeeModal = ({ isOpen, onClose, onSave, employee, isSubmitting }: Empl
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="وكيل مبيعات">{t('Sales Agent')}</SelectItem>
-                        <SelectItem value="مسؤول">{t('Administrator')}</SelectItem>
-                        <SelectItem value="مدير">{t('Manager')}</SelectItem>
+                        <SelectItem value="sales_agent">{t('Sales Agent')}</SelectItem>
+                        <SelectItem value="admin">{t('Administrator')}</SelectItem>
+                        <SelectItem value="manager">{t('Manager')}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />

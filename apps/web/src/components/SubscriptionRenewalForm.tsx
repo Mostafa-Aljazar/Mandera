@@ -21,10 +21,10 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import pb from "@/lib/pocketbaseClient";
+import { useRenewCompanySubscription } from "@/hooks/queries/useCompanies";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import type { Company } from "../types/pocketbase.types";
+import type { Company } from "@/types/supabase-entities.types";
 import {
   SubscriptionRenewalSchema,
   type TSubscriptionRenewalSchema,
@@ -45,6 +45,7 @@ const SubscriptionRenewalForm = ({
 }: SubscriptionRenewalFormProps) => {
   const [loading, setLoading] = useState(false);
   const { t } = useTranslation();
+  const renewSubscriptionMutation = useRenewCompanySubscription();
 
   const form = useForm<TSubscriptionRenewalSchema>({
     resolver: zodResolver(SubscriptionRenewalSchema(t)),
@@ -55,13 +56,11 @@ const SubscriptionRenewalForm = ({
     setLoading(true);
 
     try {
-      await pb.collection("companies").update(
-        company!.id,
-        {
-          subscriptionEndDate: formData.newEndDate,
-        },
-        { $autoCancel: false },
-      );
+      const result = await renewSubscriptionMutation.mutateAsync({
+        id: company!.id,
+        newEndDate: formData.newEndDate,
+      });
+      if (result.error) throw new Error(result.error);
 
       toast("Subscription renewed successfully");
       onSuccess();
@@ -80,7 +79,7 @@ const SubscriptionRenewalForm = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            Renew subscription for {company?.companyName}
+            Renew subscription for {company?.company_name}
           </DialogTitle>
         </DialogHeader>
         <Form {...form}>
@@ -91,7 +90,7 @@ const SubscriptionRenewalForm = ({
                 <Input
                   id="currentEndDate"
                   type="date"
-                  value={company?.subscriptionEndDate || ""}
+                  value={company?.subscription_end_date || ""}
                   disabled
                 />
               </div>
@@ -104,7 +103,7 @@ const SubscriptionRenewalForm = ({
                     <FormControl>
                       <Input
                         type="date"
-                        min={company?.subscriptionEndDate}
+                        min={company?.subscription_end_date}
                         {...field}
                       />
                     </FormControl>

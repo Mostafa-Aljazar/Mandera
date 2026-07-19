@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import MasterAdminHeader from '@/components/MasterAdminHeader';
-import pb from '@/lib/pocketbaseClient';
+import { useCompany, useUpdateCompany } from '@/hooks/queries/useCompanies';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 import { CompanySchema, type TCompanySchema } from '@/validations/company.schema';
@@ -28,7 +28,9 @@ const CompanyEditPage = () => {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [fetchLoading, setFetchLoading] = useState(true);
+
+  const { data: company, isLoading: fetchLoading, isError } = useCompany(id as string);
+  const updateCompanyMutation = useUpdateCompany();
 
   const form = useForm<TCompanySchema>({
     resolver: zodResolver(CompanySchema(t)),
@@ -44,40 +46,39 @@ const CompanyEditPage = () => {
   const subscriptionStartDate = form.watch('subscriptionStartDate');
 
   useEffect(() => {
-    const fetchCompany = async () => {
-      try {
-        const company = await pb.collection('companies').getOne(id as string, { $autoCancel: false });
-        form.reset({
-          companyName: company.companyName,
-          email: company.email,
-          subscriptionStartDate: company.subscriptionStartDate,
-          subscriptionEndDate: company.subscriptionEndDate,
-          maxEmployeeCount: company.maxEmployeeCount
-        });
-      } catch (error) {
-        console.error('Error fetching company:', error);
-        toast(t('Failed to load company details'));
-        router.push('/master-dashboard/companies');
-      } finally {
-        setFetchLoading(false);
-      }
-    };
-
-    fetchCompany();
+    if (company) {
+      form.reset({
+        companyName: company.company_name,
+        email: company.email,
+        subscriptionStartDate: company.subscription_start_date,
+        subscriptionEndDate: company.subscription_end_date,
+        maxEmployeeCount: company.max_employee_count,
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, router]);
+  }, [company]);
+
+  useEffect(() => {
+    if (isError) {
+      toast(t('Failed to load company details'));
+      router.push('/master-dashboard/companies');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isError]);
 
   const handleSubmit = form.handleSubmit(async (formData) => {
     setLoading(true);
 
     try {
-      await pb.collection('companies').update(id as string, {
+      const result = await updateCompanyMutation.mutateAsync({
+        id: id as string,
         companyName: formData.companyName,
         email: formData.email,
         subscriptionStartDate: formData.subscriptionStartDate,
         subscriptionEndDate: formData.subscriptionEndDate,
-        maxEmployeeCount: formData.maxEmployeeCount
-      }, { $autoCancel: false });
+        maxEmployeeCount: Number(formData.maxEmployeeCount),
+      });
+      if (result.error) throw new Error(result.error);
 
       toast(t('Company updated successfully'));
       router.push('/master-dashboard/companies');

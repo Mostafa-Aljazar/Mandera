@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import Link from "next/link";
 import { Helmet } from "react-helmet";
 import { useTranslation } from "react-i18next";
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import MasterAdminHeader from "@/components/MasterAdminHeader";
-import pb from "@/lib/pocketbaseClient";
+import { useCompanyDashboardStats } from "@/hooks/queries/useCompanies";
 import {
   Building2,
   CheckCircle2,
@@ -23,7 +23,6 @@ import {
   FileText,
 } from "lucide-react";
 import { useEmployeeCount } from "@/hooks/useEmployeeCount";
-import type { Company } from "../../types/pocketbase.types";
 
 const MasterDashboardPage = () => {
   const { t } = useTranslation();
@@ -31,40 +30,12 @@ const MasterDashboardPage = () => {
   const { count: employeeCount, loading: loadingEmployees } =
     useEmployeeCount(undefined);
 
-  const [stats, setStats] = useState({
+  const { data: statsData, isLoading: loading } = useCompanyDashboardStats();
+  const stats = statsData ?? {
     totalCompanies: 0,
     activeSubscriptions: 0,
     inactiveSubscriptions: 0,
-  });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const companies = await pb
-          .collection("companies")
-          .getFullList<Company>({ $autoCancel: false });
-
-        const now = new Date();
-        const active = companies.filter((c) => {
-          const endDate = new Date(c.subscriptionEndDate);
-          return c.isActive && now <= endDate;
-        }).length;
-
-        setStats({
-          totalCompanies: companies.length,
-          activeSubscriptions: active,
-          inactiveSubscriptions: companies.length - active,
-        });
-      } catch (error) {
-        console.error("Error fetching stats:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStats();
-  }, []);
+  };
 
   return (
     <>

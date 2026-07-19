@@ -6,7 +6,18 @@ import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
-import pb from "@/lib/pocketbaseClient";
+import {
+  useOwners,
+  useOwnerStatuses,
+  useMarketingChannels,
+  useOwnerPropertyCount,
+  useCreateOwner,
+  useUpdateOwner,
+  useDeleteOwner,
+  useBulkReassignOwners,
+} from "@/hooks/queries/useOwners";
+import { useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
+import { getOwnersExportData } from "@/actions/owners";
 import CompanyAdminHeader from "@/components/CompanyAdminHeader";
 import OwnerDetailModal from "@/components/OwnerDetailModal";
 import FilterPanel from "@/components/FilterPanel";
@@ -65,12 +76,9 @@ import { generateCSV, downloadCSV } from "@/utils/csvExport";
 import { OwnerSchema, type TOwnerSchema } from "@/validations/owner.schema";
 import type {
   Owner,
-  OwnerStatus,
-  OwnerStatusHistory,
   CompanyEmployee,
   MarketingChannelRecord,
-  Property,
-} from "@/types/pocketbase.types";
+} from "@/types/supabase-entities.types";
 
 const COUNTRIES = [
   "UAE",
@@ -123,47 +131,11 @@ const OwnerCard = ({
     (e) => e.id === owner.assigned_employee_id,
   );
   const empName = assignedEmp
-    ? assignedEmp.name || assignedEmp.email
+    ? assignedEmp.name || assignedEmp.id
     : t("Unassigned");
 
-  const [propertyCount, setPropertyCount] = useState(0);
-  const [latestStatus, setLatestStatus] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    const fetchDetails = async () => {
-      try {
-        const [propsRes, statusRes] = await Promise.all([
-          pb.collection("properties").getList(1, 1, {
-            filter: `owner_id="${owner.id}"`,
-            $autoCancel: false,
-          }),
-          pb.collection("owner_status_history").getList(1, 1, {
-            filter: `owner_id="${owner.id}"`,
-            sort: "-created",
-            expand: "status_id",
-            $autoCancel: false,
-          }),
-        ]);
-
-        if (isMounted) {
-          setPropertyCount(propsRes.totalItems);
-          if (
-            statusRes.items.length > 0 &&
-            statusRes.items[0].expand?.status_id
-          ) {
-            setLatestStatus(statusRes.items[0].expand.status_id.name);
-          }
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    };
-    fetchDetails();
-    return () => {
-      isMounted = false;
-    };
-  }, [owner.id]);
+  const { data: propertyCountData } = useOwnerPropertyCount(owner.id);
+  const propertyCount = propertyCountData ?? 0;
 
   return (
     <Card
@@ -289,12 +261,6 @@ const OwnerCard = ({
 const OwnersPage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
-  const [owners, setOwners] = useState<Owner[]>([]);
-  const [statuses, setStatuses] = useState<OwnerStatus[]>([]);
-  const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
-  const [marketingChannels, setMarketingChannels] = useState<
-    MarketingChannelRecord[]
-  >([]);
 
   const [open, setOpen] = useState(false);
   const [editItem, setEditItem] = useState<Owner | null>(null);
@@ -329,102 +295,61 @@ const OwnersPage = () => {
     employeeId: null,
   });
 
-  const fetchData = async () => {
-    if (!company?.id || !currentUser?.id) return;
-    try {
-      const [statRes, empRes, mchRes] = await Promise.all([
-        pb.collection("owner_statuses").getList<OwnerStatus>(1, 100, {
-          filter: `company_id="${company.id}"`,
-          $autoCancel: false,
-        }),
-        pb.collection("company_employees").getFullList<CompanyEmployee>({
-          filter: `companyId="${company.id}"`,
-          $autoCancel: false,
-        }),
-        pb
-          .collection("marketing_channels")
-          .getFullList<MarketingChannelRecord>({
-            filter: `company_id="${company.id}"`,
-            $autoCancel: false,
-          }),
-      ]);
-      setStatuses(statRes.items);
-      setEmployees(empRes);
-      setMarketingChannels(mchRes);
-
-      let filterParts = [`company_id = "${company.id}"`];
-
-      if (currentUser.role === "company_employee") {
-        filterParts.push(`assigned_employee_id = "${currentUser.id}"`);
-      } else if (filterState.employeeId) {
-        filterParts.push(`assigned_employee_id = "${filterState.employeeId}"`);
-      }
-
-      if (filterState.statusId) {
-        const histMatches = await pb
-          .collection("owner_status_history")
-          .getFullList<OwnerStatusHistory>({
-            filter: `company_id = "${company.id}" && status_id = "${filterState.statusId}"`,
-            $autoCancel: false,
-          });
-        const matchedOwnerIds = [
-          ...new Set(histMatches.map((h) => h.owner_id)),
-        ];
-
-        if (matchedOwnerIds.length === 0) {
-          filterParts.push(`id = "no_match"`);
-        } else {
-          const idConditions = matchedOwnerIds
-            .map((id) => `id="${id}"`)
-            .join(" || ");
-          filterParts.push(`(${idConditions})`);
-        }
-      }
-
-      if (filterState.marketingChannel) {
-        filterParts.push(
-          `marketing_channel = "${filterState.marketingChannel}"`,
-        );
-      }
-
-      if (filterState.createdFromDate) {
-        const d = new Date(filterState.createdFromDate);
-        d.setHours(0, 0, 0, 0);
-        filterParts.push(`created >= "${d.toISOString().replace("T", " ")}"`);
-      }
-      if (filterState.createdToDate) {
-        const d = new Date(filterState.createdToDate);
-        d.setHours(23, 59, 59, 999);
-        filterParts.push(`created <= "${d.toISOString().replace("T", " ")}"`);
-      }
-      if (filterState.updatedFromDate) {
-        const d = new Date(filterState.updatedFromDate);
-        d.setHours(0, 0, 0, 0);
-        filterParts.push(`updated >= "${d.toISOString().replace("T", " ")}"`);
-      }
-      if (filterState.updatedToDate) {
-        const d = new Date(filterState.updatedToDate);
-        d.setHours(23, 59, 59, 999);
-        filterParts.push(`updated <= "${d.toISOString().replace("T", " ")}"`);
-      }
-
-      const finalFilter = filterParts.join(" && ");
-
-      const data = await pb.collection("owners").getFullList<Owner>({
-        filter: finalFilter,
-        $autoCancel: false,
-        sort: "-created",
-      });
-      setOwners(data);
-    } catch (error) {
-      console.error(error);
-      toast.error(t("Failed to load owners."));
-    }
+  const ownerFilters = {
+    assignedEmployeeId:
+      currentUser?.role === "company_employee"
+        ? currentUser.id
+        : filterState.employeeId || undefined,
+    statusId: filterState.statusId || undefined,
+    marketingChannel: filterState.marketingChannel || undefined,
+    createdFrom: filterState.createdFromDate
+      ? (() => {
+          const d = new Date(filterState.createdFromDate!);
+          d.setHours(0, 0, 0, 0);
+          return d.toISOString();
+        })()
+      : undefined,
+    createdTo: filterState.createdToDate
+      ? (() => {
+          const d = new Date(filterState.createdToDate!);
+          d.setHours(23, 59, 59, 999);
+          return d.toISOString();
+        })()
+      : undefined,
+    updatedFrom: filterState.updatedFromDate
+      ? (() => {
+          const d = new Date(filterState.updatedFromDate!);
+          d.setHours(0, 0, 0, 0);
+          return d.toISOString();
+        })()
+      : undefined,
+    updatedTo: filterState.updatedToDate
+      ? (() => {
+          const d = new Date(filterState.updatedToDate!);
+          d.setHours(23, 59, 59, 999);
+          return d.toISOString();
+        })()
+      : undefined,
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [company?.id, currentUser?.id, filterState, t]);
+  const { data: ownersData, refetch: refetchOwners } = useOwners(
+    company?.id,
+    ownerFilters,
+  );
+  const owners = ownersData ?? [];
+  const { data: statusesData } = useOwnerStatuses(company?.id);
+  const statuses = statusesData ?? [];
+  const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
+  const employees = employeesData ?? [];
+  const { data: marketingChannelsData } = useMarketingChannels(company?.id);
+  const marketingChannels = marketingChannelsData ?? [];
+
+  const createOwnerMutation = useCreateOwner();
+  const updateOwnerMutation = useUpdateOwner();
+  const deleteOwnerMutation = useDeleteOwner();
+  const bulkReassignMutation = useBulkReassignOwners();
+
+  const fetchData = () => refetchOwners();
 
   const handleExportCSV = async () => {
     if (owners.length === 0) {
@@ -434,33 +359,9 @@ const OwnersPage = () => {
 
     const loadingToast = toast.loading(t("Exporting CSV..."));
     try {
-      const histories = await pb
-        .collection("owner_status_history")
-        .getFullList<
-          OwnerStatusHistory & { expand?: { status_id?: OwnerStatus } }
-        >({
-          filter: `company_id="${company?.id}"`,
-          sort: "-created",
-          expand: "status_id",
-          $autoCancel: false,
-        });
-      const props = await pb.collection("properties").getFullList<Property>({
-        filter: `company_id="${company?.id}"`,
-        $autoCancel: false,
-      });
-
-      const statusMap: Record<
-        string,
-        OwnerStatusHistory & { expand?: { status_id?: OwnerStatus } }
-      > = {};
-      histories.forEach((h) => {
-        if (!statusMap[h.owner_id]) statusMap[h.owner_id] = h;
-      });
-
-      const propsCountMap: Record<string, number> = {};
-      props.forEach((p) => {
-        propsCountMap[p.owner_id] = (propsCountMap[p.owner_id] || 0) + 1;
-      });
+      const result = await getOwnersExportData(company!.id);
+      if (result.error) throw new Error(result.error);
+      const rows = result.data;
 
       const headers = [
         "اسم المالك",
@@ -474,32 +375,28 @@ const OwnersPage = () => {
         "تاريخ الإنشاء",
       ];
       const columns = [
-        (o: Owner) => o.name || "",
-        (o: Owner) => o.phone || "",
-        (o: Owner) =>
-          employees.find((e) => e.id === o.assigned_employee_id)?.name ||
-          "غير مسند",
-        (o: Owner) => o.marketing_channel || "",
-        (o: Owner) => statusMap[o.id]?.expand?.status_id?.name || "لا يوجد",
-        (o: Owner) => propsCountMap[o.id] || 0,
-        (o: Owner) =>
-          statusMap[o.id]
-            ? format(new Date(statusMap[o.id].created), "dd/MM/yyyy")
+        (o: (typeof rows)[number]) => o.name || "",
+        (o: (typeof rows)[number]) => o.phone || "",
+        (o: (typeof rows)[number]) => o.assigned_employee_name || "غير مسند",
+        (o: (typeof rows)[number]) => o.marketing_channel || "",
+        (o: (typeof rows)[number]) => o.status_name || "لا يوجد",
+        (o: (typeof rows)[number]) => o.properties_count || 0,
+        (o: (typeof rows)[number]) =>
+          o.last_status_date
+            ? format(new Date(o.last_status_date), "dd/MM/yyyy")
             : "لا يوجد",
-        (o: Owner) => {
-          const lastDate = statusMap[o.id]
-            ? new Date(statusMap[o.id].created)
-            : null;
-          if (!lastDate) return "محدث";
+        (o: (typeof rows)[number]) => {
+          if (!o.last_status_date) return "محدث";
           const daysDiff =
-            (new Date().getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24);
+            (new Date().getTime() - new Date(o.last_status_date).getTime()) /
+            (1000 * 60 * 60 * 24);
           return daysDiff > 30 ? "قديم" : "محدث";
         },
-        (o: Owner) =>
-          o.created ? format(new Date(o.created), "dd/MM/yyyy") : "",
+        (o: (typeof rows)[number]) =>
+          o.created_at ? format(new Date(o.created_at), "dd/MM/yyyy") : "",
       ];
 
-      const csvString = generateCSV(owners, columns, headers);
+      const csvString = generateCSV(rows, columns, headers);
       downloadCSV(csvString, `owners_${format(new Date(), "yyyy-MM-dd")}.csv`);
       toast.success(t("Exported successfully"), { id: loadingToast });
     } catch (err) {
@@ -511,58 +408,33 @@ const OwnersPage = () => {
   const handleSave = async (formData: TOwnerSchema) => {
     setIsSubmitting(true);
     try {
-      const payload = { ...formData, company_id: company!.id };
-
-      console.log("--- DEBUG: OwnersPage EXACT REQUEST START ---");
-      console.log(
-        `Collection: owners | Operation: ${editItem ? "update" : "create"}`,
-      );
-      console.log("Auth token present:", !!pb.authStore.token);
-      console.log("Payload:", JSON.stringify(payload, null, 2));
-
       if (editItem) {
-        try {
-          const result = await pb
-            .collection("owners")
-            .update(editItem.id, payload, { $autoCancel: false });
-          console.log("Success:", result.id);
-          toast.success(t("Owner updated successfully."));
-        } catch (updateErr: any) {
-          console.error(
-            "PocketBase Error:",
-            updateErr.status,
-            updateErr.message,
-            updateErr.response,
-          );
-          throw updateErr;
-        }
+        const result = await updateOwnerMutation.mutateAsync({
+          id: editItem.id,
+          name: formData.name,
+          phone: formData.phone,
+          country: formData.country,
+          marketing_channel: formData.marketing_channel,
+          assigned_employee_id: formData.assigned_employee_id,
+        });
+        if (result.error) throw new Error(result.error);
+        toast.success(t("Owner updated successfully."));
       } else {
-        try {
-          const result = await pb
-            .collection("owners")
-            .create(payload, { $autoCancel: false });
-          console.log("Success:", result.id);
-          toast.success(t("Owner added successfully."));
-        } catch (createErr: any) {
-          console.error(
-            "PocketBase Error:",
-            createErr.status,
-            createErr.message,
-            createErr.response,
-          );
-          throw createErr;
-        }
+        const result = await createOwnerMutation.mutateAsync({
+          companyId: company!.id,
+          name: formData.name,
+          phone: formData.phone,
+          country: formData.country,
+          marketing_channel: formData.marketing_channel,
+          assigned_employee_id: formData.assigned_employee_id,
+        });
+        if (result.error) throw new Error(result.error);
+        toast.success(t("Owner added successfully."));
       }
       setOpen(false);
-      fetchData();
     } catch (err: any) {
-      console.error(
-        "PocketBase Owner Save Error details:",
-        err.response || err,
-      );
-      toast.error(
-        err.response?.message || err.message || t("Error saving owner."),
-      );
+      console.error("Owner Save Error details:", err);
+      toast.error(err.message || t("Error saving owner."));
     } finally {
       setIsSubmitting(false);
     }
@@ -572,10 +444,10 @@ const OwnersPage = () => {
     e.stopPropagation();
     if (!window.confirm(t("Delete this owner?"))) return;
     try {
-      await pb.collection("owners").delete(id, { $autoCancel: false });
+      const result = await deleteOwnerMutation.mutateAsync(id);
+      if (result.error) throw new Error(result.error);
       toast.success(t("Owner deleted."));
       setSelectedOwners((prev) => prev.filter((ownerId) => ownerId !== id));
-      fetchData();
     } catch (error) {
       toast.error(t("Could not delete. Owner might be linked to properties."));
     }
@@ -584,20 +456,14 @@ const OwnersPage = () => {
   const handleBulkReassign = async (targetEmployeeId: string) => {
     setIsReassigning(true);
     try {
-      const promises = selectedOwners.map((id) =>
-        pb
-          .collection("owners")
-          .update(
-            id,
-            { assigned_employee_id: targetEmployeeId },
-            { $autoCancel: false },
-          ),
-      );
-      await Promise.all(promises);
+      const result = await bulkReassignMutation.mutateAsync({
+        ownerIds: selectedOwners,
+        targetEmployeeId,
+      });
+      if (result.error) throw new Error(result.error);
       toast.success(t("Owners reassigned successfully."));
       setSelectedOwners([]);
       setIsReassignModalOpen(false);
-      fetchData();
     } catch (err) {
       console.error(err);
       toast.error(t("Error reassigning owners."));
@@ -695,7 +561,7 @@ const OwnersPage = () => {
                     <SelectItem value="all">{t("All Employees")}</SelectItem>
                     {employees.map((emp) => (
                       <SelectItem key={emp.id} value={emp.id}>
-                        {emp.name || emp.email}
+                        {emp.name || emp.id}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -856,7 +722,7 @@ const OwnersPage = () => {
                               <SelectContent>
                                 {employees.map((emp) => (
                                   <SelectItem key={emp.id} value={emp.id}>
-                                    {emp.name || emp.email}
+                                    {emp.name || emp.id}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

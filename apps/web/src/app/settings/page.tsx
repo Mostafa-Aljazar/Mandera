@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Helmet } from "react-helmet";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
-import pb from "@/lib/pocketbaseClient";
 import CompanyAdminHeader from "@/components/CompanyAdminHeader";
 import OwnerStatusesTab from "@/components/OwnerStatusesTab";
 import AreasDistrictsTab from "@/components/AreasDistrictsTab";
@@ -55,17 +54,42 @@ import {
 import type {
   PropertyType,
   ClientStatus,
-  CompanyEmployee,
-} from "../../types/pocketbase.types";
+  CompanyEmployeeWithDetails,
+} from "@/types/supabase-entities.types";
+import {
+  usePropertyTypes,
+  useCreatePropertyType,
+  useUpdatePropertyType,
+  useDeletePropertyType,
+  useClientStatuses,
+  useCreateClientStatus,
+  useUpdateClientStatus,
+  useUpdateClientStatusPriority,
+  useDeleteClientStatus,
+  useSettingsEmployees,
+} from "@/hooks/queries/useSettings";
 
 const SettingsPage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
   const isSuperAdmin = currentUser?.role === "company_super_admin";
+  const companyId = currentUser?.company_id || company?.id;
 
-  const [propertyTypes, setPropertyTypes] = useState<PropertyType[]>([]);
-  const [clientStatuses, setClientStatuses] = useState<ClientStatus[]>([]);
-  const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
+  const { data: propertyTypesData } = usePropertyTypes(companyId);
+  const propertyTypes = propertyTypesData ?? [];
+  const { data: clientStatusesData } = useClientStatuses(companyId);
+  const clientStatuses = clientStatusesData ?? [];
+  const { data: employeesData } = useSettingsEmployees(companyId);
+  const employees: CompanyEmployeeWithDetails[] = employeesData ?? [];
+
+  const createPropertyTypeMutation = useCreatePropertyType();
+  const updatePropertyTypeMutation = useUpdatePropertyType();
+  const deletePropertyTypeMutation = useDeletePropertyType();
+
+  const createClientStatusMutation = useCreateClientStatus();
+  const updateClientStatusMutation = useUpdateClientStatus();
+  const updateClientStatusPriorityMutation = useUpdateClientStatusPriority();
+  const deleteClientStatusMutation = useDeleteClientStatus();
 
   const [openPropertyType, setOpenPropertyType] = useState(false);
   const [openClientStatus, setOpenClientStatus] = useState(false);
@@ -73,7 +97,11 @@ const SettingsPage = () => {
   const [editItem, setEditItem] = useState<PropertyType | ClientStatus | null>(
     null,
   );
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmitting =
+    createPropertyTypeMutation.isPending ||
+    updatePropertyTypeMutation.isPending ||
+    createClientStatusMutation.isPending ||
+    updateClientStatusMutation.isPending;
 
   const propertyTypeForm = useForm<TSettingsEntitySchema>({
     resolver: zodResolver(SettingsEntitySchema(t, false)),
@@ -90,113 +118,86 @@ const SettingsPage = () => {
     null,
   );
   const [editingPriorityValue, setEditingPriorityValue] = useState("");
-  const [isUpdatingPriority, setIsUpdatingPriority] = useState(false);
 
   // Employee Deletion State
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] =
-    useState<CompanyEmployee | null>(null);
-
-  useEffect(() => {
-    fetchData();
-  }, [company?.id]);
-
-  const fetchData = async () => {
-    if (!company?.id) return;
-    try {
-      const [ptData, csData, empData] = await Promise.all([
-        pb
-          .collection("property_types")
-          .getFullList<PropertyType>({
-            filter: `company_id = "${company.id}"`,
-            $autoCancel: false,
-          }),
-        pb
-          .collection("client_statuses")
-          .getFullList<ClientStatus>({
-            filter: `company_id = "${company.id}"`,
-            sort: "priority_order,created",
-            $autoCancel: false,
-          }),
-        pb
-          .collection("company_employees")
-          .getFullList<CompanyEmployee>({
-            filter: `companyId = "${company.id}"`,
-            $autoCancel: false,
-          }),
-      ]);
-      setPropertyTypes(ptData);
-      setClientStatuses(csData);
-      setEmployees(empData);
-    } catch (error) {
-      console.error(error);
-      toast.error(t("Failed to load settings data."));
-    }
-  };
+    useState<CompanyEmployeeWithDetails | null>(null);
 
   const savePropertyType = propertyTypeForm.handleSubmit(async (formData) => {
-    setIsSubmitting(true);
+    if (!companyId) return;
     try {
-      const payload = { name: formData.name, company_id: company!.id };
       if (editItem) {
-        await pb
-          .collection("property_types")
-          .update(editItem.id, payload, { $autoCancel: false });
+        const result = await updatePropertyTypeMutation.mutateAsync({
+          id: editItem.id,
+          name: formData.name,
+        });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Updated successfully."));
       } else {
-        await pb
-          .collection("property_types")
-          .create(payload, { $autoCancel: false });
+        const result = await createPropertyTypeMutation.mutateAsync({
+          companyId,
+          name: formData.name,
+        });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Created successfully."));
       }
       setOpenPropertyType(false);
       setEditItem(null);
       propertyTypeForm.reset({ name: "", priority_order: 1 });
-      fetchData();
     } catch (error: any) {
       toast.error(error.message || t("An error occurred."));
-    } finally {
-      setIsSubmitting(false);
     }
   });
 
   const saveClientStatus = clientStatusForm.handleSubmit(async (formData) => {
-    setIsSubmitting(true);
+    if (!companyId) return;
     try {
-      const payload = {
-        name: formData.name,
-        company_id: company!.id,
-        priority_order: parseInt(String(formData.priority_order), 10),
-      };
+      const priorityOrder = parseInt(String(formData.priority_order), 10);
       if (editItem) {
-        await pb
-          .collection("client_statuses")
-          .update(editItem.id, payload, { $autoCancel: false });
+        const result = await updateClientStatusMutation.mutateAsync({
+          id: editItem.id,
+          name: formData.name,
+          priorityOrder,
+        });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Updated successfully."));
       } else {
-        await pb
-          .collection("client_statuses")
-          .create(payload, { $autoCancel: false });
+        const result = await createClientStatusMutation.mutateAsync({
+          companyId,
+          name: formData.name,
+          priorityOrder,
+        });
+        if (result.error) throw new Error(result.error);
         toast.success(t("Created successfully."));
       }
       setOpenClientStatus(false);
       setEditItem(null);
       clientStatusForm.reset({ name: "", priority_order: 1 });
-      fetchData();
     } catch (error: any) {
       toast.error(error.message || t("An error occurred."));
-    } finally {
-      setIsSubmitting(false);
     }
   });
 
-  const handleDelete = async (collection: string, id: string) => {
+  const handleDeletePropertyType = async (id: string) => {
     if (!window.confirm(t("Are you sure you want to delete this item?")))
       return;
     try {
-      await pb.collection(collection).delete(id, { $autoCancel: false });
+      const result = await deletePropertyTypeMutation.mutateAsync(id);
+      if (result.error) throw new Error(result.error);
       toast.success(t("Deleted successfully."));
-      fetchData();
+    } catch (error) {
+      toast.error(t("Failed to delete. It might be in use."));
+    }
+  };
+
+  const handleDeleteClientStatus = async (id: string) => {
+    if (!window.confirm(t("Are you sure you want to delete this item?")))
+      return;
+    try {
+      const result = await deleteClientStatusMutation.mutateAsync(id);
+      if (result.error) throw new Error(result.error);
+      toast.success(t("Deleted successfully."));
     } catch (error) {
       toast.error(t("Failed to delete. It might be in use."));
     }
@@ -210,19 +211,17 @@ const SettingsPage = () => {
       return;
     }
 
-    setIsUpdatingPriority(true);
     try {
-      await pb
-        .collection("client_statuses")
-        .update(id, { priority_order: newPriority }, { $autoCancel: false });
+      const result = await updateClientStatusPriorityMutation.mutateAsync({
+        id,
+        priorityOrder: newPriority,
+      });
+      if (result.error) throw new Error(result.error);
       toast.success(t("Priority updated."));
       setEditingPriorityId(null);
-      fetchData();
     } catch (error) {
       console.error(error);
       toast.error(t("Failed to update priority."));
-    } finally {
-      setIsUpdatingPriority(false);
     }
   };
 
@@ -236,7 +235,7 @@ const SettingsPage = () => {
     setOpenClientStatus(true);
   };
 
-  const initiateEmployeeDeletion = (employee: CompanyEmployee) => {
+  const initiateEmployeeDeletion = (employee: CompanyEmployeeWithDetails) => {
     if (employee.id === currentUser?.id) {
       toast.error(t("You cannot delete your own account."));
       return;
@@ -246,17 +245,12 @@ const SettingsPage = () => {
   };
 
   const handleEmployeeDeletedSuccess = () => {
-    setEmployees((prev) =>
-      prev.filter((emp) => emp.id !== employeeToDelete?.id),
-    );
     setIsDeleteDialogOpen(false);
     setEmployeeToDelete(null);
-    fetchData();
   };
 
   const renderTable = (
-    data: (PropertyType | ClientStatus)[],
-    collection: string,
+    data: PropertyType[],
     setOpen: (open: boolean) => void,
   ) => (
     <div className="border rounded-md">
@@ -301,7 +295,7 @@ const SettingsPage = () => {
                       variant="ghost"
                       size="icon"
                       className="w-8 h-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => handleDelete(collection, item.id)}
+                      onClick={() => handleDeletePropertyType(item.id)}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -361,9 +355,9 @@ const SettingsPage = () => {
                         variant="ghost"
                         className="w-8 h-8 text-primary"
                         onClick={() => handleInlinePrioritySave(item.id)}
-                        disabled={isUpdatingPriority}
+                        disabled={updateClientStatusPriorityMutation.isPending}
                       >
-                        {isUpdatingPriority ? (
+                        {updateClientStatusPriorityMutation.isPending ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
                         ) : (
                           <Check className="w-4 h-4" />
@@ -409,7 +403,7 @@ const SettingsPage = () => {
                       variant="ghost"
                       size="icon"
                       className="w-8 h-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => handleDelete("client_statuses", item.id)}
+                      onClick={() => handleDeleteClientStatus(item.id)}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -513,7 +507,7 @@ const SettingsPage = () => {
                                 {emp.name || t("Unnamed")}
                               </TableCell>
                               <TableCell className="text-muted-foreground text-sm">
-                                {emp.email}
+                                {emp.employee?.email || "-"}
                               </TableCell>
                               <TableCell>
                                 <span className="inline-flex items-center bg-secondary px-2 py-0.5 rounded font-medium text-secondary-foreground text-xs">
@@ -606,11 +600,7 @@ const SettingsPage = () => {
                   </Dialog>
                 </CardHeader>
                 <CardContent>
-                  {renderTable(
-                    propertyTypes,
-                    "property_types",
-                    setOpenPropertyType,
-                  )}
+                  {renderTable(propertyTypes, setOpenPropertyType)}
                 </CardContent>
               </Card>
             </TabsContent>

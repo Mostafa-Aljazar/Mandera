@@ -20,8 +20,7 @@ import {
   Phone,
   MessageCircle,
 } from "lucide-react";
-import pb from "@/lib/pocketbaseClient";
-import type { Property } from "../types/pocketbase.types";
+import type { PropertyWithRelations as Property } from "@/types/supabase-entities.types";
 
 const STATUS_COLORS: Record<string, string> = {
   Available:
@@ -34,12 +33,7 @@ const STATUS_COLORS: Record<string, string> = {
     "bg-slate-500/10 text-slate-600 border-slate-200 hover:bg-slate-500/20",
 };
 
-interface PropertyCardData extends Property {
-  expand?: {
-    area_district?: { name?: string };
-    employee_id?: { name?: string; email?: string; phone?: string };
-  };
-}
+type PropertyCardData = Property;
 
 interface PropertyCardProps {
   property: PropertyCardData;
@@ -56,15 +50,7 @@ const PropertyCard = ({
 }: PropertyCardProps) => {
   const { t } = useTranslation();
   const imageUrl = property.images?.length
-    ? pb.files.getUrl(
-        property as unknown as {
-          id: string;
-          collectionId: string;
-          collectionName: string;
-        },
-        property.images[0],
-        { thumb: "400x300" },
-      )
+    ? property.images[0]
     : "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400&auto=format&fit=crop&q=80";
 
   const currentStatus = property.status || "Available";
@@ -72,12 +58,12 @@ const PropertyCard = ({
     STATUS_COLORS[currentStatus] || STATUS_COLORS["Available"];
 
   const areaName =
-    property.expand?.area_district?.name || property.area || property.emirate;
+    property.area_district_ref?.name || property.area || property.emirate;
   const employeeName: string =
-    property.expand?.employee_id?.name ||
-    property.expand?.employee_id?.email ||
+    property.employee?.name ||
+    property.employee?.employee_record?.email ||
     t("Unassigned");
-  const employeePhone = property.expand?.employee_id?.phone || "";
+  const employeePhone = property.employee?.employee_record?.phone || "";
 
   return (
     <Card className="group flex flex-col hover:shadow-lg border-border/50 h-full overflow-hidden transition-all duration-300">

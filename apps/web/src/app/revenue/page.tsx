@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Helmet } from "react-helmet";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
-import pb from "@/lib/pocketbaseClient";
 import CompanyAdminHeader from "@/components/CompanyAdminHeader";
+import { useRevenues } from "@/hooks/queries/useRevenues";
+import { useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
 import {
   Table,
   TableBody,
@@ -39,64 +40,33 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Revenue, CompanyEmployee } from "../../types/pocketbase.types";
 
 const RevenuePage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
 
-  const [revenues, setRevenues] = useState<Revenue[]>([]);
-  const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
-  const [loading, setLoading] = useState(true);
-
   const [selectedEmployee, setSelectedEmployee] = useState("all");
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
 
-  const fetchData = async () => {
-    if (!company?.id || currentUser?.role !== "company_super_admin") {
-      setLoading(false);
-      return;
-    }
+  const isSuperAdmin = currentUser?.role === "company_super_admin";
 
-    setLoading(true);
-    try {
-      let filterStr = `company_id = "${company.id}"`;
-      if (selectedEmployee !== "all") {
-        filterStr += ` && employee_id = "${selectedEmployee}"`;
-      }
-      if (dateFrom) {
-        filterStr += ` && deal_completion_date >= "${dateFrom.toISOString().split("T")[0]} 00:00:00"`;
-      }
-      if (dateTo) {
-        filterStr += ` && deal_completion_date <= "${dateTo.toISOString().split("T")[0]} 23:59:59"`;
-      }
+  const { data: revenuesData, isLoading: loading } = useRevenues(
+    isSuperAdmin ? company?.id : undefined,
+    {
+      employeeId: selectedEmployee !== "all" ? selectedEmployee : undefined,
+      dateFrom: dateFrom
+        ? `${format(dateFrom, "yyyy-MM-dd")} 00:00:00`
+        : undefined,
+      dateTo: dateTo ? `${format(dateTo, "yyyy-MM-dd")} 23:59:59` : undefined,
+    },
+  );
+  const revenues = revenuesData ?? [];
 
-      const [revRes, empRes] = await Promise.all([
-        pb.collection("revenues").getFullList<Revenue>({
-          filter: filterStr,
-          sort: "-deal_completion_date",
-          $autoCancel: false,
-        }),
-        pb.collection("company_employees").getFullList<CompanyEmployee>({
-          filter: `companyId = "${company.id}"`,
-          $autoCancel: false,
-        }),
-      ]);
-
-      setRevenues(revRes);
-      setEmployees(empRes);
-    } catch (err) {
-      console.error(err);
-      toast.error(t("Failed to load revenue data."));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, [company?.id, currentUser?.role, selectedEmployee, dateFrom, dateTo, t]);
+  const { data: employeesData } = useCompanyEmployeesLookup(
+    isSuperAdmin ? company?.id : undefined,
+  );
+  const employees = employeesData ?? [];
 
   const clearFilters = () => {
     setSelectedEmployee("all");
@@ -224,7 +194,7 @@ const RevenuePage = () => {
                       <SelectItem value="all">{t("All Agents")}</SelectItem>
                       {employees.map((e) => (
                         <SelectItem key={e.id} value={e.id}>
-                          {e.name || e.email}
+                          {e.name || e.id}
                         </SelectItem>
                       ))}
                     </SelectContent>

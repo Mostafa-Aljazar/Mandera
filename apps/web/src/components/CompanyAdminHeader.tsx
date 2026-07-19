@@ -40,7 +40,7 @@ const CompanyAdminHeader = () => {
             </Link>
             {company && (
               <div className="border-s border-border ps-4 hidden md:block">
-                <p className="text-sm font-semibold text-foreground/80">{company.companyName}</p>
+                <p className="text-sm font-semibold text-foreground/80">{company.company_name}</p>
               </div>
             )}
           </div>

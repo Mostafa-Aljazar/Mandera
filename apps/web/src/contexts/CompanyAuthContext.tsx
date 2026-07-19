@@ -8,8 +8,8 @@ import React, {
   ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import pb from "@/lib/pocketbaseClient";
-import type { AuthUser, Company } from "../types/pocketbase.types";
+import supabase from "@/lib/supabase/client";
+import type { AuthUser, Company } from "@/types/supabase-entities.types";
 
 interface CompanyAuthContextValue {
   currentUser: AuthUser | null;
@@ -33,37 +33,48 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
     const initAuth = async () => {
       console.log("[CompanyAuth] Initializing auth state...");
 
-      const model = pb.authStore.model as unknown as AuthUser | null;
-      const isValid = pb.authStore.isValid;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        setInitialLoading(false);
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", session.user.id)
+        .single();
 
       if (
-        isValid &&
-        (model?.collectionName === "company_super_admins" ||
-          model?.collectionName === "company_employees")
+        profile &&
+        (profile.role === "company_super_admin" ||
+          profile.role === "company_employee")
       ) {
-        // Ensure name is always populated correctly
-        model.name = (model.name ||
-          model.firstName ||
-          model.email ||
-          "Unknown User") as string;
+        const user = { ...profile, email: session.user.email } as AuthUser;
+        user.name = user.name || user.email || "Unknown User";
 
         console.log("[CompanyAuth] Valid user session found:", {
-          id: model.id,
-          name: model.name,
-          email: model.email,
-          role: model.role,
-          companyId: model.companyId,
-          employeeId: model.employeeId || "N/A",
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          companyId: user.company_id,
+          employeeId: user.employee_id || "N/A",
         });
 
-        setCurrentUser(model);
+        setCurrentUser(user);
 
         try {
-          if (model.companyId) {
-            const companyData = await pb
-              .collection("companies")
-              .getOne(model.companyId as string, { $autoCancel: false });
-            setCurrentCompany(companyData as unknown as Company);
+          if (user.company_id) {
+            const { data: companyData } = await supabase
+              .from("companies")
+              .select("*")
+              .eq("id", user.company_id)
+              .single();
+            setCurrentCompany(companyData as Company);
           }
         } catch (err) {
           console.error("[CompanyAuth] Error fetching company details:", err);
@@ -76,47 +87,55 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const login = async (email: string, password: string) => {
-    let authData;
     console.log(`[CompanyAuth] Starting login process for email: ${email}`);
 
+    const { data: authData, error: authError } =
+      await supabase.auth.signInWithPassword({ email, password });
+
+    if (authError || !authData.user) {
+      throw new Error(
+        "Invalid email or password. Please verify your credentials.",
+      );
+    }
+
     try {
-      authData = await pb
-        .collection("company_super_admins")
-        .authWithPassword(email, password, { $autoCancel: false });
-      console.log("[CompanyAuth] Logged in as company_super_admin.");
-    } catch (errAdmin) {
-      try {
-        authData = await pb
-          .collection("company_employees")
-          .authWithPassword(email, password, { $autoCancel: false });
-        console.log("[CompanyAuth] Logged in as company_employee.");
-      } catch (errEmployee) {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", authData.user.id)
+        .single();
+
+      if (
+        profileError ||
+        !profile ||
+        (profile.role !== "company_super_admin" &&
+          profile.role !== "company_employee")
+      ) {
         throw new Error(
           "Invalid email or password. Please verify your credentials.",
         );
       }
-    }
 
-    try {
-      const userRecord = authData.record as unknown as AuthUser;
+      const userRecord = { ...profile, email: authData.user.email } as AuthUser;
+      userRecord.name = userRecord.name || userRecord.email || "Unknown User";
 
-      // Ensure name is always populated correctly
-      userRecord.name = (userRecord.name ||
-        userRecord.firstName ||
-        userRecord.email ||
-        "Unknown User") as string;
-
-      if (!userRecord.companyId) {
+      if (!userRecord.company_id) {
         throw new Error(
           "Your user account is not associated with any company.",
         );
       }
 
-      const companyData = (await pb
-        .collection("companies")
-        .getOne(userRecord.companyId as string, {
-          $autoCancel: false,
-        })) as unknown as Company;
+      const { data: companyData, error: companyError } = await supabase
+        .from("companies")
+        .select("*")
+        .eq("id", userRecord.company_id)
+        .single();
+
+      if (companyError || !companyData) {
+        throw new Error(
+          "An error occurred during login validation.",
+        );
+      }
 
       if (companyData.is_frozen === true) {
         const frozenMsg =
@@ -126,12 +145,12 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
         throw new Error(frozenMsg);
       }
 
-      if (!companyData.isActive) {
+      if (!companyData.is_active) {
         throw new Error("Company account is inactive. Please contact support.");
       }
 
       const now = new Date();
-      const endDate = new Date(companyData.subscriptionEndDate);
+      const endDate = new Date(companyData.subscription_end_date);
       now.setHours(0, 0, 0, 0);
       endDate.setHours(0, 0, 0, 0);
 
@@ -145,16 +164,16 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
         id: userRecord.id,
         name: userRecord.name,
         role: userRecord.role,
-        companyId: userRecord.companyId,
-        employeeId: userRecord.employeeId,
+        companyId: userRecord.company_id,
+        employeeId: userRecord.employee_id,
       });
 
       setCurrentUser(userRecord);
-      setCurrentCompany(companyData);
+      setCurrentCompany(companyData as Company);
       return userRecord;
     } catch (error) {
       console.error("[CompanyAuth] Validation phase failed:", error);
-      pb.authStore.clear();
+      await supabase.auth.signOut();
       throw new Error(
         (error as Error).message ||
           "An error occurred during login validation.",
@@ -164,7 +183,7 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     console.log("[CompanyAuth] Logging out user...");
-    pb.authStore.clear();
+    supabase.auth.signOut();
     setCurrentUser(null);
     setCurrentCompany(null);
   };

@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Users, Loader2, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import pb from '@/lib/pocketbaseClient';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
+import { useCompanyEmployeesLookup } from '@/hooks/queries/useProperties';
 
 interface ReassignableEmployee {
   id: string;
@@ -35,29 +35,12 @@ const EmployeeReassignmentModal = ({
   const { company } = useCompanyAuth();
 
   const [targetEmployeeId, setTargetEmployeeId] = useState('');
-  const [employees, setEmployees] = useState<ReassignableEmployee[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    if (isOpen && company?.id) {
-      const fetchEmployees = async () => {
-        setIsLoading(true);
-        try {
-          const res = await pb.collection('company_employees').getFullList({
-            filter: `companyId="${company.id}"`,
-            $autoCancel: false
-          });
-          setEmployees(res as unknown as ReassignableEmployee[]);
-        } catch (err) {
-          console.error(err);
-        } finally {
-          setIsLoading(false);
-        }
-      };
-      fetchEmployees();
-    }
-  }, [isOpen, company?.id]);
+  const { data: employeesData, isFetching: isLoading } = useCompanyEmployeesLookup(
+    isOpen ? company?.id : undefined,
+  );
+  const employees: ReassignableEmployee[] = employeesData ?? [];
 
   const handleConfirm = () => {
     setError(null);

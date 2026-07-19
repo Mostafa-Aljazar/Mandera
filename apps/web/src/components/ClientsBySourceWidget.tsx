@@ -15,8 +15,7 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts';
-import pb from '@/lib/pocketbaseClient';
-import { toast } from 'sonner';
+import { useClientsBySource } from '@/hooks/queries/useClients';
 import { PieChart, Filter } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -45,8 +44,6 @@ interface ClientsBySourceWidgetProps {
 const ClientsBySourceWidget = ({ companyId }: ClientsBySourceWidgetProps) => {
   const { t } = useTranslation();
   const [period, setPeriod] = useState('this_month');
-  const [data, setData] = useState<SourceDataPoint[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
   const PERIODS = useMemo(() => [
     { id: 'today', label: t('Today') },
@@ -94,48 +91,17 @@ const ClientsBySourceWidget = ({ companyId }: ClientsBySourceWidgetProps) => {
     }
 
     return {
-      startStr: start.toISOString().replace('T', ' '),
-      endStr: end.toISOString().replace('T', ' ')
+      startStr: start.toISOString(),
+      endStr: end.toISOString()
     };
   };
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!companyId) return;
-      setIsLoading(true);
-
-      try {
-        const { startStr, endStr } = getDateRange(period);
-        const filterStr = `company_id="${companyId}" && created >= "${startStr}" && created <= "${endStr}"`;
-
-        const clientsRes = await pb.collection('clients').getFullList({
-          filter: filterStr,
-          $autoCancel: false,
-          fields: 'id,marketing_channel'
-        });
-
-        const counts: Record<string, number> = {};
-        clientsRes.forEach(client => {
-          const channel = client.marketing_channel || 'Other';
-          counts[channel] = (counts[channel] || 0) + 1;
-        });
-
-        // Convert to array and sort descending by count
-        const chartData = Object.entries(counts)
-          .map(([name, count]) => ({ name, count }))
-          .sort((a, b) => b.count - a.count);
-
-        setData(chartData);
-      } catch (error) {
-        console.error('Error fetching clients by source:', error);
-        toast.error(t('Failed to load marketing channels data.'));
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [companyId, period, t]);
+  const { startStr, endStr } = getDateRange(period);
+  const { data: sourceData, isLoading } = useClientsBySource(companyId, {
+    createdFrom: startStr,
+    createdTo: endStr,
+  });
+  const data: SourceDataPoint[] = sourceData ?? [];
 
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; color?: string; payload: { fill?: string } }>; label?: string }) => {
     if (active && payload && payload.length) {

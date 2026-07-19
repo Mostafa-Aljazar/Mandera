@@ -6,7 +6,17 @@ import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
-import pb from "@/lib/pocketbaseClient";
+import {
+  useProperties,
+  usePropertyTypes,
+  useOwnersLookup,
+  useCompanyEmployeesLookup,
+  useAreasDistrictsLookup,
+  useCreateProperty,
+  useUpdateProperty,
+  useDeleteProperty,
+  useUpdatePropertyStatus,
+} from "@/hooks/queries/useProperties";
 import CompanyAdminHeader from "@/components/CompanyAdminHeader";
 import PropertyCard from "@/components/PropertyCard";
 import PropertyDetailModal from "@/components/PropertyDetailModal";
@@ -44,23 +54,9 @@ import { Plus, Home, Key, Trash2, Filter, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { PropertySchema, type TPropertySchema } from "@/validations/property.schema";
 import type {
-  Property as PropertyBase,
-  PropertyType,
-  Owner,
-  CompanyEmployee,
-  MarketingChannelRecord,
-} from "../../types/pocketbase.types";
-
-interface AreaDistrict {
-  id: string;
-  name: string;
-  emirate?: string;
-  company_id: string;
-}
-
-// The `area_district` PocketBase field (relation to `areas_districts`) isn't
-// part of the shared Property type, so it's augmented locally here.
-type Property = PropertyBase & { area_district?: string };
+  PropertyWithRelations as Property,
+  AreaDistrict,
+} from "@/types/supabase-entities.types";
 
 interface PropertyFilterState {
   statusId: string | null;
@@ -91,16 +87,6 @@ const STATUS_OPTIONS = [
 const PropertiesPage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
-  const [properties, setProperties] = useState<Property[]>([]);
-
-  const [types, setTypes] = useState<PropertyType[]>([]);
-  const [owners, setOwners] = useState<Owner[]>([]);
-  const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
-  const [areasDistricts, setAreasDistricts] = useState<AreaDistrict[]>([]);
-  const [allAreasDistricts, setAllAreasDistricts] = useState<AreaDistrict[]>(
-    [],
-  );
-  const [isLoadingAreas, setIsLoadingAreas] = useState(false);
 
   const [activeTab, setActiveTab] = useState("Rent");
   const [viewProperty, setViewProperty] = useState<Property | null>(null);
@@ -152,128 +138,68 @@ const PropertiesPage = () => {
 
   const propertyStatuses = STATUS_OPTIONS.map((s) => ({ id: s, name: t(s) }));
 
-  const fetchData = async () => {
-    if (!company?.id || !currentUser?.id) return;
-    try {
-      let filterStr = `company_id = "${company.id}"`;
-
-      // Strict data filtering based on employee role
-      if (currentUser.role === "company_employee") {
-        filterStr += ` && employee_id = "${currentUser.id}"`;
-      }
-
-      if (statusFilter && statusFilter !== "All") {
-        filterStr += ` && status = "${statusFilter}"`;
-      }
-
-      if (filterState.areas && filterState.areas.length > 0) {
-        const areaFilterStr = filterState.areas
-          .map((id) => `area_district = "${id}"`)
-          .join(" || ");
-        filterStr += ` && (${areaFilterStr})`;
-      }
-
-      if (filterState.createdFromDate) {
-        const d = new Date(filterState.createdFromDate);
-        d.setHours(0, 0, 0, 0);
-        filterStr += ` && created >= "${d.toISOString().replace("T", " ")}"`;
-      }
-      if (filterState.createdToDate) {
-        const d = new Date(filterState.createdToDate);
-        d.setHours(23, 59, 59, 999);
-        filterStr += ` && created <= "${d.toISOString().replace("T", " ")}"`;
-      }
-      if (filterState.updatedFromDate) {
-        const d = new Date(filterState.updatedFromDate);
-        d.setHours(0, 0, 0, 0);
-        filterStr += ` && updated >= "${d.toISOString().replace("T", " ")}"`;
-      }
-      if (filterState.updatedToDate) {
-        const d = new Date(filterState.updatedToDate);
-        d.setHours(23, 59, 59, 999);
-        filterStr += ` && updated <= "${d.toISOString().replace("T", " ")}"`;
-      }
-
-      const [props, typ, own, emp, allAreas] = await Promise.all([
-        pb
-          .collection("properties")
-          .getFullList<Property>({
-            filter: filterStr,
-            expand: "type,employee_id,area_district,owner_id",
-            sort: "-created",
-            $autoCancel: false,
-          }),
-        pb
-          .collection("property_types")
-          .getFullList<PropertyType>({
-            filter: `company_id = "${company.id}"`,
-            $autoCancel: false,
-          }),
-        pb
-          .collection("owners")
-          .getFullList<Owner>({
-            filter: `company_id = "${company.id}"`,
-            $autoCancel: false,
-          }),
-        pb
-          .collection("company_employees")
-          .getFullList<CompanyEmployee>({
-            filter: `companyId = "${company.id}"`,
-            $autoCancel: false,
-          }),
-        pb
-          .collection("areas_districts")
-          .getFullList<AreaDistrict>({
-            filter: `company_id = "${company.id}"`,
-            sort: "name",
-            $autoCancel: false,
-          }),
-      ]);
-
-      const processedProps = props.map((p) => ({
-        ...p,
-        status: p.status || "Available",
-      }));
-
-      setProperties(processedProps);
-      setTypes(typ);
-      setOwners(own);
-      setEmployees(emp);
-      setAllAreasDistricts(allAreas);
-    } catch (err) {
-      toast.error(t("Failed to load data."));
-    }
+  const propertyFilters = {
+    employeeId:
+      currentUser?.role === "company_employee" ? currentUser.id : undefined,
+    status: statusFilter && statusFilter !== "All" ? statusFilter : undefined,
+    areaDistrictIds: filterState.areas.length > 0 ? filterState.areas : undefined,
+    createdFrom: filterState.createdFromDate
+      ? (() => {
+          const d = new Date(filterState.createdFromDate!);
+          d.setHours(0, 0, 0, 0);
+          return d.toISOString();
+        })()
+      : undefined,
+    createdTo: filterState.createdToDate
+      ? (() => {
+          const d = new Date(filterState.createdToDate!);
+          d.setHours(23, 59, 59, 999);
+          return d.toISOString();
+        })()
+      : undefined,
+    updatedFrom: filterState.updatedFromDate
+      ? (() => {
+          const d = new Date(filterState.updatedFromDate!);
+          d.setHours(0, 0, 0, 0);
+          return d.toISOString();
+        })()
+      : undefined,
+    updatedTo: filterState.updatedToDate
+      ? (() => {
+          const d = new Date(filterState.updatedToDate!);
+          d.setHours(23, 59, 59, 999);
+          return d.toISOString();
+        })()
+      : undefined,
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [company?.id, currentUser?.id, statusFilter, filterState, t]);
+  const { data: propertiesData, refetch: refetchProperties } = useProperties(
+    company?.id,
+    propertyFilters,
+  );
+  const properties = propertiesData ?? [];
 
-  const fetchAreas = async (emirate: string) => {
-    if (!company?.id || !emirate) return;
-    setIsLoadingAreas(true);
-    try {
-      const res = await pb
-        .collection("areas_districts")
-        .getList<AreaDistrict>(1, 50, {
-          filter: `company_id="${company.id}" && emirate="${emirate}"`,
-          $autoCancel: false,
-          sort: "name",
-        });
-      setAreasDistricts(res.items);
-    } catch (err) {
-      console.error(err);
-      toast.error(t("Failed to load areas for selected emirate."));
-    } finally {
-      setIsLoadingAreas(false);
-    }
-  };
+  const { data: typesData } = usePropertyTypes(company?.id);
+  const types = typesData ?? [];
+  const { data: ownersData } = useOwnersLookup(company?.id);
+  const owners = ownersData ?? [];
+  const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
+  const employees = employeesData ?? [];
+  const { data: allAreasData } = useAreasDistrictsLookup(company?.id);
+  const allAreasDistricts = allAreasData ?? [];
+  const { data: areasDistrictsData, isFetching: isLoadingAreas } =
+    useAreasDistrictsLookup(
+      openForm ? company?.id : undefined,
+      formData.emirate || undefined,
+    );
+  const areasDistricts = areasDistrictsData ?? [];
 
-  useEffect(() => {
-    if (openForm && formData.emirate) {
-      fetchAreas(formData.emirate);
-    }
-  }, [openForm, formData.emirate]);
+  const createPropertyMutation = useCreateProperty();
+  const updatePropertyMutation = useUpdateProperty();
+  const deletePropertyMutation = useDeleteProperty();
+  const updateStatusMutation = useUpdatePropertyStatus();
+
+  const fetchData = () => refetchProperties();
 
   const handleEmirateChange = (newEmirate: string) => {
     form.setValue("emirate", newEmirate);
@@ -300,127 +226,65 @@ const PropertiesPage = () => {
     }
   };
 
-  const generateCode = async (listingType: string) => {
-    const typePrefix = listingType === "Sale" ? "S" : "R";
-    const prefix = `${company!.companyCode}-${typePrefix}-`;
-    const records = await pb.collection("properties").getFullList<Property>({
-      filter: `company_id = "${company!.id}" && code ~ "${prefix}"`,
-      sort: "-code",
-      $autoCancel: false,
-    });
-    if (records.length === 0) return `${prefix}0001`;
-    const lastCode = records[0].code;
-    const lastNum = parseInt(lastCode.split("-").pop() || "0", 10);
-    return `${prefix}${(lastNum + 1).toString().padStart(4, "0")}`;
-  };
-
   const handleSave = form.handleSubmit(async (formData) => {
     setIsSubmitting(true);
     try {
-      let code = editId
-        ? properties.find((p) => p.id === editId)?.code
-        : await generateCode(formData.listing_type);
-
-      const payload = new FormData();
-      payload.append("code", code || "");
-      payload.append("company_id", company!.id);
-      payload.append("listing_type", formData.listing_type);
-      payload.append("type", formData.type);
-      payload.append("emirate", formData.emirate);
-      payload.append("area_district", formData.area_district || "");
-      payload.append("area", formData.area || "");
-      payload.append("owner_id", formData.owner_id);
-      payload.append("title", formData.title);
-      payload.append("description", formData.description || "");
-      payload.append("status", formData.status || "Available");
-      payload.append("price", String(Number(formData.price)));
-      payload.append(
-        "advertising_permit_number",
-        formData.advertising_permit_number || "",
-      );
-
       // Auto-assign to current user if employee adding new record
       const finalEmployeeId =
         !editId && currentUser?.role === "company_employee"
           ? currentUser.id
           : formData.employee_id;
-      payload.append("employee_id", finalEmployeeId);
 
-      if (formData.land_area)
-        payload.append("land_area", String(Number(formData.land_area)));
-      if (formData.building_area)
-        payload.append("building_area", String(Number(formData.building_area)));
-      if (formData.commission_percentage)
-        payload.append(
-          "commission_percentage",
-          String(Number(formData.commission_percentage)),
-        );
-
-      Array.from(imagesFiles).forEach((file) => {
-        payload.append("images", file);
-      });
+      const basePayload = {
+        listing_type: formData.listing_type,
+        type: formData.type,
+        land_area: formData.land_area ? Number(formData.land_area) : null,
+        building_area: formData.building_area
+          ? Number(formData.building_area)
+          : null,
+        emirate: formData.emirate,
+        area_district: formData.area_district || null,
+        area: formData.area || "",
+        owner_id: formData.owner_id,
+        price: Number(formData.price),
+        commission_percentage: formData.commission_percentage
+          ? Number(formData.commission_percentage)
+          : null,
+        employee_id: finalEmployeeId,
+        title: formData.title,
+        description: formData.description || "",
+        status: formData.status || "Available",
+        advertising_permit_number: formData.advertising_permit_number || "",
+        images: Array.from(imagesFiles) as File[],
+      };
 
       if (editId) {
-        let updatedProp;
-        try {
-          updatedProp = await pb
-            .collection("properties")
-            .update<Property>(editId, payload, { $autoCancel: false });
-        } catch (updateErr) {
-          throw updateErr;
-        }
+        const result = await updatePropertyMutation.mutateAsync({
+          id: editId,
+          companyId: company!.id,
+          ...basePayload,
+        });
+        if (result.error) throw new Error(result.error);
 
-        if (updatedProp && updatedProp.id) {
-          toast.success(t("Property updated."));
-          setOpenForm(false);
-          resetForm();
-          fetchData();
-        }
+        toast.success(t("Property updated."));
       } else {
-        let newProp;
-        try {
-          newProp = await pb
-            .collection("properties")
-            .create<Property>(payload, { $autoCancel: false });
-        } catch (createErr) {
-          throw createErr;
-        }
+        const result = await createPropertyMutation.mutateAsync({
+          companyId: company!.id,
+          companyCode: company!.company_code,
+          createdByUserId: currentUser!.id,
+          createdByName:
+            currentUser?.name || currentUser?.email || "Unknown User",
+          ...basePayload,
+        });
+        if (result.error) throw new Error(result.error);
 
-        if (newProp && newProp.id) {
-          try {
-            await pb.collection("property_status_history").create(
-              {
-                property_id: newProp.id,
-                status: formData.status || "Available",
-                note: "Initial property creation",
-                created_by: currentUser!.id,
-                created_by_name:
-                  currentUser?.name || currentUser?.email || "Unknown User",
-                company_id: company!.id,
-              },
-              { $autoCancel: false },
-            );
-          } catch (historyErr) {
-            console.warn(
-              "Secondary operation failed (status history):",
-              historyErr,
-            );
-          }
-
-          toast.success(t("Property added successfully"));
-          setOpenForm(false);
-          resetForm();
-          fetchData();
-        }
+        toast.success(t("Property added successfully"));
       }
+      setOpenForm(false);
+      resetForm();
     } catch (err: any) {
-      console.error(
-        "PocketBase Property Save Error details:",
-        err.response || err,
-      );
-      toast.error(
-        err.response?.message || err.message || t("Error saving property."),
-      );
+      console.error("Property Save Error details:", err);
+      toast.error(err.message || t("Error saving property."));
     } finally {
       setIsSubmitting(false);
     }
@@ -433,10 +297,10 @@ const PropertiesPage = () => {
     )
       return;
     try {
-      await pb.collection("properties").delete(editId, { $autoCancel: false });
+      const result = await deletePropertyMutation.mutateAsync(editId);
+      if (result.error) throw new Error(result.error);
       toast.success(t("Property deleted."));
       setOpenForm(false);
-      fetchData();
     } catch (e) {
       toast.error(t("Error deleting property."));
     }
@@ -453,44 +317,21 @@ const PropertiesPage = () => {
     }
 
     try {
-      const updatedProp = await pb
-        .collection("properties")
-        .update<Property>(
-          propertyId,
-          { status: newStatus },
-          { $autoCancel: false },
-        );
-      if (updatedProp && updatedProp.id) {
-        try {
-          await pb.collection("property_status_history").create(
-            {
-              property_id: propertyId,
-              status: newStatus,
-              note: "Quick status update from list view",
-              created_by: currentUser!.id,
-              created_by_name:
-                currentUser?.name || currentUser?.email || "Unknown User",
-              company_id: company!.id,
-            },
-            { $autoCancel: false },
-          );
-        } catch (historyErr) {
-          console.warn(
-            "Secondary operation failed (status history):",
-            historyErr,
-          );
-        }
+      const result = await updateStatusMutation.mutateAsync({
+        propertyId,
+        companyId: company!.id,
+        newStatus,
+        createdByUserId: currentUser!.id,
+        createdByName:
+          currentUser?.name || currentUser?.email || "Unknown User",
+      });
+      if (result.error) throw new Error(result.error);
 
-        toast.success(t("Property status updated successfully"));
-        fetchData();
-      }
+      toast.success(t("Property status updated successfully"));
     } catch (err: any) {
-      console.error(
-        "PocketBase Status Quick Update Error:",
-        err.response || err,
-      );
+      console.error("Status Quick Update Error:", err);
       toast.error(
-        err.response?.message || err.message || t("Failed to update status"),
+        err.message || t("Failed to update status"),
       );
     }
   };
@@ -544,7 +385,6 @@ const PropertiesPage = () => {
       advertising_permit_number: "",
     });
     setImagesFiles([]);
-    setAreasDistricts([]);
   };
 
   const renderGrid = (listType: string) => {
@@ -982,7 +822,7 @@ const PropertiesPage = () => {
                             <SelectContent>
                               {employees.map((e) => (
                                 <SelectItem key={e.id} value={e.id}>
-                                  {e.name || e.email}
+                                  {e.name || e.id}
                                 </SelectItem>
                               ))}
                             </SelectContent>

@@ -22,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import CompanyAdminHeader from '@/components/CompanyAdminHeader';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
 import { useEmployeeCount } from '@/hooks/useEmployeeCount';
-import pb from '@/lib/pocketbaseClient';
+import { useCreateEmployee } from '@/hooks/queries/useEmployees';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 import { NewEmployeeSchema, type TNewEmployeeSchema } from '@/validations/new-employee.schema';
@@ -33,6 +33,7 @@ const EmployeeFormPage = () => {
   const { company } = useCompanyAuth();
   const { count: currentCount } = useEmployeeCount(company?.id);
   const [loading, setLoading] = useState(false);
+  const createEmployeeMutation = useCreateEmployee();
 
   const form = useForm<TNewEmployeeSchema>({
     resolver: zodResolver(NewEmployeeSchema(t)),
@@ -47,7 +48,7 @@ const EmployeeFormPage = () => {
   });
 
   const handleSubmit = form.handleSubmit(async (formData) => {
-    if (currentCount >= (company?.maxEmployeeCount ?? Infinity)) {
+    if (currentCount >= (company?.max_employee_count ?? Infinity)) {
       toast.error(t('Employee limit reached. Please upgrade your subscription.'));
       return;
     }
@@ -55,25 +56,16 @@ const EmployeeFormPage = () => {
     setLoading(true);
 
     try {
-      const employeeRecord = await pb.collection('employees').create({
-        firstName: formData.firstName,
-        lastName: formData.lastName,
+      const result = await createEmployeeMutation.mutateAsync({
+        companyId: company!.id,
+        name: `${formData.firstName} ${formData.lastName}`,
         email: formData.email,
         phone: formData.phone,
         job_title: formData.job_title,
-        companyId: company!.id,
-        disabled: false
-      }, { $autoCancel: false });
-
-      await pb.collection('company_employees').create({
-        email: formData.email,
+        role: 'company_employee',
         password: formData.password,
-        passwordConfirm: formData.password,
-        name: `${formData.firstName} ${formData.lastName}`,
-        companyId: company!.id,
-        employeeId: employeeRecord.id,
-        role: 'company_employee'
-      }, { $autoCancel: false });
+      });
+      if (result.error) throw new Error(result.error);
 
       toast.success(t('Employee added successfully'));
       form.reset();
@@ -194,9 +186,9 @@ const EmployeeFormPage = () => {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="وكيل مبيعات">{t('Sales Agent')}</SelectItem>
-                              <SelectItem value="مسؤول">{t('Administrator')}</SelectItem>
-                              <SelectItem value="مدير">{t('Manager')}</SelectItem>
+                              <SelectItem value="sales_agent">{t('Sales Agent')}</SelectItem>
+                              <SelectItem value="admin">{t('Administrator')}</SelectItem>
+                              <SelectItem value="manager">{t('Manager')}</SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -236,7 +228,7 @@ const EmployeeFormPage = () => {
                     </Button>
                     <Button
                       type="submit"
-                      disabled={loading || currentCount >= (company?.maxEmployeeCount ?? Infinity)}
+                      disabled={loading || currentCount >= (company?.max_employee_count ?? Infinity)}
                       className="w-full md:w-auto min-w-[140px]"
                     >
                       {loading ? t('Adding...') : t('Add Employee')}

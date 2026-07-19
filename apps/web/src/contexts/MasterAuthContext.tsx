@@ -7,12 +7,12 @@ import React, {
   useEffect,
   ReactNode,
 } from "react";
-import pb from "@/lib/pocketbaseClient";
-import type { MasterAdmin } from "../types/pocketbase.types";
+import supabase from "@/lib/supabase/client";
+import type { AuthUser } from "@/types/supabase-entities.types";
 
 interface MasterAuthContextValue {
-  currentUser: MasterAdmin | null;
-  login: (email: string, password: string) => Promise<MasterAdmin>;
+  currentUser: AuthUser | null;
+  login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   isAuthenticated: boolean;
   initialLoading: boolean;
@@ -21,30 +21,58 @@ interface MasterAuthContextValue {
 const MasterAuthContext = createContext<MasterAuthContextValue | null>(null);
 
 export const MasterAuthProvider = ({ children }: { children: ReactNode }) => {
-  const [currentUser, setCurrentUser] = useState<MasterAdmin | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
 
   useEffect(() => {
-    if (pb.authStore.isValid && pb.authStore.model?.role === "master_admin") {
-      setCurrentUser(pb.authStore.model as unknown as MasterAdmin);
-    }
-    setInitialLoading(false);
+    const initAuth = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single();
+
+        if (profile?.role === "master_admin") {
+          setCurrentUser({ ...profile, email: session.user.email } as AuthUser);
+        }
+      }
+      setInitialLoading(false);
+    };
+
+    initAuth();
   }, []);
 
   const login = async (email: string, password: string) => {
-    const authData = await pb
-      .collection("master_admins")
-      .authWithPassword(email, password, { $autoCancel: false });
-    if (authData.record.role !== "master_admin") {
-      pb.authStore.clear();
+    const { data: authData, error: authError } =
+      await supabase.auth.signInWithPassword({ email, password });
+
+    if (authError || !authData.user) {
+      throw new Error(authError?.message || "Invalid credentials");
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", authData.user.id)
+      .single();
+
+    if (profileError || profile?.role !== "master_admin") {
+      await supabase.auth.signOut();
       throw new Error("Invalid credentials");
     }
-    setCurrentUser(authData.record as unknown as MasterAdmin);
-    return authData.record as unknown as MasterAdmin;
+
+    const user = { ...profile, email: authData.user.email } as AuthUser;
+    setCurrentUser(user);
+    return user;
   };
 
   const logout = () => {
-    pb.authStore.clear();
+    supabase.auth.signOut();
     setCurrentUser(null);
   };
 

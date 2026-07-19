@@ -18,16 +18,16 @@ import {
 } from "@/components/ui/form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MasterAdminHeader from "@/components/MasterAdminHeader";
-import pb from "@/lib/pocketbaseClient";
+import { useCreateCompany } from "@/hooks/queries/useCompanies";
 import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
-import type { Company } from "@/types/pocketbase.types";
 import { NewCompanySchema, type TNewCompanySchema } from "@/validations/new-company.schema";
 
 const CompanyFormPage = () => {
   const { t } = useTranslation();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const createCompanyMutation = useCreateCompany();
 
   const form = useForm<TNewCompanySchema>({
     resolver: zodResolver(NewCompanySchema(t)),
@@ -43,61 +43,22 @@ const CompanyFormPage = () => {
 
   const subscriptionStartDate = form.watch("subscriptionStartDate");
 
-  const generateCompanyCode = async () => {
-    try {
-      const companies = await pb.collection("companies").getFullList<Company>({
-        sort: "-companyCode",
-        $autoCancel: false,
-      });
-
-      if (companies.length === 0) {
-        return "COMP001";
-      }
-
-      const lastCode = companies[0].companyCode;
-      const numPart = parseInt(lastCode.replace("COMP", ""));
-      const nextNum = numPart + 1;
-      return `COMP${String(nextNum).padStart(3, "0")}`;
-    } catch (error) {
-      console.error("Error generating company code:", error);
-      return `COMP${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
-    }
-  };
-
   const handleSubmit = form.handleSubmit(async (formData) => {
     setLoading(true);
 
     try {
-      const companyCode = await generateCompanyCode();
-
-      const companyRecord = await pb.collection("companies").create(
-        {
-          companyCode,
-          companyName: formData.companyName,
-          email: formData.email,
-          subscriptionStartDate: formData.subscriptionStartDate,
-          subscriptionEndDate: formData.subscriptionEndDate,
-          maxEmployeeCount: formData.maxEmployeeCount,
-          isActive: true,
-        },
-        { $autoCancel: false },
-      );
-
-      await pb.collection("company_super_admins").create(
-        {
-          email: formData.email,
-          password: formData.password,
-          passwordConfirm: formData.password,
-          name: formData.companyName,
-          companyId: companyRecord.id,
-          companyCode: companyCode,
-          role: "company_super_admin",
-        },
-        { $autoCancel: false },
-      );
+      const result = await createCompanyMutation.mutateAsync({
+        companyName: formData.companyName,
+        email: formData.email,
+        password: formData.password,
+        subscriptionStartDate: formData.subscriptionStartDate,
+        subscriptionEndDate: formData.subscriptionEndDate,
+        maxEmployeeCount: Number(formData.maxEmployeeCount),
+      });
+      if (result.error) throw new Error(result.error);
 
       toast(
-        `${t("Company created successfully. Company Code:")} ${companyCode}`,
+        `${t("Company created successfully. Company Code:")} ${result.data.companyCode}`,
       );
       router.push("/master-dashboard/companies");
     } catch (error) {
