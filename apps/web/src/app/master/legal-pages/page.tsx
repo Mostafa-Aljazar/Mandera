@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import DocumentHead from "@/components/DocumentHead";
+import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
 import {
@@ -14,11 +14,11 @@ import {
   Scale,
   Shield,
 } from "lucide-react";
-import MasterAdminHeader from "@/components/MasterAdminHeader";
-import PageLoading from "@/components/PageLoading";
-import PreviewModal from "@/components/PreviewModal";
-import RichTextEditor from "@/components/RichTextEditor";
-import { SectionBadge } from "@/components/SectionBadge";
+import MasterAdminHeader from "@/components/master/MasterAdminHeader";
+import PageLoading from "@/components/common/PageLoading";
+import PreviewModal from "@/components/common/PreviewModal";
+import RichTextEditor from "@/components/common/RichTextEditor";
+import SectionBadge from "@/components/common/SectionBadge";
 import { useMasterAuth } from "@/contexts/MasterAuthContext";
 import {
   useLegalPages,

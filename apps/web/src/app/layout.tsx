@@ -1,7 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import Providers from '@/components/Providers';
-import LandingFooter from '@/components/home/LandingFooter';
+import Providers from '@/components/common/Providers';
+import LandingFooter from '@/components/landing/LandingFooter';
 
 export const metadata: Metadata = {
   title: 'MANDERA CRM',

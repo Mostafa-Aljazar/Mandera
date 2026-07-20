@@ -22,8 +22,8 @@ import {
   createAreaDistrict,
   updateAreaDistrict,
   deleteAreaDistrict,
-  getCompanyEmployeesWithDetails,
 } from "@/actions/settings";
+import { getCompanyEmployees } from "@/actions/employees";
 import { getAreasDistrictsForCompany } from "@/actions/properties";
 
 // --- Property Types ---
@@ -293,7 +293,7 @@ export function useSettingsEmployees(companyId?: string) {
   return useQuery({
     queryKey: ["employees", "settings", companyId],
     queryFn: async () => {
-      const result = await getCompanyEmployeesWithDetails(companyId!);
+      const result = await getCompanyEmployees(companyId!);
       if (result.error) throw new Error(result.error);
       return result.data;
     },

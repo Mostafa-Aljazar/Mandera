@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import DocumentHead from "@/components/DocumentHead";
+import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, Lock, Mail, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,8 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import PageLoading from "@/components/PageLoading";
-import PublicHeader from "@/components/PublicHeader";
+import PageLoading from "@/components/common/PageLoading";
+import PublicHeader from "@/components/common/PublicHeader";
 import { useMasterAuth } from "@/contexts/MasterAuthContext";
 import { toast } from "sonner";
 import { LoginSchema, type TLoginSchema } from "@/validations/login.schema";

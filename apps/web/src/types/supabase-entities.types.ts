@@ -238,6 +238,8 @@ export interface CompanyEmployeeWithDetails {
   company_id: string;
   employee_id: string | null;
   name: string | null;
+  /** Auth or employees.email — enriched in getCompanyEmployees. */
+  email?: string;
   employee?: EmployeeRecord | null;
 }
 

@@ -20,6 +20,23 @@ export interface OwnerFilters {
   updatedTo?: string;
 }
 
+export async function getOwner(
+  ownerId: string,
+  companyId: string,
+): Promise<ActionResult<Owner>> {
+  const supabase = await getServerSupabase();
+  const { data, error } = await supabase
+    .from("owners")
+    .select("*")
+    .eq("id", ownerId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+
+  if (error) return { error: error.message };
+  if (!data) return { error: "Owner not found" };
+  return { data: data as Owner };
+}
+
 export async function getOwners(
   companyId: string,
   filters: OwnerFilters = {},

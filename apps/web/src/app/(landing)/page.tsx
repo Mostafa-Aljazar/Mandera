@@ -1,12 +1,12 @@
 "use client";
 
-import DocumentHead from "@/components/DocumentHead";
-import AndroidAppSection from "@/components/AndroidAppSection";
-import FeaturesSection from "@/components/home/FeaturesSection";
-import HeroSection from "@/components/home/HeroSection";
-import PricingSection from "@/components/home/PricingSection";
-import StepsSection from "@/components/home/StepsSection";
-import TrialBannerSection from "@/components/home/TrialBannerSection";
+import DocumentHead from "@/components/common/DocumentHead";
+import AndroidAppSection from "@/components/landing/AndroidAppSection";
+import FeaturesSection from "@/components/landing/FeaturesSection";
+import HeroSection from "@/components/landing/HeroSection";
+import PricingSection from "@/components/landing/PricingSection";
+import StepsSection from "@/components/landing/StepsSection";
+import TrialBannerSection from "@/components/landing/TrialBannerSection";
 import { useTranslation } from "react-i18next";
 
 export default function HomePage() {

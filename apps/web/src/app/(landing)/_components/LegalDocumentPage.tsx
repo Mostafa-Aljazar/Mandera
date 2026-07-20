@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import DocumentHead from "@/components/DocumentHead";
+import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useLegalPage } from "@/hooks/queries/useLegalPages";
 import { getLocalizedLegalPage } from "@/lib/legalPages";

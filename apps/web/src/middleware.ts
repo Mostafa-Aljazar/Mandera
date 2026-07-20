@@ -1,20 +1,20 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
-const MASTER_LOGIN = '/master/login';
-const MASTER_PROTECTED_PREFIXES = ['/master/dashboard', '/master/legal-pages'];
-const COMPANY_PROTECTED_PREFIXES = [
-  '/company-dashboard',
-  '/employees',
-  '/settings',
-  '/owners',
-  '/properties',
-  '/clients',
-  '/revenue',
-];
+const MASTER_LOGIN = "/master/login";
+const COMPANY_LOGIN = "/company/login";
+
+const MASTER_PROTECTED_PREFIXES = ["/master/dashboard", "/master/legal-pages"];
 
 function matchesPrefix(pathname: string, prefixes: string[]) {
   return prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+function isCompanyProtected(pathname: string) {
+  if (pathname === COMPANY_LOGIN || pathname.startsWith(`${COMPANY_LOGIN}/`)) {
+    return false;
+  }
+  return pathname === "/company" || pathname.startsWith("/company/");
 }
 
 function redirectTo(request: NextRequest, pathname: string) {
@@ -23,24 +23,67 @@ function redirectTo(request: NextRequest, pathname: string) {
   return NextResponse.redirect(url);
 }
 
-function mapLegacyMasterPath(pathname: string) {
-  if (pathname === '/master-login' || pathname.startsWith('/master-login/')) {
-    return pathname.replace('/master-login', MASTER_LOGIN);
+function mapLegacyPath(pathname: string) {
+  if (pathname === "/master-login" || pathname.startsWith("/master-login/")) {
+    return pathname.replace("/master-login", MASTER_LOGIN);
   }
 
-  if (pathname === '/master-dashboard' || pathname.startsWith('/master-dashboard/')) {
-    return pathname.replace('/master-dashboard', '/master/dashboard');
+  if (
+    pathname === "/master-dashboard" ||
+    pathname.startsWith("/master-dashboard/")
+  ) {
+    return pathname.replace("/master-dashboard", "/master/dashboard");
   }
 
-  if (pathname === '/admin/legal-pages' || pathname.startsWith('/admin/legal-pages/')) {
-    return pathname.replace('/admin/legal-pages', '/master/legal-pages');
+  if (
+    pathname === "/admin/legal-pages" ||
+    pathname.startsWith("/admin/legal-pages/")
+  ) {
+    return pathname.replace("/admin/legal-pages", "/master/legal-pages");
+  }
+
+  if (pathname === "/company" || pathname === "/company/") {
+    return "/company/dashboard";
+  }
+
+  if (pathname === "/company-login" || pathname.startsWith("/company-login/")) {
+    return pathname.replace("/company-login", COMPANY_LOGIN);
+  }
+
+  if (
+    pathname === "/company-dashboard" ||
+    pathname.startsWith("/company-dashboard/")
+  ) {
+    // /company-dashboard/employees → /company/employees
+    if (
+      pathname === "/company-dashboard/employees" ||
+      pathname.startsWith("/company-dashboard/employees/")
+    ) {
+      return pathname.replace("/company-dashboard/employees", "/company/employees");
+    }
+    return pathname.replace("/company-dashboard", "/company/dashboard");
+  }
+
+  const companyModuleMap: Record<string, string> = {
+    "/employees": "/company/employees",
+    "/clients": "/company/clients",
+    "/owners": "/company/owners",
+    "/properties": "/company/properties",
+    "/revenue": "/company/revenue",
+    "/settings": "/company/settings",
+  };
+
+  for (const [from, to] of Object.entries(companyModuleMap)) {
+    if (pathname === from || pathname.startsWith(`${from}/`)) {
+      return pathname.replace(from, to);
+    }
   }
 
   return null;
 }
 
 export async function middleware(request: NextRequest) {
-  const legacyPath = mapLegacyMasterPath(request.nextUrl.pathname);
+  const legacyPath = mapLegacyPath(request.nextUrl.pathname);
   if (legacyPath) {
     return redirectTo(request, legacyPath);
   }
@@ -48,7 +91,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const isMasterRoute = matchesPrefix(pathname, MASTER_PROTECTED_PREFIXES);
-  const isCompanyRoute = matchesPrefix(pathname, COMPANY_PROTECTED_PREFIXES);
+  const isCompanyRoute = isCompanyProtected(pathname);
 
   if (!isMasterRoute && !isCompanyRoute) {
     return NextResponse.next();
@@ -65,7 +108,9 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value),
+          );
           response = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options),
@@ -80,18 +125,18 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    const loginPath = isMasterRoute ? MASTER_LOGIN : '/company-login';
+    const loginPath = isMasterRoute ? MASTER_LOGIN : COMPANY_LOGIN;
     return NextResponse.redirect(new URL(loginPath, request.url));
   }
 
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, company_id')
-    .eq('id', user.id)
+    .from("profiles")
+    .select("role, company_id")
+    .eq("id", user.id)
     .single();
 
   if (isMasterRoute) {
-    if (profile?.role !== 'master_admin') {
+    if (profile?.role !== "master_admin") {
       return NextResponse.redirect(new URL(MASTER_LOGIN, request.url));
     }
     return response;
@@ -99,17 +144,13 @@ export async function middleware(request: NextRequest) {
 
   if (isCompanyRoute) {
     const isCompanyIdentity =
-      profile?.role === 'company_super_admin' || profile?.role === 'company_employee';
+      profile?.role === "company_super_admin" ||
+      profile?.role === "company_employee";
 
     if (!isCompanyIdentity) {
-      return NextResponse.redirect(new URL('/company-login', request.url));
+      return NextResponse.redirect(new URL(COMPANY_LOGIN, request.url));
     }
 
-    // Tenant business-rule checks (is_frozen / isActive / subscriptionEndDate)
-    // intentionally stay in CompanyAuthContext on the client: they require an
-    // extra `companies` fetch, and duplicating that in middleware on every
-    // request would add latency to every protected navigation. Middleware
-    // here only enforces "is this a valid, correctly-scoped session".
     return response;
   }
 
@@ -118,20 +159,31 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/master-login',
-    '/master-login/:path*',
-    '/master-dashboard',
-    '/master-dashboard/:path*',
-    '/admin/legal-pages',
-    '/admin/legal-pages/:path*',
-    '/master/dashboard/:path*',
-    '/master/legal-pages/:path*',
-    '/company-dashboard/:path*',
-    '/employees/:path*',
-    '/settings/:path*',
-    '/owners/:path*',
-    '/properties/:path*',
-    '/clients/:path*',
-    '/revenue/:path*',
+    "/master-login",
+    "/master-login/:path*",
+    "/master-dashboard",
+    "/master-dashboard/:path*",
+    "/admin/legal-pages",
+    "/admin/legal-pages/:path*",
+    "/master/dashboard/:path*",
+    "/master/legal-pages/:path*",
+    "/company-login",
+    "/company-login/:path*",
+    "/company-dashboard",
+    "/company-dashboard/:path*",
+    "/company",
+    "/company/:path*",
+    "/employees",
+    "/employees/:path*",
+    "/settings",
+    "/settings/:path*",
+    "/owners",
+    "/owners/:path*",
+    "/properties",
+    "/properties/:path*",
+    "/clients",
+    "/clients/:path*",
+    "/revenue",
+    "/revenue/:path*",
   ],
 };

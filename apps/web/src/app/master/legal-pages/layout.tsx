@@ -1,4 +1,4 @@
-import MasterAuthGate from '@/components/MasterAuthGate';
+import MasterAuthGate from '@/components/master/MasterAuthGate';
 
 export default function MasterLegalPagesLayout({
   children,

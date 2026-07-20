@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  getOwner,
   getOwners,
   getOwnerStatusesForCompany,
   getMarketingChannelsForCompany,
@@ -16,6 +17,18 @@ import {
   type CreateOwnerInput,
   type UpdateOwnerInput,
 } from "@/actions/owners";
+
+export function useOwner(ownerId?: string, companyId?: string) {
+  return useQuery({
+    queryKey: ["owners", "detail", ownerId, companyId],
+    queryFn: async () => {
+      const result = await getOwner(ownerId!, companyId!);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!ownerId && !!companyId,
+  });
+}
 
 export function useOwners(companyId?: string, filters: OwnerFilters = {}) {
   return useQuery({
@@ -96,6 +109,11 @@ export function useCreateOwner() {
     onSuccess: (result, variables) => {
       if (result.error) return;
       queryClient.invalidateQueries({ queryKey: ["owners", variables.companyId] });
+      if (result.data?.id) {
+        queryClient.invalidateQueries({
+          queryKey: ["owners", "detail", result.data.id],
+        });
+      }
     },
   });
 }
@@ -104,8 +122,12 @@ export function useUpdateOwner() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: UpdateOwnerInput) => updateOwner(input),
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
+      if (result.error) return;
       queryClient.invalidateQueries({ queryKey: ["owners"] });
+      queryClient.invalidateQueries({
+        queryKey: ["owners", "detail", variables.id],
+      });
     },
   });
 }

@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  getClient,
   getClients,
   getClientStatusesForCompany,
   createClient,
@@ -20,6 +21,18 @@ import {
   type ClientsBySourceFilters,
   type AddClientStatusInput,
 } from "@/actions/clients";
+
+export function useClient(clientId?: string, companyId?: string) {
+  return useQuery({
+    queryKey: ["clients", "detail", clientId, companyId],
+    queryFn: async () => {
+      const result = await getClient(clientId!, companyId!);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!clientId && !!companyId,
+  });
+}
 
 export function useClients(companyId?: string, filters: ClientFilters = {}) {
   return useQuery({
@@ -88,6 +101,11 @@ export function useCreateClient() {
     onSuccess: (result, variables) => {
       if (result.error) return;
       queryClient.invalidateQueries({ queryKey: ["clients", variables.companyId] });
+      if (result.data?.id) {
+        queryClient.invalidateQueries({
+          queryKey: ["clients", "detail", result.data.id],
+        });
+      }
     },
   });
 }
@@ -96,8 +114,12 @@ export function useUpdateClient() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: UpdateClientInput) => updateClient(input),
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
+      if (result.error) return;
       queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({
+        queryKey: ["clients", "detail", variables.id],
+      });
     },
   });
 }

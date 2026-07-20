@@ -10,6 +10,26 @@ type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; erro
 
 const COMPANY_EMPLOYEE_SELECT = "*, employee:employees!profiles_employee_id_fkey(*)";
 
+async function withAuthEmails(
+  rows: CompanyEmployeeWithDetails[],
+): Promise<CompanyEmployeeWithDetails[]> {
+  const admin = getSupabaseAdmin();
+  return Promise.all(
+    rows.map(async (row) => {
+      const fromEmployee = row.employee?.email;
+      if (fromEmployee) {
+        return { ...row, email: fromEmployee };
+      }
+      try {
+        const { data } = await admin.auth.admin.getUserById(row.id);
+        return { ...row, email: data.user?.email ?? undefined };
+      } catch {
+        return row;
+      }
+    }),
+  );
+}
+
 export async function getCompanyEmployees(
   companyId: string,
 ): Promise<ActionResult<CompanyEmployeeWithDetails[]>> {
@@ -22,7 +42,45 @@ export async function getCompanyEmployees(
     .order("created_at", { ascending: false });
 
   if (error) return { error: error.message };
-  return { data: (data ?? []) as unknown as CompanyEmployeeWithDetails[] };
+  const rows = (data ?? []) as unknown as CompanyEmployeeWithDetails[];
+  return { data: await withAuthEmails(rows) };
+}
+
+export async function getCompanyEmployee(
+  profileId: string,
+  companyId: string,
+): Promise<ActionResult<CompanyEmployeeWithDetails>> {
+  const supabase = await getServerSupabase();
+
+  const byProfile = await supabase
+    .from("profiles")
+    .select(COMPANY_EMPLOYEE_SELECT)
+    .eq("id", profileId)
+    .eq("company_id", companyId)
+    .in("role", ["company_super_admin", "company_employee"])
+    .maybeSingle();
+
+  if (byProfile.error) return { error: byProfile.error.message };
+
+  let row = byProfile.data as unknown as CompanyEmployeeWithDetails | null;
+
+  // Legacy links used the `employees.id` instead of the profile id.
+  if (!row) {
+    const byEmployee = await supabase
+      .from("profiles")
+      .select(COMPANY_EMPLOYEE_SELECT)
+      .eq("employee_id", profileId)
+      .eq("company_id", companyId)
+      .in("role", ["company_super_admin", "company_employee"])
+      .maybeSingle();
+
+    if (byEmployee.error) return { error: byEmployee.error.message };
+    row = byEmployee.data as unknown as CompanyEmployeeWithDetails | null;
+  }
+
+  if (!row) return { error: "Employee not found" };
+  const [enriched] = await withAuthEmails([row]);
+  return { data: enriched };
 }
 
 export async function getBaseEmployees(

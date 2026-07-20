@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getStatusHistory,
+  getEmployeeActivity,
   deleteStatusHistoryRecord,
   type HistoryEntityType,
 } from "@/actions/statusHistory";
@@ -20,6 +21,18 @@ export function useStatusHistory(
       return result.data;
     },
     enabled: !!entityId && !!companyId,
+  });
+}
+
+export function useEmployeeActivity(profileId?: string, companyId?: string) {
+  return useQuery({
+    queryKey: ["employee_activity", profileId, companyId],
+    queryFn: async () => {
+      const result = await getEmployeeActivity(profileId!, companyId!);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!profileId && !!companyId,
   });
 }
 

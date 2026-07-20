@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import DocumentHead from "@/components/DocumentHead";
-import MasterAdminHeader from "@/components/MasterAdminHeader";
+import DocumentHead from "@/components/common/DocumentHead";
+import MasterAdminHeader from "@/components/master/MasterAdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

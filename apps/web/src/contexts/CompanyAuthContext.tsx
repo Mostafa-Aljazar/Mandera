@@ -13,14 +13,14 @@ import supabase from "@/lib/supabase/client";
 import type { AuthUser, Company } from "@/types/supabase-entities.types";
 
 const COMPANY_AUTH_PATHS = [
-  "/company-login",
-  "/company-dashboard",
-  "/employees",
-  "/settings",
-  "/owners",
-  "/properties",
-  "/clients",
-  "/revenue",
+  "/company/login",
+  "/company/dashboard",
+  "/company/employees",
+  "/company/settings",
+  "/company/owners",
+  "/company/properties",
+  "/company/clients",
+  "/company/revenue",
 ];
 
 function needsCompanyAuth(pathname: string) {

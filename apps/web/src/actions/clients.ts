@@ -21,6 +21,23 @@ export interface ClientFilters {
   updatedTo?: string;
 }
 
+export async function getClient(
+  clientId: string,
+  companyId: string,
+): Promise<ActionResult<ClientWithRelations>> {
+  const supabase = await getServerSupabase();
+  const { data, error } = await supabase
+    .from("clients")
+    .select(CLIENTS_SELECT)
+    .eq("id", clientId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+
+  if (error) return { error: error.message };
+  if (!data) return { error: "Client not found" };
+  return { data: data as unknown as ClientWithRelations };
+}
+
 export async function getClients(
   companyId: string,
   filters: ClientFilters = {},

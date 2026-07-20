@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import DocumentHead from "@/components/DocumentHead";
+import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SectionBadge } from "@/components/SectionBadge";
-import MasterAdminHeader from "@/components/MasterAdminHeader";
+import SectionBadge from "@/components/common/SectionBadge";
+import MasterAdminHeader from "@/components/master/MasterAdminHeader";
 import { useCompanyDashboardStats } from "@/hooks/queries/useCompanies";
 import { useEmployeeCount } from "@/hooks/useEmployeeCount";
 import { cn } from "@/lib/utils";

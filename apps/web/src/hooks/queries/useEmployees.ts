@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getCompanyEmployees,
+  getCompanyEmployee,
   getBaseEmployees,
   getBaseEmployee,
   getEmployeeCount,
@@ -26,6 +27,18 @@ export function useCompanyEmployees(companyId?: string) {
       return result.data;
     },
     enabled: !!companyId,
+  });
+}
+
+export function useCompanyEmployee(profileId?: string, companyId?: string) {
+  return useQuery({
+    queryKey: ["company_employees", "detail", profileId, companyId],
+    queryFn: async () => {
+      const result = await getCompanyEmployee(profileId!, companyId!);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!profileId && !!companyId,
   });
 }
 
@@ -95,6 +108,7 @@ export function useUpdateEmployeeDisabled() {
       updateEmployeeDisabled(employeeId, disabled),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["base_employees"] });
+      queryClient.invalidateQueries({ queryKey: ["company_employees"] });
     },
   });
 }
@@ -111,6 +125,7 @@ export function useUpdateBaseEmployee() {
     }) => updateBaseEmployee(id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["base_employees"] });
+      queryClient.invalidateQueries({ queryKey: ["company_employees"] });
     },
   });
 }
