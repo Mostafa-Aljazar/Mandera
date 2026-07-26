@@ -2,8 +2,8 @@
 node_modules/
 
 # Next.js build output
-apps/web/.next/
-apps/web/out/
+.next/
+out/
 dist/
 
 # TypeScript incremental build cache
@@ -13,14 +13,6 @@ dist/
 .env
 .env.local
 .env.*.local
-
-# PocketBase runtime data (regenerates from pb_migrations)
-apps/pocketbase/pb_data/
-apps/pocketbase/pb_data.locked-backup/
-apps/pocketbase/pb_snapshots/
-
-# PocketBase Windows binary (local-dev only; production/deploy uses the committed Linux binary)
-apps/pocketbase/pocketbase.exe
 
 # Logs
 *.log
