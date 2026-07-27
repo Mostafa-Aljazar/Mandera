@@ -226,8 +226,12 @@ export default function PropertyDetailView({ propertyId }: Props) {
 
   // Compact facts — only filled values, never stretch empty
   const facts: { icon: React.ElementType; label: string; value: string }[] = [];
-  if (property.property_type?.name) {
-    facts.push({ icon: Home, label: t("Property Type"), value: property.property_type.name });
+  if (property.property_type) {
+    facts.push({
+      icon: Home,
+      label: t("Property Type"),
+      value: primary(property.property_type.name_en, property.property_type.name_ar),
+    });
   }
   if (property.bedrooms) {
     facts.push({

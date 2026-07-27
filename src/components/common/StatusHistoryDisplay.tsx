@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   History,
-  User,
   Trash2,
   Loader2,
   CalendarClock,
@@ -13,7 +12,10 @@ import {
 } from 'lucide-react';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
 import { useTranslation } from 'react-i18next';
-import { format, isToday, isYesterday } from 'date-fns';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { bilingualLabel } from '@/lib/bilingualLabel';
+import { format, isToday, isYesterday, type Locale } from 'date-fns';
+import { ar, enUS } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useStatusHistory, useDeleteStatusHistoryRecord } from '@/hooks/queries/useStatusHistory';
@@ -25,6 +27,8 @@ interface HistoryRecord {
   created: string;
   created_by: string;
   created_by_name?: string;
+  created_by_name_en?: string | null;
+  created_by_name_ar?: string | null;
   note?: string;
   status?: string;
   follow_up_date?: string;
@@ -36,10 +40,15 @@ interface StatusHistoryDisplayProps {
   refreshTrigger?: number;
 }
 
-function formatRelativeDate(date: Date, t: (key: string) => string) {
-  if (isToday(date)) return `${t('Today')} · ${format(date, 'HH:mm')}`;
-  if (isYesterday(date)) return `${t('Yesterday')} · ${format(date, 'HH:mm')}`;
-  return format(date, 'MMM d, yyyy · HH:mm');
+function formatRelativeDate(
+  date: Date,
+  t: (key: string) => string,
+  locale: Locale,
+) {
+  const time = format(date, 'HH:mm', { locale });
+  if (isToday(date)) return `${t('Today')} · ${time}`;
+  if (isYesterday(date)) return `${t('Yesterday')} · ${time}`;
+  return format(date, 'MMM d, yyyy · HH:mm', { locale });
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -53,6 +62,8 @@ const STATUS_COLORS: Record<string, string> = {
 export default function StatusHistoryDisplay({ entityType, entityId, refreshTrigger }: StatusHistoryDisplayProps) {
   const { currentUser, company } = useCompanyAuth();
   const { t } = useTranslation();
+  const { language } = useLanguage();
+  const dateLocale = language === 'ar' ? ar : enUS;
 
   const {
     data: historyData,
@@ -70,10 +81,26 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
     created: h.created_at,
     created_by: h.created_by ?? '',
     created_by_name: h.created_by_name ?? undefined,
+    created_by_name_en: h.created_by_name_en ?? null,
+    created_by_name_ar: h.created_by_name_ar ?? null,
     note: h.note ?? undefined,
-    status: h.status ?? h.status_name ?? undefined,
+    status:
+      bilingualLabel(
+        { name_en: h.status_name_en, name_ar: h.status_name_ar, name: h.status_name ?? h.status },
+        language,
+      ) || undefined,
     follow_up_date: h.follow_up_date ?? undefined,
   }));
+
+  const creatorDisplayName = (h: HistoryRecord) =>
+    bilingualLabel(
+      {
+        name_en: h.created_by_name_en,
+        name_ar: h.created_by_name_ar,
+        name: h.created_by_name,
+      },
+      language,
+    ) || h.created_by_name || t('Unknown');
 
   const handleDelete = async (recordId: string, creatorId: string) => {
     if (currentUser?.role !== 'company_super_admin' && currentUser?.id !== creatorId) {
@@ -113,49 +140,48 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
   };
 
   return (
-    <div className="flex flex-col bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-xl overflow-hidden h-full max-h-[600px]">
-      {/* Header */}
-      <div className="relative flex items-center justify-between gap-3 bg-gradient-to-r from-primary/[0.06] via-muted/30 to-transparent px-5 py-4 border-border/50 border-b shrink-0">
-        <div className="flex items-center gap-2.5">
-          <span className="flex justify-center items-center bg-primary/10 rounded-lg w-8 h-8 text-primary">
+    <div className="@container/status-history flex flex-col bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-2xl overflow-hidden h-full min-h-[280px] sm:min-h-[320px] max-h-[min(65vh,560px)] xl:max-h-none xl:min-h-full">
+      <div className="relative flex items-start @[360px]/status-history:items-center justify-between gap-2.5 bg-gradient-to-br from-primary/[0.07] via-muted/25 to-transparent px-4 sm:px-5 py-3.5 sm:py-4 border-border/50 border-b shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <span className="flex justify-center items-center bg-primary/10 rounded-xl w-9 h-9 text-primary shrink-0">
             <History className="w-4 h-4" />
           </span>
-          <div>
-            <h4 className="font-outfit font-semibold text-foreground text-sm">
+          <div className="min-w-0 text-start">
+            <h4 className="font-outfit font-semibold text-foreground text-sm truncate">
               {t('Activity Timeline')}
             </h4>
-            <p className="text-muted-foreground text-[11px]">
+            <p className="text-muted-foreground text-[11px] leading-snug line-clamp-2">
               {t('Status changes and notes history')}
             </p>
           </div>
         </div>
         {history.length > 0 && (
-          <Badge variant="secondary" className="bg-primary/10 text-primary tabular-nums text-[11px]">
+          <Badge variant="secondary" className="bg-primary/10 text-primary tabular-nums text-[11px] shrink-0">
             {history.length}
           </Badge>
         )}
       </div>
 
-      <div className="flex-1 space-y-0 p-5 overflow-y-auto hide-scrollbar">
+      <div className="flex-1 p-3.5 sm:p-5 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
         {isLoading ? (
           <div className="flex flex-col justify-center items-center py-16 gap-3">
             <Loader2 className="w-6 h-6 text-primary animate-spin" />
             <p className="text-muted-foreground text-xs">{t('Loading history...')}</p>
           </div>
         ) : history.length === 0 ? (
-          <div className="flex flex-col items-center bg-muted/20 mx-1 py-14 border border-border/50 border-dashed rounded-xl text-center">
+          <div className="flex flex-col justify-center items-center bg-muted/20 px-4 py-12 sm:py-14 border border-border/50 border-dashed rounded-xl text-center h-full min-h-[220px]">
             <div className="flex justify-center items-center bg-muted/50 mb-3 rounded-full w-12 h-12">
               <History className="opacity-40 w-6 h-6 text-muted-foreground" />
             </div>
             <p className="font-medium text-foreground/80 text-sm">
               {t('No activity history')}
             </p>
-            <p className="mt-1 max-w-[220px] text-muted-foreground text-xs leading-relaxed">
+            <p className="mt-1 max-w-[240px] text-muted-foreground text-xs leading-relaxed">
               {t("Updates to this item's status will appear here.")}
             </p>
           </div>
         ) : (
-          <div className="relative space-y-0">
+          <div className="relative">
             {history.map((h, index) => {
               const canModify =
                 currentUser?.role === 'company_super_admin' ||
@@ -166,42 +192,46 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
               return (
                 <div
                   key={h.id}
-                  className="group relative flex gap-4 pb-6 last:pb-0"
+                  className="group relative flex gap-3 sm:gap-4 pb-5 last:pb-0"
                 >
-                  {/* Timeline rail */}
-                  <div className="flex flex-col items-center shrink-0 w-8">
+                  <div className="flex flex-col items-center shrink-0 w-7 sm:w-8">
                     <div
                       className={cn(
-                        'z-10 flex justify-center items-center rounded-full w-8 h-8 ring-4 ring-background shrink-0',
+                        'z-10 flex justify-center items-center rounded-full w-7 h-7 sm:w-8 sm:h-8 ring-4 ring-background shrink-0',
                         index === 0
                           ? 'bg-primary text-primary-foreground shadow-sm'
                           : 'bg-muted text-muted-foreground border border-border/60',
                       )}
                     >
                       {h.note ? (
-                        <MessageSquare className="w-3.5 h-3.5" />
+                        <MessageSquare className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
                       ) : (
-                        <History className="w-3.5 h-3.5" />
+                        <History className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
                       )}
                     </div>
                     {!isLast && (
-                      <div className="flex-1 bg-border/60 mt-1 w-px min-h-[12px]" />
+                      <div className="flex-1 bg-border/70 mt-1.5 w-px min-h-[16px]" />
                     )}
                   </div>
 
-                  {/* Card */}
-                  <div className="flex-1 min-w-0 bg-muted/20 hover:bg-muted/35 group-hover:border-primary/20 p-4 border border-border/50 rounded-xl transition-colors">
-                    <div className="flex flex-wrap justify-between items-start gap-2 mb-2.5">
-                      {renderStatusBadge(h)}
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground text-[11px] font-medium whitespace-nowrap">
-                          {formatRelativeDate(createdDate, t)}
-                        </span>
+                  <div className="flex-1 min-w-0 bg-muted/20 hover:bg-muted/35 group-hover:border-primary/20 p-3.5 sm:p-4 border border-border/50 rounded-xl transition-colors">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-between sm:items-start mb-2.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {renderStatusBadge(h)}
+                      </div>
+                      <div className="flex items-center gap-1.5 self-start">
+                        <time
+                          className="text-muted-foreground text-[11px] font-medium whitespace-nowrap"
+                          dateTime={h.created}
+                          dir="ltr"
+                        >
+                          {formatRelativeDate(createdDate, t, dateLocale)}
+                        </time>
                         {canModify && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="hover:bg-destructive/10 -me-1 -mt-0.5 w-6 h-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="hover:bg-destructive/10 -me-1 w-7 h-7 text-destructive sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                             onClick={() => handleDelete(h.id, h.created_by)}
                             title={t('Delete Record')}
                           >
@@ -212,27 +242,36 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
                     </div>
 
                     {h.note && (
-                      <p className="mb-3 text-foreground/85 text-sm leading-relaxed whitespace-pre-wrap">
+                      <p className="mb-3 text-foreground/85 text-sm leading-relaxed whitespace-pre-wrap text-start">
                         {h.note}
                       </p>
                     )}
 
                     {h.follow_up_date && (
                       <div className="inline-flex items-center gap-1.5 bg-amber-500/10 mb-3 px-2.5 py-1 border border-amber-200/50 rounded-md font-medium text-amber-700 text-xs">
-                        <CalendarClock className="w-3.5 h-3.5" />
-                        {t('Follow-up scheduled:')}{' '}
-                        {format(new Date(h.follow_up_date), 'MMM d, yyyy')}
+                        <CalendarClock className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          {t('Follow-up scheduled:')}{' '}
+                          <span dir="ltr">
+                            {format(new Date(h.follow_up_date), 'MMM d, yyyy', {
+                              locale: dateLocale,
+                            })}
+                          </span>
+                        </span>
                       </div>
                     )}
 
                     <div className="flex items-center gap-2 pt-2.5 border-border/40 border-t">
-                      <div className="flex justify-center items-center bg-primary/10 rounded-full w-5 h-5 font-semibold text-primary text-[10px]">
-                        {(h.created_by_name || '?').charAt(0).toUpperCase()}
+                      <div className="flex justify-center items-center bg-primary/10 rounded-full w-6 h-6 font-semibold text-primary text-[10px] shrink-0 overflow-hidden">
+                        {creatorDisplayName(h).charAt(0).toUpperCase()}
                       </div>
-                      <span className="text-muted-foreground text-xs">
+                      <span className="text-muted-foreground text-xs min-w-0">
                         {t('Updated by:')}{' '}
-                        <span className="font-medium text-foreground/75">
-                          {h.created_by_name || t('Unknown')}
+                        <span
+                          className="font-medium text-foreground/80"
+                          dir={language === 'ar' ? 'auto' : 'ltr'}
+                        >
+                          {creatorDisplayName(h)}
                         </span>
                       </span>
                     </div>

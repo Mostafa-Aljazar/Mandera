@@ -48,6 +48,7 @@ import {
   FileCheck2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const EMIRATES = [
   "Dubai",
@@ -206,8 +207,12 @@ export default function PropertyForm({
   onCancel,
 }: PropertyFormProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const { company, currentUser } = useCompanyAuth();
   const isEmployee = currentUser?.role === "company_employee";
+
+  const typeLabel = (pt: { name_en: string; name_ar: string }) =>
+    language === "ar" ? pt.name_ar || pt.name_en : pt.name_en || pt.name_ar;
 
   const form = useForm<TPropertySchema>({
     resolver: zodResolver(PropertySchema(t)),
@@ -460,7 +465,7 @@ export default function PropertyForm({
                       <SelectTrigger className="bg-background"><SelectValue placeholder={t("Select Type")} /></SelectTrigger>
                       <SelectContent>
                         {types.map((pt) => (
-                          <SelectItem key={pt.id} value={pt.id}>{pt.name}</SelectItem>
+                          <SelectItem key={pt.id} value={pt.id}>{typeLabel(pt)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

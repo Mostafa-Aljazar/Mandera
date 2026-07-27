@@ -6,8 +6,10 @@ const JOB_TITLES = ["sales_agent", "admin", "manager"] as const;
 
 export const NewEmployeeSchema = (t: TFunction) =>
   z.object({
-    firstName: z.string().trim().min(1, t("First Name")),
-    lastName: z.string().trim().min(1, t("Last Name")),
+    firstNameEn: z.string().trim().min(1, `${t("First Name")} (EN)`),
+    firstNameAr: z.string().trim().min(1, `${t("First Name")} (AR)`),
+    lastNameEn: z.string().trim().min(1, `${t("Last Name")} (EN)`),
+    lastNameAr: z.string().trim().min(1, `${t("Last Name")} (AR)`),
     email: z.string().trim().email(t("Email Address")),
     phone: z
       .string()
@@ -19,9 +21,7 @@ export const NewEmployeeSchema = (t: TFunction) =>
     job_title: z.enum(JOB_TITLES, {
       message: t("Please select a valid job title."),
     }),
-    password: z
-      .string()
-      .min(8, t("Minimum 8 characters")),
+    password: z.string().min(8, t("Minimum 8 characters")),
   });
 
 export type TNewEmployeeSchema = z.infer<ReturnType<typeof NewEmployeeSchema>>;

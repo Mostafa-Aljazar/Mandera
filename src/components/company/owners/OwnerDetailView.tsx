@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,15 +18,25 @@ import {
 } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CountryCombobox } from "@/components/ui/country-combobox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   User,
   Save,
@@ -40,18 +50,24 @@ import {
   Loader2,
   UserPlus,
   ArrowLeft,
-  ExternalLink,
   Trash2,
   CheckCircle2,
   AlertTriangle,
+  Camera,
+  UploadCloud,
+  CalendarDays,
+  Clock3,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { format } from "date-fns";
+import { ar, enUS } from "date-fns/locale";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import StatusUpdateModal from "@/components/common/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
+import LinkedPropertyCard from "@/components/company/properties/LinkedPropertyCard";
 import { cn } from "@/lib/utils";
-import { OwnerSchema, type TOwnerSchema } from "@/validations/owner.schema";
+import { OwnerSchema, type TOwnerSchema, type TOwnerSchemaOutput } from "@/validations/owner.schema";
 import {
   useOwner,
   useOwnerStatuses,
@@ -66,18 +82,9 @@ import {
   useOwnerProperties,
 } from "@/hooks/queries/useProperties";
 import { useOwnerStatusBadge } from "@/hooks/useOwnerStatusBadge";
-
-const COUNTRIES = [
-  "UAE",
-  "Saudi Arabia",
-  "Qatar",
-  "Oman",
-  "Bahrain",
-  "Kuwait",
-  "UK",
-  "USA",
-  "Other",
-];
+import { useLanguage } from "@/contexts/LanguageContext";
+import { countryLabel, normalizeCountryValue } from "@/lib/countries";
+import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
 
 const DEFAULT_MARKETING_CHANNELS = [
   "Google",
@@ -95,13 +102,26 @@ const DEFAULT_MARKETING_CHANNELS = [
   "Website",
 ];
 
+const OWNER_TABS = ["info", "properties", "status"] as const;
+type OwnerTab = (typeof OWNER_TABS)[number];
+
+function resolveOwnerTab(raw: string | null, isNew: boolean): OwnerTab {
+  if (isNew) return "info";
+  if (raw && (OWNER_TABS as readonly string[]).includes(raw)) {
+    return raw as OwnerTab;
+  }
+  return "info";
+}
+
 function SectionCard({
   title,
+  description,
   icon: Icon,
   children,
   className,
 }: {
   title: string;
+  description?: string;
   icon: React.ElementType;
   children: React.ReactNode;
   className?: string;
@@ -113,16 +133,31 @@ function SectionCard({
         className,
       )}
     >
-      <div className="flex items-center gap-2.5 bg-muted/30 px-5 py-3.5 border-border/50 border-b">
-        <span className="flex justify-center items-center bg-primary/10 rounded-lg w-7 h-7 text-primary">
+      <div className="flex items-start gap-2.5 bg-muted/30 px-5 py-3.5 border-border/50 border-b">
+        <span className="flex justify-center items-center bg-primary/10 rounded-lg w-7 h-7 text-primary shrink-0">
           <Icon className="w-3.5 h-3.5" />
         </span>
-        <h3 className="font-semibold text-foreground text-sm">{title}</h3>
+        <div className="min-w-0 pt-0.5">
+          <h3 className="font-semibold text-foreground text-sm">{title}</h3>
+          {description ? (
+            <p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
+              {description}
+            </p>
+          ) : null}
+        </div>
       </div>
       <div className="p-5">{children}</div>
     </section>
   );
 }
+
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
 
 interface OwnerDetailViewProps {
   ownerId?: string | null;
@@ -130,13 +165,25 @@ interface OwnerDetailViewProps {
 
 export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
+  const dateLocale = language === "ar" ? ar : enUS;
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { company, currentUser } = useCompanyAuth();
   const isNew = !ownerId;
 
-  const [activeTab, setActiveTab] = useState("info");
+  const tabFromUrl = resolveOwnerTab(searchParams.get("tab"), isNew);
+  const [activeTab, setActiveTab] = useState<OwnerTab>(tabFromUrl);
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const {
     data: owner,
@@ -164,18 +211,20 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
   const badge = useOwnerStatusBadge(
     isNew ? undefined : ownerId ?? undefined,
     company?.id,
+    owner?.created_at,
   );
 
   const createOwnerMutation = useCreateOwner();
   const updateOwnerMutation = useUpdateOwner();
   const deleteOwnerMutation = useDeleteOwner();
 
-  const form = useForm<TOwnerSchema>({
+  const form = useForm<TOwnerSchema, unknown, TOwnerSchemaOutput>({
     resolver: zodResolver(OwnerSchema(t)),
     defaultValues: {
-      name: "",
+      name_en: "",
+      name_ar: "",
       phone: "",
-      country: "UAE",
+      country: "United Arab Emirates",
       assigned_employee_id:
         currentUser?.role === "company_employee" ? currentUser.id : "",
       marketing_channel: "",
@@ -185,18 +234,19 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
   useEffect(() => {
     if (owner) {
       form.reset({
-        name: owner.name || "",
+        name_en: owner.name_en || owner.name || "",
+        name_ar: owner.name_ar || owner.name || "",
         phone: owner.phone || "",
-        country: owner.country || "UAE",
+        country: normalizeCountryValue(owner.country || "United Arab Emirates"),
         assigned_employee_id: owner.assigned_employee_id || "",
         marketing_channel: owner.marketing_channel || "",
       });
-      setActiveTab("info");
     } else if (isNew) {
       form.reset({
-        name: "",
+        name_en: "",
+        name_ar: "",
         phone: "",
-        country: "UAE",
+        country: "United Arab Emirates",
         assigned_employee_id:
           currentUser?.role === "company_employee" ? currentUser.id : "",
         marketing_channel: "",
@@ -206,24 +256,92 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
   }, [owner, isNew, currentUser]);
 
   useEffect(() => {
+    setActiveTab(tabFromUrl);
+  }, [tabFromUrl]);
+
+  const selectTab = (tab: OwnerTab) => {
+    if (isNew && tab !== "info") return;
+    setActiveTab(tab);
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === "info") {
+      params.delete("tab");
+    } else {
+      params.set("tab", tab);
+    }
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
+
+  useEffect(() => {
     if (isError && !isNew) {
       toast.error(t("Owner not found"));
       router.replace("/company/owners");
     }
   }, [isError, isNew, router, t]);
 
-  const displayName = owner?.name || form.watch("name") || t("New Owner");
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
+
+  useEffect(() => {
+    setAvatarFile(null);
+    setRemoveAvatar(false);
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarPreview(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owner?.id, owner?.avatar_url]);
+
+  const clearAvatarSelection = () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const applyAvatarFile = (file: File) => {
+    if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+      toast.error(t("Please upload a JPG, PNG, or WebP image."));
+      return;
+    }
+    if (file.size >= MAX_AVATAR_BYTES) {
+      toast.error(t("Owner photo must be less than 2MB."));
+      return;
+    }
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+    setRemoveAvatar(false);
+  };
+
+  const displayName =
+    bilingualLabel(
+      {
+        name_en: owner?.name_en || form.watch("name_en"),
+        name_ar: owner?.name_ar || form.watch("name_ar"),
+        name: owner?.name,
+      },
+      language,
+    ) || t("New Owner");
   const employeeId = form.watch("assigned_employee_id");
+  const assignedEmployee = employees.find((e) => e.id === employeeId);
   const employeeName =
-    employees.find((e) => e.id === employeeId)?.name || t("Unassigned");
+    employeeDisplayName(assignedEmployee, language, assignedEmployee?.name) ||
+    t("Unassigned");
+  const employeeAvatarUrl = assignedEmployee?.avatar_url || null;
   const cleanPhone = (form.watch("phone") || "").replace(/\D/g, "");
+  const currentAvatarUrl = removeAvatar
+    ? null
+    : avatarPreview || owner?.avatar_url || null;
 
   const handleSave = form.handleSubmit(async (formData) => {
     if (!company?.id) return;
     setIsSubmitting(true);
     try {
       const payload = {
-        name: formData.name,
+        name_en: formData.name_en,
+        name_ar: formData.name_ar,
         phone: formData.phone,
         country: formData.country,
         marketing_channel: formData.marketing_channel,
@@ -231,15 +349,20 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
           currentUser?.role === "company_employee" && isNew
             ? currentUser.id
             : formData.assigned_employee_id,
+        avatar: avatarFile,
+        removeAvatar: removeAvatar && !avatarFile,
       };
 
       if (owner?.id) {
         const result = await updateOwnerMutation.mutateAsync({
           id: owner.id,
+          companyId: company.id,
           ...payload,
         });
         if (result.error) throw new Error(result.error);
         toast.success(t("Owner updated successfully."));
+        clearAvatarSelection();
+        setRemoveAvatar(false);
         refetchOwner();
       } else {
         const result = await createOwnerMutation.mutateAsync({
@@ -248,26 +371,38 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
         });
         if (result.error) throw new Error(result.error);
         toast.success(t("Owner added successfully."));
+        clearAvatarSelection();
+        setRemoveAvatar(false);
         router.replace(`/company/owners/${result.data!.id}`);
       }
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : t("Error saving owner.");
-      toast.error(message);
+      toast.error(
+        message === "Owner photo must be less than 2MB."
+          ? t("Owner photo must be less than 2MB.")
+          : message === "Please upload a JPG, PNG, or WebP image."
+            ? t("Please upload a JPG, PNG, or WebP image.")
+            : message,
+      );
     } finally {
       setIsSubmitting(false);
     }
   });
 
   const handleDelete = async () => {
-    if (!owner?.id || !window.confirm(t("Delete this owner?"))) return;
+    if (!owner?.id) return;
+    setIsDeleting(true);
     try {
       const result = await deleteOwnerMutation.mutateAsync(owner.id);
       if (result.error) throw new Error(result.error);
       toast.success(t("Owner deleted."));
+      setDeleteDialogOpen(false);
       router.replace("/company/owners");
     } catch {
       toast.error(t("Could not delete. Owner might be linked to properties."));
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -290,12 +425,12 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
   }
 
   return (
-    <div className="mx-auto px-4 sm:px-6 py-6 sm:py-8 container max-w-6xl space-y-5">
+    <div className="mx-auto px-3 sm:px-6 py-5 sm:py-8 container max-w-6xl space-y-4 sm:space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link href="/company/owners">
           <Button variant="ghost" size="sm" className="gap-2 -ms-2 h-9">
             <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
-            {t("Back to Owners")}
+            <span>{t("Back to Owners")}</span>
           </Button>
         </Link>
         <div className="flex items-center gap-2">
@@ -304,10 +439,10 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
               variant="outline"
               size="sm"
               className="gap-2 h-9 text-destructive hover:text-destructive"
-              onClick={handleDelete}
+              onClick={() => setDeleteDialogOpen(true)}
             >
               <Trash2 className="w-3.5 h-3.5" />
-              {t("Delete")}
+              <span className="sm:inline hidden">{t("Delete")}</span>
             </Button>
           )}
           {owner && cleanPhone && (
@@ -316,6 +451,20 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                 <a href={`tel:${cleanPhone}`}>
                   <Phone className="w-3.5 h-3.5" />
                   {t("Call")}
+                </a>
+              </Button>
+              <Button
+                asChild
+                size="sm"
+                className="bg-[#25D366] hover:bg-[#25D366]/90 h-9 gap-1.5 text-white"
+              >
+                <a
+                  href={`https://wa.me/${cleanPhone}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  {t("WhatsApp")}
                 </a>
               </Button>
             </div>
@@ -329,17 +478,40 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
             className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.06] via-transparent to-transparent pointer-events-none"
             aria-hidden
           />
-          <div className="relative flex items-center gap-4 px-5 sm:px-6 py-5">
-            <div className="relative flex justify-center items-center bg-amber-500/10 rounded-2xl ring-2 ring-amber-500/30 ring-offset-2 ring-offset-background w-14 h-14 font-outfit font-bold text-amber-800 text-xl shadow-sm shrink-0">
-              {displayName.charAt(0).toUpperCase()}
-              <span className="absolute -bottom-0.5 -end-0.5 bg-amber-500 border-2 border-background rounded-full w-3.5 h-3.5" />
+          <div className="relative flex items-center gap-3.5 sm:gap-4 px-4 sm:px-6 py-4 sm:py-5">
+            <div className="relative shrink-0">
+              <div className="flex justify-center items-center bg-amber-500/10 rounded-2xl ring-2 ring-amber-500/30 ring-offset-2 ring-offset-background w-14 h-14 sm:w-16 sm:h-16 font-outfit font-bold text-amber-800 text-xl shadow-sm overflow-hidden">
+                {currentAvatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={currentAvatarUrl}
+                    alt={displayName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  displayName.charAt(0).toUpperCase()
+                )}
+              </div>
+              {!isNew ? (
+                <span
+                  title={badge.text}
+                  aria-label={badge.text}
+                  className={cn(
+                    "absolute -bottom-0.5 -end-0.5 z-10 block rounded-full border-[2.5px] border-background w-4 h-4 sm:w-[1.125rem] sm:h-[1.125rem]",
+                    badge.dot,
+                  )}
+                />
+              ) : null}
             </div>
 
             <div className="flex-1 min-w-0">
               <p className="font-medium text-muted-foreground text-[11px] uppercase tracking-widest">
                 {owner ? t("Owner Profile") : t("Add New Owner")}
               </p>
-              <h1 className="mt-0.5 font-outfit font-bold text-foreground text-xl sm:text-2xl truncate tracking-tight">
+              <h1
+                className="mt-0.5 font-outfit font-bold text-foreground text-xl sm:text-2xl truncate tracking-tight"
+                dir="auto"
+              >
                 {displayName}
               </h1>
               <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -363,11 +535,13 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                   form.watch("marketing_channel")) && (
                   <Badge
                     variant="secondary"
-                    className="text-[11px] h-5 font-normal"
+                    className="max-w-full text-[11px] h-5 font-normal truncate"
                   >
-                    <Megaphone className="w-3 h-3 me-1" />
-                    {owner?.marketing_channel ||
-                      form.watch("marketing_channel")}
+                    <Megaphone className="w-3 h-3 me-1 shrink-0" />
+                    <span className="truncate">
+                      {owner?.marketing_channel ||
+                        form.watch("marketing_channel")}
+                    </span>
                   </Badge>
                 )}
               </div>
@@ -397,7 +571,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                     rel="noopener noreferrer"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
-                    WhatsApp
+                    {t("WhatsApp")}
                   </a>
                 </Button>
               </div>
@@ -405,69 +579,266 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
           </div>
         </div>
 
+        {/* Mobile summary strip */}
+        <div className="lg:hidden space-y-2.5 bg-muted/15 px-4 sm:px-5 py-3 border-border/60 border-b">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="flex justify-center items-center bg-primary/10 rounded-full w-9 h-9 font-semibold text-primary text-sm shrink-0 overflow-hidden">
+                {employeeAvatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={employeeAvatarUrl}
+                    alt={employeeName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  employeeName.charAt(0).toUpperCase()
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-muted-foreground text-[10px] uppercase tracking-wider">
+                  {t("Assigned Employee")}
+                </p>
+                <p className="font-medium text-foreground text-sm truncate" dir="auto">
+                  {employeeName}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 bg-card px-2.5 py-1.5 border border-border/50 rounded-lg text-xs shrink-0">
+              <Building2 className="w-3.5 h-3.5 text-primary/70" />
+              <span className="font-semibold tabular-nums">{propertyCount}</span>
+              <span className="text-muted-foreground">{t("Properties")}</span>
+            </div>
+          </div>
+          {owner && (owner.created_at || owner.updated_at) ? (
+            <div className="gap-2 grid grid-cols-1 sm:grid-cols-2">
+              {owner.created_at ? (
+                <div className="flex items-center gap-1.5 bg-card px-2.5 py-1.5 border border-border/50 rounded-lg text-[11px]">
+                  <CalendarDays className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+                  <span className="text-muted-foreground">{t("Created At")}</span>
+                  <span className="ms-auto font-medium tabular-nums" dir="ltr">
+                    {format(new Date(owner.created_at), "dd MMM yyyy", {
+                      locale: dateLocale,
+                    })}
+                  </span>
+                </div>
+              ) : null}
+              {owner.updated_at ? (
+                <div className="flex items-center gap-1.5 bg-card px-2.5 py-1.5 border border-border/50 rounded-lg text-[11px]">
+                  <Clock3 className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+                  <span className="text-muted-foreground">{t("Updated At")}</span>
+                  <span className="ms-auto font-medium tabular-nums" dir="ltr">
+                    {format(new Date(owner.updated_at), "dd MMM yyyy", {
+                      locale: dateLocale,
+                    })}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
         <div className="flex lg:flex-row flex-col">
           <div className="flex flex-col flex-1 min-w-0">
             <Tabs
               value={activeTab}
-              onValueChange={setActiveTab}
+              onValueChange={(value) => selectTab(value as OwnerTab)}
               className="flex flex-col"
             >
-              <div className="bg-muted/10 px-4 sm:px-6 border-border/60 border-b">
-                <TabsList className="justify-start bg-transparent gap-1 p-0 h-11 w-full overflow-x-auto">
-                  {[
-                    { value: "info", icon: FileText, label: t("Information") },
-                    {
-                      value: "properties",
-                      icon: Building2,
-                      label: t("Properties"),
-                      count: propertyCount,
-                      disabled: isNew,
-                    },
-                    {
-                      value: "status",
-                      icon: History,
-                      label: t("Status & History"),
-                      disabled: isNew,
-                    },
-                  ].map(({ value, icon: Icon, label, count, disabled }) => (
-                    <TabsTrigger
-                      key={value}
-                      value={value}
-                      disabled={disabled}
-                      className={cn(
-                        "gap-1.5 data-[state=active]:bg-background px-4 rounded-none border-transparent border-b-2 h-11 data-[state=active]:border-primary data-[state=active]:shadow-none text-sm shrink-0",
-                        "data-[state=inactive]:text-muted-foreground",
-                      )}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      {label}
-                      {count !== undefined && count > 0 && (
-                        <span className="bg-primary/10 ms-0.5 px-1.5 py-0.5 rounded-full font-medium text-[10px] text-primary tabular-nums">
-                          {count}
-                        </span>
-                      )}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+              <div className="bg-muted/10 border-border/60 border-b">
+                <div className="px-2 sm:px-4 overflow-x-auto [scrollbar-width:thin]">
+                  <TabsList className="justify-start bg-transparent gap-0 p-0 h-11 w-max min-w-full">
+                    {[
+                      {
+                        value: "info" as const,
+                        icon: FileText,
+                        label: t("Information"),
+                        shortLabel: t("Info"),
+                      },
+                      {
+                        value: "properties" as const,
+                        icon: Building2,
+                        label: t("Properties"),
+                        count: propertyCount,
+                        disabled: isNew,
+                      },
+                      {
+                        value: "status" as const,
+                        icon: History,
+                        label: t("Status & History"),
+                        shortLabel: t("Status"),
+                        disabled: isNew,
+                      },
+                    ].map(
+                      ({
+                        value,
+                        icon: Icon,
+                        label,
+                        shortLabel,
+                        count,
+                        disabled,
+                      }) => (
+                        <TabsTrigger
+                          key={value}
+                          id={`owner-tab-${value}`}
+                          value={value}
+                          disabled={disabled}
+                          className={cn(
+                            "gap-1.5 data-[state=active]:bg-transparent px-2.5 sm:px-3.5 rounded-none border-transparent border-b-2 h-11 data-[state=active]:border-primary data-[state=active]:shadow-none text-xs sm:text-sm shrink-0",
+                            "data-[state=inactive]:text-muted-foreground",
+                          )}
+                        >
+                          <Icon className="w-3.5 h-3.5 shrink-0" />
+                          <span className="sm:hidden">
+                            {shortLabel || label}
+                          </span>
+                          <span className="hidden sm:inline">{label}</span>
+                          {count !== undefined && count > 0 && (
+                            <span className="bg-primary/10 ms-0.5 px-1.5 py-0.5 rounded-full font-medium text-[10px] text-primary tabular-nums">
+                              {count}
+                            </span>
+                          )}
+                        </TabsTrigger>
+                      ),
+                    )}
+                  </TabsList>
+                </div>
               </div>
 
               <Form {...form}>
                 <div>
-                  <TabsContent value="info" className="space-y-5 mt-0 p-5 sm:p-6">
+                  <TabsContent
+                    value="info"
+                    id="owner-panel-info"
+                    className="space-y-5 mt-0 p-4 sm:p-6"
+                  >
+                    <SectionCard
+                      title={t("Owner photo")}
+                      description={t(
+                        "Optional. JPG, PNG or WebP under 2MB. Drag and drop or browse.",
+                      )}
+                      icon={Camera}
+                    >
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDragOver(true);
+                        }}
+                        onDragLeave={() => setIsDragOver(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsDragOver(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) applyAvatarFile(file);
+                        }}
+                        className={cn(
+                          "flex sm:flex-row flex-col sm:items-center gap-4 p-4 border-2 border-dashed rounded-2xl transition-colors",
+                          isDragOver
+                            ? "border-primary bg-primary/10"
+                            : "border-border/60 bg-muted/20 hover:border-primary/35",
+                        )}
+                      >
+                        <Avatar className="bg-amber-500/10 mx-auto sm:mx-0 rounded-2xl w-20 h-20 ring-2 ring-amber-500/20 shrink-0">
+                          {currentAvatarUrl ? (
+                            <AvatarImage
+                              src={currentAvatarUrl}
+                              alt={t("Owner photo")}
+                              className="object-cover"
+                            />
+                          ) : null}
+                          <AvatarFallback className="bg-amber-500/10 rounded-2xl font-outfit font-bold text-amber-800 text-xl">
+                            {currentAvatarUrl ? null : (
+                              <User className="w-8 h-8 opacity-60" />
+                            )}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 space-y-2.5 min-w-0 text-center sm:text-start">
+                          <p className="flex justify-center sm:justify-start items-center gap-1.5 text-muted-foreground text-xs leading-relaxed">
+                            <UploadCloud className="hidden sm:block w-3.5 h-3.5 shrink-0" />
+                            {t("Drag & drop a photo here, or click to upload")}
+                          </p>
+                          <div className="flex flex-wrap justify-center sm:justify-start gap-2">
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) applyAvatarFile(file);
+                                e.target.value = "";
+                              }}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5 bg-background rounded-lg h-9"
+                              onClick={() => fileInputRef.current?.click()}
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              {avatarFile || currentAvatarUrl
+                                ? t("Change photo")
+                                : t("Upload photo")}
+                            </Button>
+                            {(avatarFile || owner?.avatar_url) &&
+                            !removeAvatar ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="gap-1.5 h-9 text-destructive hover:text-destructive"
+                                onClick={() => {
+                                  clearAvatarSelection();
+                                  if (owner?.avatar_url) {
+                                    setRemoveAvatar(true);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                {t("Remove")}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    </SectionCard>
+
                     <SectionCard title={t("Contact Information")} icon={User}>
                       <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
                         <FormField
                           control={form.control}
-                          name="name"
+                          name="name_en"
                           render={({ field }) => (
-                            <FormItem className="sm:col-span-2">
+                            <FormItem>
                               <FormLabel className="text-xs">
-                                {t("Full Name")} *
+                                {`${t("Full Name")} (EN)`} *
                               </FormLabel>
                               <FormControl>
                                 <Input
                                   {...field}
-                                  placeholder={t("e.g. John Doe")}
+                                  dir="ltr"
+                                  placeholder="e.g. John Doe"
+                                  className="bg-background h-10"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="name_ar"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                {`${t("Full Name")} (AR)`} *
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  dir="rtl"
+                                  placeholder="مثال: محمد أحمد"
                                   className="bg-background h-10"
                                 />
                               </FormControl>
@@ -498,25 +869,13 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                               <FormLabel className="text-xs">
                                 {t("Country")}
                               </FormLabel>
-                              <Select
-                                value={field.value}
-                                onValueChange={field.onChange}
-                              >
-                                <FormControl>
-                                  <SelectTrigger className="bg-background h-10">
-                                    <SelectValue
-                                      placeholder={t("Select Country")}
-                                    />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {COUNTRIES.map((c) => (
-                                    <SelectItem key={c} value={c}>
-                                      {c}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <FormControl>
+                                <CountryCombobox
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                  placeholder={t("Select Country")}
+                                />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -583,7 +942,11 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                                 <SelectContent>
                                   {employees.map((emp) => (
                                     <SelectItem key={emp.id} value={emp.id}>
-                                      {emp.name || emp.id}
+                                      {employeeDisplayName(
+                                        emp,
+                                        language,
+                                        emp.name,
+                                      ) || emp.id}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -598,7 +961,8 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
 
                   <TabsContent
                     value="properties"
-                    className="space-y-5 mt-0 p-5 sm:p-6"
+                    id="owner-panel-properties"
+                    className="space-y-5 mt-0 p-4 sm:p-6"
                   >
                     <SectionCard
                       title={`${t("Linked Properties")} (${properties.length})`}
@@ -616,70 +980,36 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                           </p>
                         </div>
                       ) : (
-                        <div className="gap-3 grid grid-cols-1 sm:grid-cols-2">
+                        <div className="gap-3 sm:gap-4 grid grid-cols-1 xl:grid-cols-2">
                           {properties.map((prop) => (
-                            <div
+                            <LinkedPropertyCard
                               key={prop.id}
-                              className="group relative flex gap-3 bg-muted/20 hover:bg-muted/40 p-3 border border-border/50 hover:border-primary/25 rounded-xl transition-all overflow-hidden"
-                            >
-                              <div className="rounded-lg w-[72px] h-[72px] overflow-hidden shrink-0">
-                                <img
-                                  src={
-                                    prop.images?.[0] ||
-                                    "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=200&auto=format&fit=crop&q=80"
-                                  }
-                                  alt={prop.title}
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0 py-0.5">
-                                <p
-                                  className="font-semibold text-primary text-xs"
-                                  dir="ltr"
-                                >
-                                  {prop.code}
-                                </p>
-                                <p className="mt-0.5 font-medium text-foreground text-sm line-clamp-2 leading-snug">
-                                  {prop.title}
-                                </p>
-                                <p
-                                  className="mt-1 font-outfit font-bold text-foreground text-sm"
-                                  dir="ltr"
-                                >
-                                  AED {prop.price?.toLocaleString()}
-                                </p>
-                              </div>
-                              <Button
-                                asChild
-                                variant="ghost"
-                                size="icon"
-                                className="top-2 end-2 absolute w-7 h-7"
-                              >
-                                <Link href={`/company/properties/${prop.id}`}>
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </Link>
-                              </Button>
-                            </div>
+                              property={prop}
+                            />
                           ))}
                         </div>
                       )}
                     </SectionCard>
                   </TabsContent>
 
-                  <TabsContent value="status" className="mt-0 p-5 sm:p-6">
-                    <div className="mb-5">
-                      <h3 className="font-outfit font-semibold text-foreground text-base">
+                  <TabsContent
+                    value="status"
+                    id="owner-panel-status"
+                    className="mt-0 p-4 sm:p-6"
+                  >
+                    <div className="mb-4 sm:mb-5 text-start">
+                      <h3 className="font-outfit font-semibold text-foreground text-base sm:text-lg">
                         {t("Status & History")}
                       </h3>
-                      <p className="mt-1 text-muted-foreground text-sm">
+                      <p className="mt-1 text-muted-foreground text-sm leading-relaxed max-w-2xl">
                         {t(
                           "Track pipeline updates and notes for this owner.",
                         )}
                       </p>
                     </div>
                     {owner && (
-                      <div className="items-stretch gap-5 grid grid-cols-1 lg:grid-cols-12">
-                        <div className="lg:col-span-5">
+                      <div className="items-stretch gap-4 sm:gap-5 grid grid-cols-1 xl:grid-cols-12">
+                        <div className="xl:col-span-5 order-1 min-w-0">
                           <StatusUpdateModal
                             entityType="owner"
                             entityData={owner}
@@ -687,7 +1017,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                             onSuccess={handleStatusSuccess}
                           />
                         </div>
-                        <div className="lg:col-span-7 min-h-[460px]">
+                        <div className="xl:col-span-7 order-2 min-w-0 min-h-[260px] xl:min-h-[440px]">
                           <StatusHistoryDisplay
                             entityType="owner"
                             entityId={owner.id}
@@ -702,14 +1032,14 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
             </Tabs>
 
             {activeTab === "info" && (
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-muted/20 px-5 sm:px-6 py-4 border-border/60 border-t">
-                <p className="text-muted-foreground text-xs">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-muted/20 px-4 sm:px-6 py-4 border-border/60 border-t">
+                <p className="text-muted-foreground text-xs sm:pe-4">
                   {t("Changes to owner information will be saved immediately.")}
                 </p>
                 <Button
                   onClick={handleSave}
                   disabled={isSubmitting}
-                  className="gap-2 min-w-[140px] h-10"
+                  className="gap-2 sm:min-w-[140px] w-full sm:w-auto h-10"
                 >
                   {isSubmitting ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -722,52 +1052,29 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
             )}
           </div>
 
-          <aside className="hidden lg:flex flex-col bg-muted/15 w-72 border-border/60 border-s shrink-0">
+          <aside className="hidden lg:flex flex-col bg-muted/15 w-72 xl:w-80 border-border/60 border-s shrink-0">
             <div className="p-5 space-y-5">
-              {owner && cleanPhone && (
-                <div className="space-y-3">
-                  <p className="font-medium text-muted-foreground text-[11px] uppercase tracking-widest">
-                    {t("Quick Actions")}
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    <Button
-                      asChild
-                      variant="outline"
-                      className="justify-start gap-2 h-10"
-                    >
-                      <a href={`tel:${cleanPhone}`}>
-                        <Phone className="w-4 h-4 text-primary" />
-                        {t("Call")}
-                      </a>
-                    </Button>
-                    <Button
-                      asChild
-                      className="justify-start bg-[#25D366] hover:bg-[#25D366]/90 gap-2 h-10 text-white"
-                    >
-                      <a
-                        href={`https://wa.me/${cleanPhone}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                        WhatsApp
-                      </a>
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {owner && cleanPhone && <Separator />}
-
               <div className="space-y-3">
                 <p className="font-medium text-muted-foreground text-[11px] uppercase tracking-widest">
                   {t("Assigned Employee")}
                 </p>
                 <div className="bg-card shadow-sm p-4 border border-border/60 rounded-xl text-center">
-                  <div className="flex justify-center items-center bg-primary/10 mx-auto mb-3 rounded-full ring-4 ring-primary/5 w-14 h-14 font-outfit font-bold text-primary text-xl">
-                    {employeeName.charAt(0).toUpperCase()}
+                  <div className="flex justify-center items-center bg-primary/10 mx-auto mb-3 rounded-full ring-4 ring-primary/5 w-14 h-14 font-outfit font-bold text-primary text-xl overflow-hidden">
+                    {employeeAvatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={employeeAvatarUrl}
+                        alt={employeeName}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      employeeName.charAt(0).toUpperCase()
+                    )}
                   </div>
-                  <p className="font-semibold text-foreground text-sm">
+                  <p
+                    className="font-semibold text-foreground text-sm"
+                    dir="auto"
+                  >
                     {employeeName}
                   </p>
                   <p className="mt-0.5 text-muted-foreground text-xs">
@@ -783,24 +1090,57 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                   {t("Summary")}
                 </p>
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center bg-card px-3 py-2.5 border border-border/50 rounded-lg text-sm">
-                    <span className="flex items-center gap-2 text-muted-foreground">
-                      <Building2 className="w-3.5 h-3.5" />
-                      {t("Properties")}
+                  <div className="flex justify-between items-center gap-2 bg-card px-3 py-2.5 border border-border/50 rounded-lg text-sm">
+                    <span className="flex items-center gap-2 text-muted-foreground min-w-0">
+                      <Building2 className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{t("Properties")}</span>
                     </span>
-                    <span className="font-semibold tabular-nums">
+                    <span className="font-semibold tabular-nums shrink-0">
                       {propertyCount}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center bg-card px-3 py-2.5 border border-border/50 rounded-lg text-sm">
-                    <span className="flex items-center gap-2 text-muted-foreground">
-                      <MapPin className="w-3.5 h-3.5" />
-                      {t("Country")}
+                  <div className="flex justify-between items-center gap-2 bg-card px-3 py-2.5 border border-border/50 rounded-lg text-sm">
+                    <span className="flex items-center gap-2 text-muted-foreground min-w-0">
+                      <MapPin className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{t("Country")}</span>
                     </span>
-                    <span className="font-semibold">
-                      {form.watch("country") || "UAE"}
+                    <span className="font-semibold text-end truncate max-w-[55%]">
+                      {countryLabel(form.watch("country"), language) ||
+                        countryLabel("United Arab Emirates", language)}
                     </span>
                   </div>
+                  {owner?.created_at ? (
+                    <div className="flex justify-between items-center gap-2 bg-card px-3 py-2.5 border border-border/50 rounded-lg text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground min-w-0">
+                        <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{t("Created At")}</span>
+                      </span>
+                      <span
+                        className="font-semibold text-end tabular-nums text-xs sm:text-sm shrink-0"
+                        dir="ltr"
+                      >
+                        {format(new Date(owner.created_at), "dd MMM yyyy", {
+                          locale: dateLocale,
+                        })}
+                      </span>
+                    </div>
+                  ) : null}
+                  {owner?.updated_at ? (
+                    <div className="flex justify-between items-center gap-2 bg-card px-3 py-2.5 border border-border/50 rounded-lg text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground min-w-0">
+                        <Clock3 className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{t("Updated At")}</span>
+                      </span>
+                      <span
+                        className="font-semibold text-end tabular-nums text-xs sm:text-sm shrink-0"
+                        dir="ltr"
+                      >
+                        {format(new Date(owner.updated_at), "dd MMM yyyy", {
+                          locale: dateLocale,
+                        })}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -821,6 +1161,109 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
           </aside>
         </div>
       </div>
+
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!isDeleting) setDeleteDialogOpen(open);
+        }}
+      >
+        <DialogContent
+          className="rounded-2xl sm:max-w-md overflow-hidden p-0 gap-0"
+          onInteractOutside={(e) => {
+            if (isDeleting) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (isDeleting) e.preventDefault();
+          }}
+        >
+          <div className="relative px-6 pt-6 pb-5">
+            <div
+              className="absolute inset-0 bg-gradient-to-b from-destructive/[0.07] to-transparent pointer-events-none"
+              aria-hidden
+            />
+            <DialogHeader className="relative space-y-4 pe-0">
+              <div className="flex justify-center items-center bg-destructive/10 mx-auto rounded-2xl ring-4 ring-destructive/10 w-14 h-14">
+                <Trash2 className="w-6 h-6 text-destructive" />
+              </div>
+              <div className="space-y-2 text-center sm:text-start">
+                <DialogTitle className="font-outfit text-xl">
+                  {t("Delete Owner")}
+                </DialogTitle>
+                <DialogDescription className="text-muted-foreground leading-relaxed">
+                  {t(
+                    "Are you sure you want to delete this owner? This action cannot be undone.",
+                  )}
+                </DialogDescription>
+              </div>
+            </DialogHeader>
+
+            <div className="relative flex items-center gap-3 bg-muted/50 mt-5 p-3.5 border border-border/60 rounded-xl">
+              <div className="flex justify-center items-center bg-amber-500/15 rounded-xl w-11 h-11 font-outfit font-bold text-amber-800 text-base shrink-0 overflow-hidden">
+                {currentAvatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={currentAvatarUrl}
+                    alt={displayName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  displayName.charAt(0).toUpperCase()
+                )}
+              </div>
+              <div className="min-w-0 text-start">
+                <p className="font-semibold text-foreground truncate" dir="auto">
+                  {displayName}
+                </p>
+                {owner?.phone ? (
+                  <p
+                    className="mt-0.5 text-muted-foreground text-sm tabular-nums"
+                    dir="ltr"
+                  >
+                    {owner.phone}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            <p className="relative mt-4 text-muted-foreground text-xs leading-relaxed text-start">
+              {t(
+                "Linked properties will keep their records, but this owner will be removed.",
+              )}
+            </p>
+          </div>
+
+          <DialogFooter className="bg-muted/30 px-6 py-4 border-border/60 border-t sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeleting}
+              className="rounded-xl h-10"
+              onClick={() => setDeleteDialogOpen(false)}
+            >
+              {t("Cancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={isDeleting}
+              onClick={() => void handleDelete()}
+              className="bg-destructive hover:bg-destructive/90 rounded-xl h-10 text-destructive-foreground gap-2"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {t("Deleting...")}
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4" />
+                  {t("Delete Owner")}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

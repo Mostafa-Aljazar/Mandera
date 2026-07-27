@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 import StatusUpdateModal from "@/components/common/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
 import type { PropertyWithRelations } from "@/types/supabase-entities.types";
@@ -43,6 +44,7 @@ export default function PropertyDetailModal({
   onStatusUpdated,
 }: PropertyDetailModalProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const [activeTab, setActiveTab] = useState("details");
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
 
@@ -66,7 +68,11 @@ export default function PropertyDetailModal({
         email: property.employee.employee_record?.email,
       }
     : undefined;
-  const propertyType = property.property_type?.name || t("Unknown");
+  const propertyType = property.property_type
+    ? language === "ar"
+      ? property.property_type.name_ar || property.property_type.name_en
+      : property.property_type.name_en || property.property_type.name_ar
+    : t("Unknown");
 
   const areaDisplayName = property.area_district_ref?.name
     ? `${property.area_district_ref.name}${property.area ? ` (${property.area})` : ""}`

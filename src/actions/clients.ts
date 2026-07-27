@@ -91,7 +91,7 @@ export async function getClientStatusesForCompany(
     .from("client_statuses")
     .select("*")
     .eq("company_id", companyId)
-    .order("created_at");
+    .order("priority_order", { ascending: true });
   if (error) return { error: error.message };
   return { data: data ?? [] };
 }
@@ -258,7 +258,7 @@ export async function getClientsExportData(
       supabase.from("clients").select("*").eq("company_id", companyId),
       supabase
         .from("client_status_history")
-        .select("*, status:client_statuses(id, name)")
+        .select("*, status:client_statuses(id, name_en, name_ar)")
         .eq("company_id", companyId)
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, name").eq("company_id", companyId),
@@ -270,7 +270,12 @@ export async function getClientsExportData(
 
   const statusMap = new Map<string, string>();
   (histories ?? []).forEach((h: any) => {
-    if (!statusMap.has(h.client_id)) statusMap.set(h.client_id, h.status?.name ?? "");
+    if (!statusMap.has(h.client_id)) {
+      statusMap.set(
+        h.client_id,
+        h.status?.name_en ?? h.status?.name_ar ?? "",
+      );
+    }
   });
 
   const profileNameMap = new Map<string, string>();
@@ -333,7 +338,7 @@ export async function getUpcomingFollowUps(
 
   let clientQuery = supabase
     .from("clients")
-    .select(`${CLIENTS_SELECT}, status:client_statuses(id, name)`)
+    .select(`${CLIENTS_SELECT}, status:client_statuses(id, name_en, name_ar)`)
     .eq("company_id", companyId)
     .not("follow_up_date", "is", null)
     .order("follow_up_date", { ascending: true });
@@ -348,7 +353,8 @@ export async function getUpcomingFollowUps(
 
   const results: FollowUpClient[] = (clients ?? []).map((client: any) => ({
     ...(client as ClientWithRelations),
-    latest_status_name: client.status?.name ?? null,
+    latest_status_name:
+      client.status?.name_en ?? client.status?.name_ar ?? null,
   }));
 
   return { data: results };
@@ -360,7 +366,7 @@ export async function getClientStatusHistory(
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("client_status_history")
-    .select("*, status:client_statuses(id, name)")
+    .select("*, status:client_statuses(id, name_en, name_ar)")
     .eq("client_id", clientId)
     .order("created_at", { ascending: false });
   if (error) return { error: error.message };

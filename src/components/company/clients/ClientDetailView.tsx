@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CountryCombobox } from "@/components/ui/country-combobox";
 import {
   Popover,
   PopoverContent,
@@ -68,7 +69,7 @@ import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import StatusUpdateModal from "@/components/common/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
 import { cn } from "@/lib/utils";
-import { ClientSchema, type TClientSchema } from "@/validations/client.schema";
+import { ClientSchema, type TClientSchema, type TClientSchemaOutput } from "@/validations/client.schema";
 import {
   useClient,
   useClientStatuses,
@@ -79,19 +80,12 @@ import {
   useProperties,
   useCompanyEmployeesLookup,
 } from "@/hooks/queries/useProperties";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { employeeDisplayName } from "@/lib/bilingualLabel";
+import { countryLabel, normalizeCountryValue } from "@/lib/countries";
 
 export type ClientFormData = TClientSchema;
 
-const COUNTRIES = [
-  "UAE",
-  "Saudi Arabia",
-  "Qatar",
-  "Oman",
-  "Bahrain",
-  "Kuwait",
-  "UK",
-  "USA",
-];
 const MARKETING_CHANNELS = [
   "Google",
   "Facebook",
@@ -143,6 +137,7 @@ interface ClientDetailViewProps {
 
 export default function ClientDetailView({ clientId = null }: ClientDetailViewProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const router = useRouter();
   const { company, currentUser } = useCompanyAuth();
   const isNew = !clientId;
@@ -169,12 +164,12 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
   const createClientMutation = useCreateClient();
   const updateClientMutation = useUpdateClient();
 
-  const form = useForm<TClientSchema>({
+  const form = useForm<TClientSchema, unknown, TClientSchemaOutput>({
     resolver: zodResolver(ClientSchema(t)),
     defaultValues: {
       name: "",
       phone: "",
-      country_code: "UAE",
+      country_code: "United Arab Emirates",
       interest_type: "Sale",
       interested_properties: [],
       employee_id:
@@ -188,7 +183,9 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
       form.reset({
         name: client.name || "",
         phone: client.phone || "",
-        country_code: client.country_code || "UAE",
+        country_code: normalizeCountryValue(
+          client.country_code || "United Arab Emirates",
+        ),
         interest_type: client.interest_type || "Sale",
         interested_properties: client.interested_properties || [],
         employee_id: client.employee_id || "",
@@ -200,7 +197,7 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
       form.reset({
         name: "",
         phone: "",
-        country_code: "UAE",
+        country_code: "United Arab Emirates",
         interest_type: "Sale",
         interested_properties: [],
         employee_id:
@@ -223,10 +220,14 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
   const isSale = interestType === "Sale";
   const displayName = client?.name || form.watch("name") || t("New Client");
   const employeeId = form.watch("employee_id");
+  const assignedEmployee = employees.find((e) => e.id === employeeId);
   const employeeName =
-    employees.find((e) => e.id === employeeId)?.name ||
-    client?.employee?.name ||
-    t("Unassigned");
+    employeeDisplayName(
+      assignedEmployee,
+      language,
+      assignedEmployee?.name || client?.employee?.name,
+    ) || t("Unassigned");
+  const employeeAvatarUrl = assignedEmployee?.avatar_url || null;
 
   let followUp: { isOverdue: boolean; label: string } | null = null;
   if (client?.follow_up_date) {
@@ -550,27 +551,15 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-xs">
-                                {t("Country Code")}
+                                {t("Country")}
                               </FormLabel>
-                              <Select
-                                value={field.value}
-                                onValueChange={field.onChange}
-                              >
-                                <FormControl>
-                                  <SelectTrigger className="bg-background h-10">
-                                    <SelectValue
-                                      placeholder={t("Select Country")}
-                                    />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {COUNTRIES.map((c) => (
-                                    <SelectItem key={c} value={c}>
-                                      {c}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <FormControl>
+                                <CountryCombobox
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                  placeholder={t("Select Country")}
+                                />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -634,7 +623,11 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
                                   <SelectContent>
                                     {employees.map((e) => (
                                       <SelectItem key={e.id} value={e.id}>
-                                        {e.name || e.id}
+                                        {employeeDisplayName(
+                                          e,
+                                          language,
+                                          e.name,
+                                        ) || e.id}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
@@ -875,20 +868,20 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
                     </SectionCard>
                   </TabsContent>
 
-                  <TabsContent value="status" className="mt-0 p-5 sm:p-6">
-                    <div className="mb-5">
-                      <h3 className="font-outfit font-semibold text-foreground text-base">
+                  <TabsContent value="status" className="mt-0 p-4 sm:p-6">
+                    <div className="mb-4 sm:mb-5 text-start">
+                      <h3 className="font-outfit font-semibold text-foreground text-base sm:text-lg">
                         {t("Status & History")}
                       </h3>
-                      <p className="mt-1 text-muted-foreground text-sm">
+                      <p className="mt-1 text-muted-foreground text-sm leading-relaxed max-w-2xl">
                         {t(
                           "Track pipeline updates and schedule follow-ups for this client.",
                         )}
                       </p>
                     </div>
                     {client && (
-                      <div className="items-stretch gap-5 grid grid-cols-1 lg:grid-cols-12">
-                        <div className="lg:col-span-5">
+                      <div className="items-stretch gap-4 sm:gap-5 grid grid-cols-1 xl:grid-cols-12">
+                        <div className="xl:col-span-5 order-1 min-w-0">
                           <StatusUpdateModal
                             entityType="client"
                             entityData={client}
@@ -896,7 +889,7 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
                             onSuccess={handleStatusSuccess}
                           />
                         </div>
-                        <div className="lg:col-span-7 min-h-[460px]">
+                        <div className="xl:col-span-7 order-2 min-w-0 min-h-[260px] xl:min-h-[440px]">
                           <StatusHistoryDisplay
                             entityType="client"
                             entityId={client.id}
@@ -981,8 +974,17 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
                   {t("Assigned Agent")}
                 </p>
                 <div className="bg-card shadow-sm p-4 border border-border/60 rounded-xl text-center">
-                  <div className="flex justify-center items-center bg-primary/10 mx-auto mb-3 rounded-full ring-4 ring-primary/5 w-14 h-14 font-outfit font-bold text-primary text-xl">
-                    {employeeName.charAt(0).toUpperCase()}
+                  <div className="flex justify-center items-center bg-primary/10 mx-auto mb-3 rounded-full ring-4 ring-primary/5 w-14 h-14 font-outfit font-bold text-primary text-xl overflow-hidden">
+                    {employeeAvatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={employeeAvatarUrl}
+                        alt={employeeName}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      employeeName.charAt(0).toUpperCase()
+                    )}
                   </div>
                   <p className="font-semibold text-foreground text-sm">
                     {employeeName}
@@ -1015,7 +1017,10 @@ export default function ClientDetailView({ clientId = null }: ClientDetailViewPr
                       {t("Country")}
                     </span>
                     <span className="font-semibold">
-                      {form.watch("country_code") || "UAE"}
+                      {countryLabel(
+                        form.watch("country_code"),
+                        language,
+                      ) || countryLabel("United Arab Emirates", language)}
                     </span>
                   </div>
                   {followUp && (

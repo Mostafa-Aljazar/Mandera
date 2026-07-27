@@ -16,12 +16,17 @@ type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; erro
 
 export async function createPropertyType(
   companyId: string,
-  name: string,
+  nameEn: string,
+  nameAr: string,
 ): Promise<ActionResult<PropertyType>> {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("property_types")
-    .insert({ name, company_id: companyId })
+    .insert({
+      name_en: nameEn,
+      name_ar: nameAr,
+      company_id: companyId,
+    })
     .select()
     .single();
   if (error) return { error: error.message };
@@ -30,12 +35,16 @@ export async function createPropertyType(
 
 export async function updatePropertyType(
   id: string,
-  name: string,
+  nameEn: string,
+  nameAr: string,
 ): Promise<ActionResult<PropertyType>> {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("property_types")
-    .update({ name })
+    .update({
+      name_en: nameEn,
+      name_ar: nameAr,
+    })
     .eq("id", id)
     .select()
     .single();
@@ -54,13 +63,19 @@ export async function deletePropertyType(id: string): Promise<ActionResult<null>
 
 export async function createClientStatus(
   companyId: string,
-  name: string,
+  nameEn: string,
+  nameAr: string,
   priorityOrder: number,
 ): Promise<ActionResult<ClientStatus>> {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("client_statuses")
-    .insert({ name, company_id: companyId, priority_order: priorityOrder })
+    .insert({
+      name_en: nameEn,
+      name_ar: nameAr,
+      company_id: companyId,
+      priority_order: priorityOrder,
+    })
     .select()
     .single();
   if (error) return { error: error.message };
@@ -69,13 +84,18 @@ export async function createClientStatus(
 
 export async function updateClientStatus(
   id: string,
-  name: string,
+  nameEn: string,
+  nameAr: string,
   priorityOrder: number,
 ): Promise<ActionResult<ClientStatus>> {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("client_statuses")
-    .update({ name, priority_order: priorityOrder })
+    .update({
+      name_en: nameEn,
+      name_ar: nameAr,
+      priority_order: priorityOrder,
+    })
     .eq("id", id)
     .select()
     .single();
@@ -109,12 +129,17 @@ export async function deleteClientStatus(id: string): Promise<ActionResult<null>
 
 export async function createOwnerStatus(
   companyId: string,
-  name: string,
+  nameEn: string,
+  nameAr: string,
 ): Promise<ActionResult<OwnerStatus>> {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("owner_statuses")
-    .insert({ name, company_id: companyId })
+    .insert({
+      name_en: nameEn,
+      name_ar: nameAr,
+      company_id: companyId,
+    })
     .select()
     .single();
   if (error) return { error: error.message };
@@ -123,12 +148,16 @@ export async function createOwnerStatus(
 
 export async function updateOwnerStatus(
   id: string,
-  name: string,
+  nameEn: string,
+  nameAr: string,
 ): Promise<ActionResult<OwnerStatus>> {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("owner_statuses")
-    .update({ name })
+    .update({
+      name_en: nameEn,
+      name_ar: nameAr,
+    })
     .eq("id", id)
     .select()
     .single();

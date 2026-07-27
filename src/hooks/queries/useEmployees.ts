@@ -121,7 +121,13 @@ export function useUpdateBaseEmployee() {
       input,
     }: {
       id: string;
-      input: { first_name: string; last_name: string; email: string };
+      input: {
+        first_name_en: string;
+        first_name_ar: string;
+        last_name_en: string;
+        last_name_ar: string;
+        email: string;
+      };
     }) => updateBaseEmployee(id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["base_employees"] });

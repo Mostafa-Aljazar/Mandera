@@ -13,6 +13,8 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { bilingualLabel, type BilingualName } from '@/lib/bilingualLabel';
 
 interface DatePickerPopoverProps {
   date: Date | null;
@@ -52,7 +54,7 @@ const DatePickerPopover = ({ date, setDate, label }: DatePickerPopoverProps) => 
 };
 
 interface FilterPanelProps {
-  statuses?: Array<{ id: string; name: string }>;
+  statuses?: Array<{ id: string } & BilingualName>;
   marketingChannels?: Array<{ id: string; name: string }>;
   areas?: Array<{ id: string; name: string }>;
   showPriceFilters?: boolean;
@@ -71,6 +73,7 @@ export default function FilterPanel({
   onPriceChange
 }: FilterPanelProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const [statusId, setStatusId] = useState('');
   const [marketingChannel, setMarketingChannel] = useState('');
   const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
@@ -200,7 +203,7 @@ export default function FilterPanel({
                     <SelectContent>
                       <SelectItem value="all">{t('All Current Statuses')}</SelectItem>
                       {statuses.map(s => (
-                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        <SelectItem key={s.id} value={s.id}>{bilingualLabel(s, language)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

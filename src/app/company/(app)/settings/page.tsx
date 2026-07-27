@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import React, { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import DocumentHead from "@/components/common/DocumentHead";
@@ -68,8 +68,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { employeeDisplayName } from "@/lib/bilingualLabel";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   SettingsEntitySchema,
   type TSettingsEntitySchema,
@@ -115,13 +117,31 @@ function resolveSettingsTab(raw: string | null): SettingsTab {
 const SettingsPage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
+  const { language } = useLanguage();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const isSuperAdmin = currentUser?.role === "company_super_admin";
   const companyId = currentUser?.company_id || company?.id;
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
-    resolveSettingsTab(searchParams.get("tab")),
-  );
+  const tabFromUrl = resolveSettingsTab(searchParams.get("tab"));
+  const [activeTab, setActiveTab] = useState<SettingsTab>(tabFromUrl);
+
+  useEffect(() => {
+    setActiveTab(tabFromUrl);
+  }, [tabFromUrl]);
+
+  const selectTab = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === "employees") {
+      params.delete("tab");
+    } else {
+      params.set("tab", tab);
+    }
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
 
   const navItems: { value: SettingsTab; label: string; icon: LucideIcon }[] = [
     { value: "employees", label: t("Employees"), icon: Users },
@@ -134,7 +154,12 @@ const SettingsPage = () => {
   ];
 
   const { data: propertyTypesData } = usePropertyTypes(companyId);
-  const propertyTypes = propertyTypesData ?? [];
+  const propertyTypes = [...(propertyTypesData ?? [])].sort((a, b) => {
+    if (language === "ar") {
+      return a.name_ar.localeCompare(b.name_ar, "ar", { sensitivity: "base" });
+    }
+    return a.name_en.localeCompare(b.name_en, "en", { sensitivity: "base" });
+  });
   const { data: clientStatusesData } = useClientStatuses(companyId);
   const clientStatuses = clientStatusesData ?? [];
   const { data: employeesData } = useSettingsEmployees(companyId);
@@ -163,12 +188,12 @@ const SettingsPage = () => {
 
   const propertyTypeForm = useForm<TSettingsEntitySchema>({
     resolver: zodResolver(SettingsEntitySchema(t, false)),
-    defaultValues: { name: "", priority_order: 1 },
+    defaultValues: { name_en: "", name_ar: "", priority_order: 1 },
   });
 
   const clientStatusForm = useForm<TSettingsEntitySchema>({
     resolver: zodResolver(SettingsEntitySchema(t, true)),
-    defaultValues: { name: "", priority_order: 1 },
+    defaultValues: { name_en: "", name_ar: "", priority_order: 1 },
   });
 
   const [editingPriorityId, setEditingPriorityId] = useState<string | null>(
@@ -183,24 +208,28 @@ const SettingsPage = () => {
   const savePropertyType = propertyTypeForm.handleSubmit(async (formData) => {
     if (!companyId) return;
     try {
+      const nameEn = formData.name_en?.trim() || "";
+      const nameAr = formData.name_ar?.trim() || "";
       if (editItem) {
         const result = await updatePropertyTypeMutation.mutateAsync({
           id: editItem.id,
-          name: formData.name,
+          nameEn,
+          nameAr,
         });
         if (result.error) throw new Error(result.error);
         toast.success(t("Updated successfully."));
       } else {
         const result = await createPropertyTypeMutation.mutateAsync({
           companyId,
-          name: formData.name,
+          nameEn,
+          nameAr,
         });
         if (result.error) throw new Error(result.error);
         toast.success(t("Created successfully."));
       }
       setOpenPropertyType(false);
       setEditItem(null);
-      propertyTypeForm.reset({ name: "", priority_order: 1 });
+      propertyTypeForm.reset({ name_en: "", name_ar: "", priority_order: 1 });
     } catch (error: any) {
       toast.error(error.message || t("An error occurred."));
     }
@@ -210,10 +239,13 @@ const SettingsPage = () => {
     if (!companyId) return;
     try {
       const priorityOrder = parseInt(String(formData.priority_order), 10);
+      const nameEn = formData.name_en?.trim() || "";
+      const nameAr = formData.name_ar?.trim() || "";
       if (editItem) {
         const result = await updateClientStatusMutation.mutateAsync({
           id: editItem.id,
-          name: formData.name,
+          nameEn,
+          nameAr,
           priorityOrder,
         });
         if (result.error) throw new Error(result.error);
@@ -221,7 +253,8 @@ const SettingsPage = () => {
       } else {
         const result = await createClientStatusMutation.mutateAsync({
           companyId,
-          name: formData.name,
+          nameEn,
+          nameAr,
           priorityOrder,
         });
         if (result.error) throw new Error(result.error);
@@ -229,7 +262,7 @@ const SettingsPage = () => {
       }
       setOpenClientStatus(false);
       setEditItem(null);
-      clientStatusForm.reset({ name: "", priority_order: 1 });
+      clientStatusForm.reset({ name_en: "", name_ar: "", priority_order: 1 });
     } catch (error: any) {
       toast.error(error.message || t("An error occurred."));
     }
@@ -287,7 +320,11 @@ const SettingsPage = () => {
         ? Math.max(...clientStatuses.map((s) => s.priority_order || 0)) + 1
         : 1;
     setEditItem(null);
-    clientStatusForm.reset({ name: "", priority_order: nextPriority });
+    clientStatusForm.reset({
+      name_en: "",
+      name_ar: "",
+      priority_order: nextPriority,
+    });
     setOpenClientStatus(true);
   };
 
@@ -313,7 +350,8 @@ const SettingsPage = () => {
       <Table>
         <TableHeader className="bg-muted/40">
           <TableRow>
-            <TableHead>{t("Name")}</TableHead>
+            <TableHead className="text-start">{`${t("Name")} (EN)`}</TableHead>
+            <TableHead className="text-start">{`${t("Name")} (AR)`}</TableHead>
             <TableHead className="w-[120px] text-end">{t("Actions")}</TableHead>
           </TableRow>
         </TableHeader>
@@ -321,7 +359,7 @@ const SettingsPage = () => {
           {data.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={2}
+                colSpan={3}
                 className="py-10 text-muted-foreground text-center"
               >
                 {t("No items found. Create one to get started.")}
@@ -330,7 +368,16 @@ const SettingsPage = () => {
           ) : (
             data.map((item) => (
               <TableRow key={item.id} className="hover:bg-muted/30">
-                <TableCell className="font-medium">{item.name}</TableCell>
+                <TableCell className="font-medium text-start">
+                  <span dir="ltr" className="inline-block">
+                    {item.name_en}
+                  </span>
+                </TableCell>
+                <TableCell className="font-medium text-start">
+                  <span dir="rtl" className="inline-block">
+                    {item.name_ar}
+                  </span>
+                </TableCell>
                 <TableCell className="text-end">
                   <div className="inline-flex gap-0.5">
                     <Button
@@ -339,7 +386,10 @@ const SettingsPage = () => {
                       className="w-8 h-8 text-muted-foreground hover:text-primary"
                       onClick={() => {
                         setEditItem(item);
-                        propertyTypeForm.reset({ name: item.name });
+                        propertyTypeForm.reset({
+                          name_en: item.name_en,
+                          name_ar: item.name_ar,
+                        });
                         setOpen(true);
                       }}
                     >
@@ -369,7 +419,8 @@ const SettingsPage = () => {
         <TableHeader className="bg-muted/40">
           <TableRow>
             <TableHead className="w-[100px]">{t("Priority")}</TableHead>
-            <TableHead>{t("Name")}</TableHead>
+            <TableHead className="text-start">{`${t("Name")} (EN)`}</TableHead>
+            <TableHead className="text-start">{`${t("Name")} (AR)`}</TableHead>
             <TableHead className="w-[120px] text-end">{t("Actions")}</TableHead>
           </TableRow>
         </TableHeader>
@@ -377,7 +428,7 @@ const SettingsPage = () => {
           {clientStatuses.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={3}
+                colSpan={4}
                 className="py-10 text-muted-foreground text-center"
               >
                 {t("No items found. Create one to get started.")}
@@ -433,7 +484,16 @@ const SettingsPage = () => {
                     </div>
                   )}
                 </TableCell>
-                <TableCell className="font-medium">{item.name}</TableCell>
+                <TableCell className="font-medium text-start">
+                  <span dir="ltr" className="inline-block">
+                    {item.name_en}
+                  </span>
+                </TableCell>
+                <TableCell className="font-medium text-start">
+                  <span dir="rtl" className="inline-block">
+                    {item.name_ar}
+                  </span>
+                </TableCell>
                 <TableCell className="text-end">
                   <div className="inline-flex gap-0.5">
                     <Button
@@ -443,7 +503,8 @@ const SettingsPage = () => {
                       onClick={() => {
                         setEditItem(item);
                         clientStatusForm.reset({
-                          name: item.name,
+                          name_en: item.name_en,
+                          name_ar: item.name_ar,
                           priority_order: item.priority_order || 1,
                         });
                         setOpenClientStatus(true);
@@ -511,7 +572,7 @@ const SettingsPage = () => {
               <Select
                 value={activeTab}
                 onValueChange={(value) =>
-                  setActiveTab(resolveSettingsTab(value))
+                  selectTab(resolveSettingsTab(value))
                 }
               >
                 <SelectTrigger
@@ -549,7 +610,7 @@ const SettingsPage = () => {
                       <li key={value}>
                         <button
                           type="button"
-                          onClick={() => setActiveTab(value)}
+                          onClick={() => selectTab(value)}
                           className={cn(
                             "flex items-center gap-2.5 px-3 py-2.5 rounded-xl w-full font-medium text-sm text-start transition-colors",
                             isActive
@@ -613,7 +674,14 @@ const SettingsPage = () => {
                             </TableCell>
                           </TableRow>
                         ) : (
-                          employees.map((emp) => (
+                          employees.map((emp) => {
+                            const empLabel =
+                              employeeDisplayName(
+                                emp.employee,
+                                language,
+                                emp.name,
+                              ) || t("Unnamed");
+                            return (
                             <TableRow
                               key={emp.id}
                               className="hover:bg-muted/30"
@@ -621,14 +689,12 @@ const SettingsPage = () => {
                               <TableCell className="font-medium">
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <span className="flex justify-center items-center bg-primary/10 rounded-lg w-8 h-8 font-semibold text-primary text-xs shrink-0">
-                                    {(emp.name || "?")
-                                      .charAt(0)
-                                      .toUpperCase()}
+                                    {empLabel.charAt(0).toUpperCase()}
                                   </span>
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-1.5">
                                       <span className="truncate">
-                                        {emp.name || t("Unnamed")}
+                                        {empLabel}
                                       </span>
                                       {emp.id === currentUser?.id && (
                                         <Badge
@@ -702,7 +768,8 @@ const SettingsPage = () => {
                                 </div>
                               </TableCell>
                             </TableRow>
-                          ))
+                            );
+                          })
                         )}
                       </TableBody>
                     </Table>
@@ -724,7 +791,11 @@ const SettingsPage = () => {
                         setOpenPropertyType(open);
                         if (!open) {
                           setEditItem(null);
-                          propertyTypeForm.reset({ name: "" });
+                          propertyTypeForm.reset({
+                            name_en: "",
+                            name_ar: "",
+                            priority_order: 1,
+                          });
                         }
                       }}
                     >
@@ -747,14 +818,35 @@ const SettingsPage = () => {
                           <div className="space-y-4 py-4">
                             <FormField
                               control={propertyTypeForm.control}
-                              name="name"
+                              name="name_en"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>{t("Name")}</FormLabel>
+                                  <FormLabel>{`${t("Name")} (EN)`}</FormLabel>
                                   <FormControl>
                                     <Input
                                       {...field}
-                                      placeholder={t("e.g. Villa")}
+                                      value={field.value ?? ""}
+                                      dir="ltr"
+                                      placeholder="e.g. Villa"
+                                      className="bg-background h-10"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={propertyTypeForm.control}
+                              name="name_ar"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>{`${t("Name")} (AR)`}</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      {...field}
+                                      value={field.value ?? ""}
+                                      dir="rtl"
+                                      placeholder="مثال: فيلا"
                                       className="bg-background h-10"
                                     />
                                   </FormControl>
@@ -794,7 +886,8 @@ const SettingsPage = () => {
                         if (!open) {
                           setEditItem(null);
                           clientStatusForm.reset({
-                            name: "",
+                            name_en: "",
+                            name_ar: "",
                             priority_order: 1,
                           });
                         }
@@ -820,14 +913,35 @@ const SettingsPage = () => {
                           <div className="space-y-4 py-4">
                             <FormField
                               control={clientStatusForm.control}
-                              name="name"
+                              name="name_en"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>{t("Name")}</FormLabel>
+                                  <FormLabel>{`${t("Name")} (EN)`}</FormLabel>
                                   <FormControl>
                                     <Input
                                       {...field}
-                                      placeholder={t("e.g. Hot Lead")}
+                                      value={field.value ?? ""}
+                                      dir="ltr"
+                                      placeholder="e.g. Hot Lead"
+                                      className="bg-background h-10"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={clientStatusForm.control}
+                              name="name_ar"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>{`${t("Name")} (AR)`}</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      {...field}
+                                      value={field.value ?? ""}
+                                      dir="rtl"
+                                      placeholder="مثال: عميل مهتم"
                                       className="bg-background h-10"
                                     />
                                   </FormControl>

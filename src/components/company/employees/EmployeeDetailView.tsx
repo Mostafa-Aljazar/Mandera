@@ -27,6 +27,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   User,
   Save,
@@ -48,6 +49,9 @@ import {
   AlertTriangle,
   CalendarClock,
   MessageSquare,
+  Camera,
+  Trash2,
+  UploadCloud,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -66,21 +70,32 @@ import { useClients } from "@/hooks/queries/useClients";
 import { useProperties } from "@/hooks/queries/useProperties";
 import { useRevenues } from "@/hooks/queries/useRevenues";
 import { useEmployeeActivity } from "@/hooks/queries/useStatusHistory";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { employeeDisplayName } from "@/lib/bilingualLabel";
 
 const JOB_TITLES = ["sales_agent", "admin", "manager"] as const;
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
 
-const EmployeeProfileSchema = (t: TFunction, hasEmployeeRecord: boolean) =>
+const EmployeeProfileSchema = (t: TFunction) =>
   z
     .object({
-      name: z.string().trim().min(1, t("Full name is required")),
+      firstNameEn: z.string().trim().min(1, `${t("First Name")} (EN)`),
+      firstNameAr: z.string().trim().min(1, `${t("First Name")} (AR)`),
+      lastNameEn: z.string().trim().min(1, `${t("Last Name")} (EN)`),
+      lastNameAr: z.string().trim().min(1, `${t("Last Name")} (AR)`),
       email: z.string().trim().email(t("Email")),
       phone: z.string(),
       job_title: z.string(),
       role: z.enum(["company_super_admin", "company_employee"]),
     })
     .superRefine((data, ctx) => {
-      if (!hasEmployeeRecord) return;
-      if (!data.phone || !isValidPhoneNumber(data.phone)) {
+      if (data.phone && data.phone !== "N/A" && !isValidPhoneNumber(data.phone)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["phone"],
@@ -89,7 +104,10 @@ const EmployeeProfileSchema = (t: TFunction, hasEmployeeRecord: boolean) =>
           ),
         });
       }
-      if (!JOB_TITLES.includes(data.job_title as (typeof JOB_TITLES)[number])) {
+      if (
+        data.job_title &&
+        !JOB_TITLES.includes(data.job_title as (typeof JOB_TITLES)[number])
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["job_title"],
@@ -104,11 +122,13 @@ type TEmployeeProfileSchema = z.infer<
 
 function SectionCard({
   title,
+  description,
   icon: Icon,
   children,
   className,
 }: {
   title: string;
+  description?: string;
   icon: React.ElementType;
   children: React.ReactNode;
   className?: string;
@@ -116,17 +136,26 @@ function SectionCard({
   return (
     <section
       className={cn(
-        "bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-xl overflow-hidden",
+        "bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-2xl overflow-hidden",
         className,
       )}
     >
-      <div className="flex items-center gap-2.5 bg-muted/30 px-5 py-3.5 border-border/50 border-b">
-        <span className="flex justify-center items-center bg-primary/10 rounded-lg w-7 h-7 text-primary">
-          <Icon className="w-3.5 h-3.5" />
+      <div className="flex items-start gap-3 bg-muted/25 px-4 sm:px-5 py-3.5 border-border/50 border-b">
+        <span className="flex justify-center items-center bg-primary/10 rounded-xl w-9 h-9 text-primary shrink-0">
+          <Icon className="w-4 h-4" />
         </span>
-        <h3 className="font-semibold text-foreground text-sm">{title}</h3>
+        <div className="min-w-0 pt-0.5">
+          <h3 className="font-outfit font-semibold text-foreground text-sm sm:text-base tracking-tight">
+            {title}
+          </h3>
+          {description ? (
+            <p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
+              {description}
+            </p>
+          ) : null}
+        </div>
       </div>
-      <div className="p-5">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
 }
@@ -156,10 +185,16 @@ interface EmployeeDetailViewProps {
 
 export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const router = useRouter();
   const { company, currentUser } = useCompanyAuth();
   const [activeTab, setActiveTab] = useState("info");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const {
     data: employee,
@@ -168,7 +203,6 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
     refetch,
   } = useCompanyEmployee(profileId, company?.id);
 
-  const hasEmployeeRecord = Boolean(employee?.employee_id);
   const isAdmin = employee?.role === "company_super_admin";
   const isDisabled = Boolean(employee?.employee?.disabled);
 
@@ -223,13 +257,27 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
   const updateEmployeeMutation = useUpdateEmployee();
 
   const form = useForm<TEmployeeProfileSchema>({
-    resolver: zodResolver(EmployeeProfileSchema(t, hasEmployeeRecord)),
+    resolver: zodResolver(EmployeeProfileSchema(t)),
     values: employee
       ? {
-          name: employee.name || "",
+          firstNameEn:
+            employee.employee?.first_name_en ||
+            employee.name?.trim().split(/\s+/)[0] ||
+            "",
+          firstNameAr: employee.employee?.first_name_ar || "",
+          lastNameEn:
+            employee.employee?.last_name_en ||
+            employee.name?.trim().split(/\s+/).slice(1).join(" ") ||
+            "",
+          lastNameAr: employee.employee?.last_name_ar || "",
           email: employee.email || employee.employee?.email || "",
-          phone: employee.employee?.phone || "",
-          job_title: employee.employee?.job_title || "",
+          phone:
+            employee.employee?.phone && employee.employee.phone !== "N/A"
+              ? employee.employee.phone
+              : "",
+          job_title:
+            employee.employee?.job_title ||
+            (employee.role === "company_super_admin" ? "admin" : "sales_agent"),
           role:
             employee.role === "company_super_admin"
               ? "company_super_admin"
@@ -237,10 +285,13 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
         }
       : undefined,
     defaultValues: {
-      name: "",
+      firstNameEn: "",
+      firstNameAr: "",
+      lastNameEn: "",
+      lastNameAr: "",
       email: "",
       phone: "",
-      job_title: "",
+      job_title: "sales_agent",
       role: "company_employee",
     },
   });
@@ -251,52 +302,116 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
     router.replace("/company/employees");
   }, [isError, router, t]);
 
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
+
+  useEffect(() => {
+    setAvatarFile(null);
+    setRemoveAvatar(false);
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarPreview(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee?.id, employee?.employee?.avatar_url]);
+
+  const clearAvatarSelection = () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const applyAvatarFile = (file: File) => {
+    if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+      toast.error(t("Please upload a JPG, PNG, or WebP image."));
+      return;
+    }
+    if (file.size >= MAX_AVATAR_BYTES) {
+      toast.error(t("Employee photo must be less than 2MB."));
+      return;
+    }
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+    setRemoveAvatar(false);
+  };
+
+  const watchedName = employeeDisplayName(
+    {
+      first_name_en: form.watch("firstNameEn"),
+      first_name_ar: form.watch("firstNameAr"),
+      last_name_en: form.watch("lastNameEn"),
+      last_name_ar: form.watch("lastNameAr"),
+    },
+    language,
+  );
   const displayName =
-    employee?.name || form.watch("name") || t("Unnamed");
+    employeeDisplayName(employee?.employee, language, employee?.name) ||
+    watchedName ||
+    t("Unnamed");
   const email =
     employee?.email || employee?.employee?.email || form.watch("email") || "";
   const phone = form.watch("phone") || employee?.employee?.phone || "";
-  const cleanPhone = phone.replace(/\D/g, "");
+  const cleanPhone = phone && phone !== "N/A" ? phone.replace(/\D/g, "") : "";
+  const currentAvatarUrl = removeAvatar
+    ? null
+    : avatarPreview || employee?.employee?.avatar_url || null;
 
   const handleSave = form.handleSubmit(async (formData) => {
-    if (!employee) return;
-    if (hasEmployeeRecord) {
-      if (!formData.phone || !isValidPhoneNumber(formData.phone)) {
-        form.setError("phone", {
-          message: t(
-            "Invalid phone number format. Please use format like +974 1234 5678",
-          ),
-        });
-        return;
-      }
-      if (
-        !JOB_TITLES.includes(
-          formData.job_title as (typeof JOB_TITLES)[number],
-        )
-      ) {
-        form.setError("job_title", {
-          message: t("Please select a valid job title."),
-        });
-        return;
-      }
+    if (!employee || !company?.id) return;
+
+    if (formData.phone && formData.phone !== "N/A" && !isValidPhoneNumber(formData.phone)) {
+      form.setError("phone", {
+        message: t(
+          "Invalid phone number format. Please use format like +974 1234 5678",
+        ),
+      });
+      return;
     }
+
+    const jobTitle =
+      formData.job_title &&
+      JOB_TITLES.includes(formData.job_title as (typeof JOB_TITLES)[number])
+        ? formData.job_title
+        : isAdmin
+          ? "admin"
+          : "sales_agent";
+
     setIsSubmitting(true);
     try {
       const result = await updateEmployeeMutation.mutateAsync({
         profileId: employee.id,
         employeeId: employee.employee_id,
-        name: formData.name,
+        companyId: company.id,
+        first_name_en: formData.firstNameEn,
+        first_name_ar: formData.firstNameAr,
+        last_name_en: formData.lastNameEn,
+        last_name_ar: formData.lastNameAr,
         email: formData.email,
-        phone: formData.phone,
-        job_title: formData.job_title || "sales_agent",
+        phone: formData.phone || "N/A",
+        job_title: jobTitle,
         role: formData.role,
+        avatar: avatarFile,
+        removeAvatar: removeAvatar && !avatarFile,
       });
       if (result.error) throw new Error(result.error);
       toast.success(t("Employee updated successfully"));
+      clearAvatarSelection();
+      setRemoveAvatar(false);
       refetch();
     } catch (error) {
       console.error(error);
-      toast.error(t("Failed to update employee"));
+      const message =
+        error instanceof Error ? error.message : t("Failed to update employee");
+      toast.error(
+        message === "Employee photo must be less than 2MB."
+          ? t("Employee photo must be less than 2MB.")
+          : message === "Please upload a JPG, PNG, or WebP image."
+            ? t("Please upload a JPG, PNG, or WebP image.")
+            : t("Failed to update employee"),
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -352,9 +467,18 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
             className="absolute inset-0 bg-gradient-to-br from-primary/[0.08] via-transparent to-transparent pointer-events-none"
             aria-hidden
           />
-          <div className="relative flex items-center gap-4 px-5 sm:px-6 py-5">
-            <div className="relative flex justify-center items-center bg-primary/15 rounded-2xl ring-2 ring-primary/30 ring-offset-2 ring-offset-background w-14 h-14 font-outfit font-bold text-primary text-xl shadow-sm shrink-0">
-              {displayName.charAt(0).toUpperCase()}
+          <div className="relative flex items-center gap-3.5 sm:gap-4 px-4 sm:px-6 py-5">
+            <div className="relative flex justify-center items-center bg-primary/15 rounded-2xl ring-2 ring-primary/30 ring-offset-2 ring-offset-background w-14 h-14 sm:w-16 sm:h-16 font-outfit font-bold text-primary text-xl shadow-sm shrink-0 overflow-hidden">
+              {currentAvatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={currentAvatarUrl}
+                  alt={displayName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                displayName.charAt(0).toUpperCase()
+              )}
               <span className="absolute -bottom-0.5 -end-0.5 bg-primary border-2 border-background rounded-full w-3.5 h-3.5" />
             </div>
 
@@ -448,84 +572,278 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
               onValueChange={setActiveTab}
               className="flex flex-col"
             >
-              <div className="bg-muted/10 px-4 sm:px-6 border-border/60 border-b">
-                <TabsList className="justify-start bg-transparent gap-1 p-0 h-11 w-full overflow-x-auto">
-                  {[
-                    { value: "info", icon: FileText, label: t("Information") },
-                    {
-                      value: "owners",
-                      icon: UserRound,
-                      label: t("Owners"),
-                      count: owners.length,
-                    },
-                    {
-                      value: "clients",
-                      icon: Users,
-                      label: t("Clients"),
-                      count: clients.length,
-                    },
-                    {
-                      value: "properties",
-                      icon: Building2,
-                      label: t("Properties"),
-                      count: properties.length,
-                    },
-                    {
-                      value: "revenues",
-                      icon: Wallet,
-                      label: t("Revenue"),
-                      count: revenues.length,
-                    },
-                    {
-                      value: "activity",
-                      icon: History,
-                      label: t("Activity"),
-                      count: activity.length,
-                    },
-                  ].map(({ value, icon: Icon, label, count }) => (
-                    <TabsTrigger
-                      key={value}
-                      value={value}
-                      className={cn(
-                        "gap-1.5 data-[state=active]:bg-background px-3 sm:px-4 rounded-none border-transparent border-b-2 h-11 data-[state=active]:border-primary data-[state=active]:shadow-none text-sm shrink-0",
-                        "data-[state=inactive]:text-muted-foreground",
-                      )}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      {label}
-                      {count !== undefined && count > 0 && (
-                        <span className="bg-primary/10 ms-0.5 px-1.5 py-0.5 rounded-full font-medium text-[10px] text-primary tabular-nums">
-                          {count}
-                        </span>
-                      )}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+              <div className="bg-muted/10 border-border/60 border-b">
+                <div className="px-2 sm:px-4 overflow-x-auto [scrollbar-width:thin]">
+                  <TabsList className="justify-start bg-transparent gap-0 p-0 h-11 w-max min-w-full">
+                    {[
+                      {
+                        value: "info",
+                        icon: FileText,
+                        label: t("Information"),
+                        shortLabel: t("Info"),
+                      },
+                      {
+                        value: "owners",
+                        icon: UserRound,
+                        label: t("Owners"),
+                        count: owners.length,
+                      },
+                      {
+                        value: "clients",
+                        icon: Users,
+                        label: t("Clients"),
+                        count: clients.length,
+                      },
+                      {
+                        value: "properties",
+                        icon: Building2,
+                        label: t("Properties"),
+                        count: properties.length,
+                      },
+                      {
+                        value: "revenues",
+                        icon: Wallet,
+                        label: t("Revenue"),
+                        count: revenues.length,
+                      },
+                      {
+                        value: "activity",
+                        icon: History,
+                        label: t("Activity"),
+                        count: activity.length,
+                      },
+                    ].map(({ value, icon: Icon, label, shortLabel, count }) => (
+                      <TabsTrigger
+                        key={value}
+                        value={value}
+                        className={cn(
+                          "gap-1.5 data-[state=active]:bg-transparent px-2.5 sm:px-3.5 rounded-none border-transparent border-b-2 h-11 data-[state=active]:border-primary data-[state=active]:shadow-none text-xs sm:text-sm shrink-0",
+                          "data-[state=inactive]:text-muted-foreground",
+                        )}
+                      >
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        <span className="sm:hidden">{shortLabel || label}</span>
+                        <span className="hidden sm:inline">{label}</span>
+                        {count !== undefined && count > 0 && (
+                          <span className="bg-primary/10 ms-0.5 px-1.5 py-0.5 rounded-full font-medium text-[10px] text-primary tabular-nums">
+                            {count}
+                          </span>
+                        )}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
               </div>
 
               <Form {...form}>
                 <div>
-                  <TabsContent value="info" className="space-y-5 mt-0 p-5 sm:p-6">
-                    <SectionCard title={t("Contact Information")} icon={User}>
+                  <TabsContent value="info" className="space-y-5 mt-0 p-4 sm:p-6">
+                    <SectionCard
+                      title={t("Employee photo")}
+                      description={t(
+                        "Optional. JPG, PNG or WebP under 2MB. Drag and drop or browse.",
+                      )}
+                      icon={Camera}
+                    >
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDragOver(true);
+                        }}
+                        onDragLeave={() => setIsDragOver(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsDragOver(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) applyAvatarFile(file);
+                        }}
+                        className={cn(
+                          "flex sm:flex-row flex-col sm:items-center gap-4 p-4 border-2 border-dashed rounded-2xl transition-colors",
+                          isDragOver
+                            ? "border-primary bg-primary/10"
+                            : "border-border/60 bg-muted/20 hover:border-primary/35",
+                        )}
+                      >
+                        <Avatar className="bg-primary/10 mx-auto sm:mx-0 rounded-2xl w-20 h-20 ring-2 ring-primary/20 shrink-0">
+                          {currentAvatarUrl ? (
+                            <AvatarImage
+                              src={currentAvatarUrl}
+                              alt={t("Employee photo")}
+                              className="object-cover"
+                            />
+                          ) : null}
+                          <AvatarFallback className="bg-primary/10 rounded-2xl font-outfit font-bold text-primary text-xl">
+                            {currentAvatarUrl ? null : (
+                              <User className="w-8 h-8 opacity-60" />
+                            )}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 space-y-2.5 min-w-0 text-center sm:text-start">
+                          <p className="flex justify-center sm:justify-start items-center gap-1.5 text-muted-foreground text-xs leading-relaxed">
+                            <UploadCloud className="hidden sm:block w-3.5 h-3.5 shrink-0" />
+                            {t("Drag & drop a photo here, or click to upload")}
+                          </p>
+                          <div className="flex flex-wrap justify-center sm:justify-start gap-2">
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) applyAvatarFile(file);
+                                e.target.value = "";
+                              }}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5 bg-background rounded-lg h-9"
+                              onClick={() => fileInputRef.current?.click()}
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              {avatarFile || currentAvatarUrl
+                                ? t("Change photo")
+                                : t("Upload photo")}
+                            </Button>
+                            {(avatarFile ||
+                              employee.employee?.avatar_url) &&
+                            !removeAvatar ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="gap-1.5 h-9 text-destructive hover:text-destructive"
+                                onClick={() => {
+                                  clearAvatarSelection();
+                                  if (employee.employee?.avatar_url) {
+                                    setRemoveAvatar(true);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                {t("Remove")}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard
+                      title={t("Employee name")}
+                      description={t(
+                        "Enter the name in English and Arabic for bilingual display.",
+                      )}
+                      icon={User}
+                    >
+                      <div className="space-y-5">
+                        <div>
+                          <p className="mb-3 font-medium text-muted-foreground text-[11px] uppercase tracking-wider">
+                            {t("English")}
+                          </p>
+                          <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
+                            <FormField
+                              control={form.control}
+                              name="firstNameEn"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs">
+                                    {`${t("First Name")} (EN)`} *
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      {...field}
+                                      dir="ltr"
+                                      placeholder="e.g. John"
+                                      className="bg-background h-10"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name="lastNameEn"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs">
+                                    {`${t("Last Name")} (EN)`} *
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      {...field}
+                                      dir="ltr"
+                                      placeholder="e.g. Doe"
+                                      className="bg-background h-10"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                        </div>
+                        <div className="border-border/50 border-t pt-5">
+                          <p className="mb-3 font-medium text-muted-foreground text-[11px] uppercase tracking-wider">
+                            {t("Arabic")}
+                          </p>
+                          <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
+                            <FormField
+                              control={form.control}
+                              name="firstNameAr"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs">
+                                    {`${t("First Name")} (AR)`} *
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      {...field}
+                                      dir="rtl"
+                                      placeholder="مثال: محمد"
+                                      className="bg-background h-10"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name="lastNameAr"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs">
+                                    {`${t("Last Name")} (AR)`} *
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      {...field}
+                                      dir="rtl"
+                                      placeholder="مثال: العتيبي"
+                                      className="bg-background h-10"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard
+                      title={t("Contact & access")}
+                      description={t(
+                        "Work contact details and account role for this team member.",
+                      )}
+                      icon={Briefcase}
+                    >
                       <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
-                        <FormField
-                          control={form.control}
-                          name="name"
-                          render={({ field }) => (
-                            <FormItem className="sm:col-span-2">
-                              <FormLabel className="text-xs">
-                                {t("Full Name")} *
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  className="bg-background h-10"
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
                         <FormField
                           control={form.control}
                           name="email"
@@ -540,79 +858,69 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                                   type="email"
                                   dir="ltr"
                                   className="bg-background h-10"
-                                  disabled={!hasEmployeeRecord}
                                 />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
-                        {hasEmployeeRecord && (
-                          <FormField
-                            control={form.control}
-                            name="phone"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">
-                                  {t("Phone Number")} *
-                                </FormLabel>
+                        <FormField
+                          control={form.control}
+                          name="phone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                {t("Phone Number")}
+                              </FormLabel>
+                              <FormControl>
+                                <PhoneInput {...field} className="flex-1" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="job_title"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                {t("Job Title")}
+                              </FormLabel>
+                              <Select
+                                value={field.value}
+                                onValueChange={field.onChange}
+                              >
                                 <FormControl>
-                                  <PhoneInput {...field} className="flex-1" />
+                                  <SelectTrigger className="bg-background h-10">
+                                    <SelectValue
+                                      placeholder={t("Select Job Title")}
+                                    />
+                                  </SelectTrigger>
                                 </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        )}
-                      </div>
-                    </SectionCard>
-
-                    <SectionCard title={t("Role & Job")} icon={Briefcase}>
-                      <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
-                        {hasEmployeeRecord && (
-                          <FormField
-                            control={form.control}
-                            name="job_title"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">
-                                  {t("Job Title")} *
-                                </FormLabel>
-                                <Select
-                                  value={field.value}
-                                  onValueChange={field.onChange}
-                                >
-                                  <FormControl>
-                                    <SelectTrigger className="bg-background h-10">
-                                      <SelectValue
-                                        placeholder={t("Select Job Title")}
-                                      />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    <SelectItem value="sales_agent">
-                                      {t("Sales Agent")}
-                                    </SelectItem>
-                                    <SelectItem value="admin">
-                                      {t("Administrator")}
-                                    </SelectItem>
-                                    <SelectItem value="manager">
-                                      {t("Manager")}
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        )}
+                                <SelectContent>
+                                  <SelectItem value="sales_agent">
+                                    {t("Sales Agent")}
+                                  </SelectItem>
+                                  <SelectItem value="admin">
+                                    {t("Administrator")}
+                                  </SelectItem>
+                                  <SelectItem value="manager">
+                                    {t("Manager")}
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                         <FormField
                           control={form.control}
                           name="role"
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-xs">
-                                {t("Role")} *
+                                {t("Account role (access level)")} *
                               </FormLabel>
                               <Select
                                 value={field.value}
@@ -629,10 +937,15 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                                     {t("Employee")}
                                   </SelectItem>
                                   <SelectItem value="company_super_admin">
-                                    {t("Admin")}
+                                    {t("Company Admin")}
                                   </SelectItem>
                                 </SelectContent>
                               </Select>
+                              <p className="text-muted-foreground text-[11px] leading-relaxed">
+                                {t(
+                                  "Company Admin has full company access. Employee has limited access.",
+                                )}
+                              </p>
                               <FormMessage />
                             </FormItem>
                           )}

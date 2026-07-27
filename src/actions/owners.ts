@@ -1,6 +1,6 @@
 "use server";
 
-import { getServerSupabase } from "@/lib/supabase/server";
+import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
 import type {
   Owner,
   OwnerStatus,
@@ -9,6 +9,40 @@ import type {
 } from "@/types/supabase-entities.types";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
+
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+
+async function uploadOwnerAvatar(
+  companyId: string,
+  file: File,
+): Promise<{ url: string; error?: undefined } | { url?: undefined; error: string }> {
+  if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+    return { error: "Please upload a JPG, PNG, or WebP image." };
+  }
+  if (file.size > MAX_AVATAR_BYTES) {
+    return { error: "Owner photo must be less than 2MB." };
+  }
+
+  const admin = getSupabaseAdmin();
+  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const path = `${companyId}/owners/${crypto.randomUUID()}.${ext}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  const { error } = await admin.storage.from("company-files").upload(path, buffer, {
+    contentType: file.type,
+    upsert: false,
+  });
+  if (error) return { error: error.message };
+
+  const { data } = admin.storage.from("company-files").getPublicUrl(path);
+  return { url: data.publicUrl };
+}
 
 export interface OwnerFilters {
   assignedEmployeeId?: string;
@@ -86,7 +120,8 @@ export async function getOwnerStatusesForCompany(
   const { data, error } = await supabase
     .from("owner_statuses")
     .select("*")
-    .eq("company_id", companyId);
+    .eq("company_id", companyId)
+    .order("name_en", { ascending: true });
   if (error) return { error: error.message };
   return { data: data ?? [] };
 }
@@ -122,7 +157,7 @@ export async function getOwnerLatestStatus(
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("owner_status_history")
-    .select("*, status:owner_statuses(id, name)")
+    .select("*, status:owner_statuses(id, name_en, name_ar)")
     .eq("owner_id", ownerId)
     .eq("company_id", companyId)
     .order("created_at", { ascending: false })
@@ -133,26 +168,42 @@ export async function getOwnerLatestStatus(
 
 export interface CreateOwnerInput {
   companyId: string;
-  name: string;
+  name_en: string;
+  name_ar: string;
   phone: string;
   country: string;
   marketing_channel?: string | null;
   assigned_employee_id?: string | null;
+  /** Optional profile photo. */
+  avatar?: File | null;
 }
 
 export async function createOwner(
   input: CreateOwnerInput,
 ): Promise<ActionResult<Owner>> {
   const supabase = await getServerSupabase();
+  const nameEn = input.name_en.trim();
+  const nameAr = input.name_ar.trim();
+
+  let avatarUrl: string | null = null;
+  if (input.avatar) {
+    const upload = await uploadOwnerAvatar(input.companyId, input.avatar);
+    if (upload.error) return { error: upload.error };
+    avatarUrl = upload.url ?? null;
+  }
+
   const { data, error } = await supabase
     .from("owners")
     .insert({
-      name: input.name,
+      name: nameEn,
+      name_en: nameEn,
+      name_ar: nameAr,
       phone: input.phone,
       country: input.country,
       marketing_channel: input.marketing_channel || null,
       assigned_employee_id: input.assigned_employee_id || null,
       company_id: input.companyId,
+      avatar_url: avatarUrl,
     })
     .select()
     .single();
@@ -163,26 +214,47 @@ export async function createOwner(
 
 export interface UpdateOwnerInput {
   id: string;
-  name: string;
+  companyId?: string;
+  name_en: string;
+  name_ar: string;
   phone: string;
   country: string;
   marketing_channel?: string | null;
   assigned_employee_id?: string | null;
+  /** Optional new profile photo. */
+  avatar?: File | null;
+  /** When true and no new file is provided, clear the existing photo. */
+  removeAvatar?: boolean;
 }
 
 export async function updateOwner(
   input: UpdateOwnerInput,
 ): Promise<ActionResult<Owner>> {
   const supabase = await getServerSupabase();
+  const nameEn = input.name_en.trim();
+  const nameAr = input.name_ar.trim();
+
+  const patch: Record<string, unknown> = {
+    name: nameEn,
+    name_en: nameEn,
+    name_ar: nameAr,
+    phone: input.phone,
+    country: input.country,
+    marketing_channel: input.marketing_channel || null,
+    assigned_employee_id: input.assigned_employee_id || null,
+  };
+
+  if (input.avatar && input.companyId) {
+    const upload = await uploadOwnerAvatar(input.companyId, input.avatar);
+    if (upload.error) return { error: upload.error };
+    patch.avatar_url = upload.url;
+  } else if (input.removeAvatar) {
+    patch.avatar_url = null;
+  }
+
   const { data, error } = await supabase
     .from("owners")
-    .update({
-      name: input.name,
-      phone: input.phone,
-      country: input.country,
-      marketing_channel: input.marketing_channel || null,
-      assigned_employee_id: input.assigned_employee_id || null,
-    })
+    .update(patch)
     .eq("id", input.id)
     .select()
     .single();
@@ -235,7 +307,7 @@ export async function getOwnersExportData(
       supabase.from("owners").select("*").eq("company_id", companyId),
       supabase
         .from("owner_status_history")
-        .select("*, status:owner_statuses(id, name)")
+        .select("*, status:owner_statuses(id, name_en, name_ar)")
         .eq("company_id", companyId)
         .order("created_at", { ascending: false }),
       supabase.from("properties").select("id, owner_id").eq("company_id", companyId),
@@ -250,7 +322,10 @@ export async function getOwnersExportData(
   const statusMap = new Map<string, { name: string; created_at: string }>();
   (histories ?? []).forEach((h: any) => {
     if (!statusMap.has(h.owner_id)) {
-      statusMap.set(h.owner_id, { name: h.status?.name ?? "", created_at: h.created_at });
+      statusMap.set(h.owner_id, {
+        name: h.status?.name_en ?? h.status?.name_ar ?? "",
+        created_at: h.created_at,
+      });
     }
   });
 

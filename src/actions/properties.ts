@@ -20,7 +20,7 @@ export interface PropertyFilters {
 
 const PROPERTIES_SELECT = `
   *,
-  property_type:property_types(id, name),
+  property_type:property_types(id, name_en, name_ar),
   owner:owners(id, name, phone),
   area_district_ref:areas_districts(id, name),
   employee:profiles!properties_employee_id_fkey(id, name, employee_record:employees!profiles_employee_id_fkey(phone, email))
@@ -89,8 +89,9 @@ export async function getPropertyTypesForCompany(companyId: string) {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("property_types")
-    .select("id, name, company_id, created_at, updated_at")
-    .eq("company_id", companyId);
+    .select("id, name_en, name_ar, company_id, created_at, updated_at")
+    .eq("company_id", companyId)
+    .order("name_en", { ascending: true });
   if (error) return { error: error.message };
   return { data: data ?? [] };
 }
@@ -109,11 +110,38 @@ export async function getCompanyEmployeesForCompany(companyId: string) {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, role, company_id, employee_id, name")
+    .select(
+      "id, role, company_id, employee_id, name, employee:employees!profiles_employee_id_fkey(avatar_url, first_name_en, first_name_ar, last_name_en, last_name_ar)",
+    )
     .eq("company_id", companyId)
     .in("role", ["company_super_admin", "company_employee"]);
   if (error) return { error: error.message };
-  return { data: data ?? [] };
+
+  type EmpJoin = {
+    avatar_url?: string | null;
+    first_name_en?: string | null;
+    first_name_ar?: string | null;
+    last_name_en?: string | null;
+    last_name_ar?: string | null;
+  } | null;
+
+  const rows = (data ?? []).map((row) => {
+    const employee = row.employee as EmpJoin;
+    return {
+      id: row.id,
+      role: row.role,
+      company_id: row.company_id,
+      employee_id: row.employee_id,
+      name: row.name,
+      avatar_url: employee?.avatar_url ?? null,
+      first_name_en: employee?.first_name_en ?? null,
+      first_name_ar: employee?.first_name_ar ?? null,
+      last_name_en: employee?.last_name_en ?? null,
+      last_name_ar: employee?.last_name_ar ?? null,
+    };
+  });
+
+  return { data: rows };
 }
 
 export async function getAreasDistrictsForCompany(companyId: string, emirate?: string) {

@@ -41,14 +41,15 @@ export async function getEmployeeLeaderboard(
       if (clientIds.length > 0) {
         const { data: histories } = await supabase
           .from("client_status_history")
-          .select("client_id, status:client_statuses(name)")
+          .select("client_id, status:client_statuses(name_en, name_ar)")
           .in("client_id", clientIds)
           .order("created_at", { ascending: false });
 
         const clientCurrentStatus: Record<string, string> = {};
         (histories ?? []).forEach((h: any) => {
           if (!clientCurrentStatus[h.client_id]) {
-            clientCurrentStatus[h.client_id] = h.status?.name || "Unknown";
+            clientCurrentStatus[h.client_id] =
+              h.status?.name_en || h.status?.name_ar || "Unknown";
           }
         });
 

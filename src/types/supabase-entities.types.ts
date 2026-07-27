@@ -52,7 +52,8 @@ export type AuthUser = Profile & {
 
 export interface PropertyType {
   id: string;
-  name: string;
+  name_en: string;
+  name_ar: string;
   company_id: string;
   created_at: string;
   updated_at: string;
@@ -61,11 +62,14 @@ export interface PropertyType {
 export interface Owner {
   id: string;
   name: string;
+  name_en: string;
+  name_ar: string;
   phone: string;
   country: string;
   company_id: string;
   marketing_channel: string | null;
   assigned_employee_id: string | null;
+  avatar_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -88,6 +92,12 @@ export interface CompanyEmployee {
   employee_id: string | null;
   name: string | null;
   email?: string;
+  /** From linked `employees` row when loaded via lookup. */
+  avatar_url?: string | null;
+  first_name_en?: string | null;
+  first_name_ar?: string | null;
+  last_name_en?: string | null;
+  last_name_ar?: string | null;
 }
 
 export interface Property {
@@ -142,7 +152,11 @@ export interface Property {
 
 /** `properties` joined to its relations, as returned by getProperties(). */
 export interface PropertyWithRelations extends Property {
-  property_type?: { id: string; name: string } | null;
+  property_type?: {
+    id: string;
+    name_en: string;
+    name_ar: string;
+  } | null;
   employee?: {
     id: string;
     name: string | null;
@@ -231,7 +245,8 @@ export interface PropertyPublication {
 
 export interface OwnerStatus {
   id: string;
-  name: string;
+  name_en: string;
+  name_ar: string;
   company_id: string;
   created_at: string;
   updated_at: string;
@@ -263,7 +278,8 @@ export interface OwnerWithRelations extends Owner {
 
 export interface ClientStatus {
   id: string;
-  name: string;
+  name_en: string;
+  name_ar: string;
   company_id: string;
   priority_order: number | null;
   created_at: string;
@@ -312,13 +328,16 @@ export type EmployeeJobTitle = 'sales_agent' | 'admin' | 'manager';
 
 export interface EmployeeRecord {
   id: string;
-  first_name: string;
-  last_name: string;
+  first_name_en: string;
+  first_name_ar: string;
+  last_name_en: string;
+  last_name_ar: string;
   email: string;
   company_id: string;
   disabled: boolean | null;
   phone: string;
   job_title: EmployeeJobTitle;
+  avatar_url: string | null;
   created_at: string;
   updated_at: string;
 }

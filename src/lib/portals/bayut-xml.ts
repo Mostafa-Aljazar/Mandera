@@ -86,7 +86,7 @@ export function buildPropertyXml(item: FeedItem): string {
   const agentName = p.employee?.name ?? "";
   const agentPhone = p.employee?.employee_record?.phone ?? "";
   const agentEmail = p.employee?.employee_record?.email ?? "";
-  const propertyType = p.property_type?.name ?? p.type ?? "";
+  const propertyType = p.property_type?.name_en ?? p.type ?? "";
   const size = p.building_area ?? p.land_area ?? null;
   const isRent = p.listing_type?.toLowerCase() === "rent";
 

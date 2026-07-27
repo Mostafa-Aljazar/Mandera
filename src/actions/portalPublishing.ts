@@ -29,7 +29,7 @@ type ActionResult<T> =
 
 const PROPERTIES_SELECT = `
   *,
-  property_type:property_types(id, name),
+  property_type:property_types(id, name_en, name_ar),
   owner:owners(id, name, phone),
   area_district_ref:areas_districts(id, name),
   employee:profiles!properties_employee_id_fkey(id, name, employee_record:employees!profiles_employee_id_fkey(phone, email))

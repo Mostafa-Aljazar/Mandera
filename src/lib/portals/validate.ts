@@ -22,7 +22,9 @@ export function validatePropertyForPortal(
   const missing: string[] = [];
   const hasImages = (property.images ?? []).length > 0;
   const isRent = (property.listing_type ?? "").toLowerCase() === "rent";
-  const isLandLike = /land|farm/i.test(property.property_type?.name ?? property.type ?? "");
+  const isLandLike = /land|farm/i.test(
+    property.property_type?.name_en ?? property.type ?? "",
+  );
 
   if (!property.title) missing.push("Title");
   if (!property.description) missing.push("Description");
@@ -47,7 +49,7 @@ export function validatePropertyForPortal(
     // bayut / dubizzle
     if (!property.city && !property.emirate) missing.push("City/Emirate");
     if (!property.locality && !property.area_district_ref?.name) missing.push("Locality");
-    if (!property.property_type?.name && !property.type) missing.push("Property type");
+    if (!property.property_type?.name_en && !property.type) missing.push("Property type");
     if (property.is_off_plan) {
       if (!property.offplan_sale_type) missing.push("Off-plan sale type");
       if (property.offplan_sale_type === "New" && property.offplan_dld_waiver == null) {

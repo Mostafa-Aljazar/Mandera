@@ -6,7 +6,8 @@ type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; erro
 
 export interface PipelineStatus {
   id: string;
-  name: string;
+  name_en: string;
+  name_ar: string;
   priority_order: number | null;
   count: number;
 }
@@ -20,7 +21,7 @@ export async function getClientPipeline(
     await Promise.all([
       supabase
         .from("client_statuses")
-        .select("id, name, priority_order")
+        .select("id, name_en, name_ar, priority_order")
         .eq("company_id", companyId)
         .order("priority_order"),
       supabase.from("clients").select("id, status_id").eq("company_id", companyId),
@@ -70,7 +71,8 @@ export async function getClientPipeline(
 
   const statuses: PipelineStatus[] = (statusesData ?? []).map((s) => ({
     id: s.id,
-    name: s.name,
+    name_en: s.name_en,
+    name_ar: s.name_ar,
     priority_order: s.priority_order,
     count: statusCounts.get(s.id) ?? 0,
   }));

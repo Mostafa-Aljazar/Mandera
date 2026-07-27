@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { X } from 'lucide-react';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { bilingualLabel, type BilingualName } from '@/lib/bilingualLabel';
 
 interface ActiveFilters {
   statusId?: string | null;
@@ -19,7 +21,7 @@ interface ActiveFilters {
 
 interface FilterChipsProps {
   activeFilters: ActiveFilters | null;
-  statuses?: Array<{ id: string; name: string }>;
+  statuses?: Array<{ id: string } & BilingualName>;
   marketingChannels?: Array<{ id: string; name: string }>;
   areas?: Array<{ id: string; name: string }>;
   employees?: Array<{ id: string; name?: string; email?: string }>;
@@ -28,12 +30,13 @@ interface FilterChipsProps {
 
 export default function FilterChips({ activeFilters, statuses = [], marketingChannels = [], areas = [], employees = [], onRemoveFilter }: FilterChipsProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
 
   if (!activeFilters) return null;
 
   const getStatusName = (id: string) => {
     const status = statuses.find(s => s.id === id);
-    return status ? status.name : t('Unknown Status');
+    return status ? bilingualLabel(status, language) || t('Unknown Status') : t('Unknown Status');
   };
 
   const getAreaName = (id: string) => {

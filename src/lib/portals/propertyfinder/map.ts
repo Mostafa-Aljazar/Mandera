@@ -121,7 +121,7 @@ export function mapPropertyToPfListing(
   property: PropertyWithRelations,
   cred: PortalCredentials,
 ): Record<string, unknown> {
-  const typeName = property.property_type?.name ?? property.type;
+  const typeName = property.property_type?.name_en || property.type;
   const priceType = mapPriceType(property.listing_type, property.rent_frequency);
   const amount = Math.round(property.price);
 

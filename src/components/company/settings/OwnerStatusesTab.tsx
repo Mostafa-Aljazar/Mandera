@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
 import { Edit2, Trash2, Plus, Loader2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useTranslation } from "react-i18next";
 import SettingsSection from "@/components/company/settings/SettingsSection";
 import SettingsTableShell from "@/components/company/settings/SettingsTableShell";
@@ -50,10 +51,20 @@ import {
 export default function OwnerStatusesTab() {
   const { currentUser, company } = useCompanyAuth();
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const companyId = currentUser?.company_id || company?.id;
 
   const { data: statusesData, isLoading } = useOwnerStatusesSettings(companyId);
-  const statuses = statusesData ?? [];
+  const statuses = useMemo(
+    () =>
+      [...(statusesData ?? [])].sort((a, b) => {
+        if (language === "ar") {
+          return a.name_ar.localeCompare(b.name_ar, "ar", { sensitivity: "base" });
+        }
+        return a.name_en.localeCompare(b.name_en, "en", { sensitivity: "base" });
+      }),
+    [statusesData, language],
+  );
 
   const createMutation = useCreateOwnerStatus();
   const updateMutation = useUpdateOwnerStatus();
@@ -65,20 +76,29 @@ export default function OwnerStatusesTab() {
 
   const form = useForm<TOwnerStatusSchema>({
     resolver: zodResolver(OwnerStatusSchema(t)),
-    defaultValues: { name: "" },
+    defaultValues: { name_en: "", name_ar: "" },
   });
 
   const handleSave = form.handleSubmit(async (formData) => {
     if (!companyId) return;
     try {
-      const name = formData.name.trim();
+      const nameEn = formData.name_en.trim();
+      const nameAr = formData.name_ar.trim();
 
       if (editItem) {
-        const result = await updateMutation.mutateAsync({ id: editItem.id, name });
+        const result = await updateMutation.mutateAsync({
+          id: editItem.id,
+          nameEn,
+          nameAr,
+        });
         if (result.error) throw new Error(result.error);
         toast.success(t("Owner status updated successfully."));
       } else {
-        const result = await createMutation.mutateAsync({ companyId, name });
+        const result = await createMutation.mutateAsync({
+          companyId,
+          nameEn,
+          nameAr,
+        });
         if (result.error) throw new Error(result.error);
         toast.success(t("Owner status created successfully."));
       }
@@ -105,7 +125,7 @@ export default function OwnerStatusesTab() {
 
   const resetForm = () => {
     setEditItem(null);
-    form.reset({ name: "" });
+    form.reset({ name_en: "", name_ar: "" });
   };
 
   const openAdd = () => {
@@ -116,7 +136,8 @@ export default function OwnerStatusesTab() {
   const openEdit = (item: OwnerStatus) => {
     setEditItem(item);
     form.reset({
-      name: item.name || "",
+      name_en: item.name_en || "",
+      name_ar: item.name_ar || "",
     });
     setOpenDialog(true);
   };
@@ -153,16 +174,39 @@ export default function OwnerStatusesTab() {
               <form onSubmit={handleSave} className="space-y-4 py-4">
                 <FormField
                   control={form.control}
-                  name="name"
+                  name="name_en"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {t("Name")} <span className="text-destructive">*</span>
+                        {`${t("Name")} (EN)`}{" "}
+                        <span className="text-destructive">*</span>
                       </FormLabel>
                       <FormControl>
                         <Input
                           {...field}
-                          placeholder={t("e.g. VIP Owner")}
+                          dir="ltr"
+                          placeholder="e.g. Available for Marketing"
+                          className="bg-background h-10"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="name_ar"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {`${t("Name")} (AR)`}{" "}
+                        <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          dir="rtl"
+                          placeholder="مثال: متاح للتسويق"
                           className="bg-background h-10"
                         />
                       </FormControl>
@@ -201,7 +245,8 @@ export default function OwnerStatusesTab() {
           <Table>
             <TableHeader className="bg-muted/40">
               <TableRow>
-                <TableHead>{t("Status Name")}</TableHead>
+                <TableHead className="text-start">{`${t("Name")} (EN)`}</TableHead>
+                <TableHead className="text-start">{`${t("Name")} (AR)`}</TableHead>
                 <TableHead className="w-[120px] text-end">
                   {t("Actions")}
                 </TableHead>
@@ -211,7 +256,7 @@ export default function OwnerStatusesTab() {
               {statuses.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={2}
+                    colSpan={3}
                     className="py-12 text-muted-foreground text-center"
                   >
                     {t("No owner statuses configured yet.")}
@@ -220,7 +265,16 @@ export default function OwnerStatusesTab() {
               ) : (
                 statuses.map((item) => (
                   <TableRow key={item.id} className="hover:bg-muted/30">
-                    <TableCell className="font-medium">{item.name}</TableCell>
+                    <TableCell className="font-medium text-start">
+                      <span dir="ltr" className="inline-block">
+                        {item.name_en}
+                      </span>
+                    </TableCell>
+                    <TableCell className="font-medium text-start">
+                      <span dir="rtl" className="inline-block">
+                        {item.name_ar}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-end">
                       <div className="inline-flex gap-0.5">
                         <Button
@@ -250,4 +304,4 @@ export default function OwnerStatusesTab() {
       )}
     </SettingsSection>
   );
-};
+}

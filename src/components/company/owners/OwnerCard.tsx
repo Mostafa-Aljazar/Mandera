@@ -16,8 +16,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   Loader2,
+  CalendarDays,
 } from "lucide-react";
+import { format } from "date-fns";
+import { ar, enUS } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { countryLabel } from "@/lib/countries";
+import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
 import { useOwnerStatusBadge } from "@/hooks/useOwnerStatusBadge";
 import { useOwnerPropertyCount } from "@/hooks/queries/useOwners";
 import type {
@@ -41,36 +47,46 @@ export default function OwnerCard({
   onSelect,
 }: OwnerCardProps) {
   const { t } = useTranslation();
-  const badge = useOwnerStatusBadge(owner.id, companyId);
+  const { language } = useLanguage();
+  const dateLocale = language === "ar" ? ar : enUS;
+  const badge = useOwnerStatusBadge(owner.id, companyId, owner.created_at);
   const { data: propertyCountData } = useOwnerPropertyCount(owner.id);
   const propertyCount = propertyCountData ?? 0;
   const cleanPhone = owner.phone?.replace(/\D/g, "") || "";
   const href = `/company/owners/${owner.id}`;
+  const displayName =
+    bilingualLabel(owner, language) || owner.name || t("Unnamed");
 
   const assignedEmp = employees.find(
     (e) => e.id === owner.assigned_employee_id,
   );
   const empName = assignedEmp
-    ? assignedEmp.name || assignedEmp.id
+    ? employeeDisplayName(assignedEmp, language, assignedEmp.name) ||
+      assignedEmp.id
     : t("Unassigned");
+  const empAvatarUrl = assignedEmp?.avatar_url || null;
+
+  const createdLabel = owner.created_at
+    ? format(new Date(owner.created_at), "dd MMM yyyy", { locale: dateLocale })
+    : null;
 
   return (
     <article
       className={cn(
-        "group relative flex flex-col bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] border border-border/60 rounded-2xl h-full overflow-hidden transition-all duration-300",
+        "group @container/owner-card relative flex flex-col bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] border border-border/60 rounded-2xl h-full overflow-hidden transition-all duration-300",
         isSelected && "border-primary ring-2 ring-primary/15",
       )}
     >
-      <div className="relative bg-gradient-to-br from-primary/[0.12] via-primary/[0.04] to-transparent px-5 pt-5 pb-4 overflow-hidden">
+      <div className="relative bg-gradient-to-br from-amber-500/[0.10] via-primary/[0.04] to-transparent px-4 sm:px-5 pt-4 sm:pt-5 pb-4 overflow-hidden">
         <div
-          className="absolute inset-0 pattern-grid-lg opacity-25 pointer-events-none"
+          className="absolute inset-0 pattern-grid-lg opacity-20 pointer-events-none"
           aria-hidden
         />
         <div className="top-0 absolute inset-x-0 bg-gradient-to-r from-primary to-primary/40 h-1" />
 
         {onSelect && (
           <div
-            className="top-4 end-4 z-20 absolute"
+            className="top-3.5 end-3.5 z-20 absolute"
             onClick={(e) => e.stopPropagation()}
           >
             <Checkbox
@@ -85,13 +101,22 @@ export default function OwnerCard({
           </div>
         )}
 
-        <div className="relative flex items-start gap-3.5">
-          <div className="flex justify-center items-center bg-primary/15 rounded-2xl ring-2 ring-primary/25 ring-offset-2 ring-offset-transparent w-14 h-14 font-outfit font-bold text-primary text-xl shadow-sm shrink-0">
-            {owner.name.charAt(0).toUpperCase()}
+        <div className="relative flex items-start gap-3 sm:gap-3.5">
+          <div className="flex justify-center items-center bg-primary/15 rounded-2xl ring-2 ring-primary/25 ring-offset-2 ring-offset-transparent w-12 h-12 sm:w-14 sm:h-14 font-outfit font-bold text-primary text-lg sm:text-xl shadow-sm shrink-0 overflow-hidden">
+            {owner.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={owner.avatar_url}
+                alt={displayName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              displayName.charAt(0).toUpperCase()
+            )}
           </div>
 
-          <div className="flex-1 min-w-0 pe-8">
-            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          <div className="flex-1 min-w-0 pe-7 text-start">
+            <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
               <Badge
                 variant="outline"
                 className={cn(
@@ -113,20 +138,32 @@ export default function OwnerCard({
             <Link
               href={href}
               className="block font-semibold text-foreground hover:text-primary text-[15px] truncate transition-colors"
+              dir="auto"
             >
-              {owner.name}
+              {displayName}
             </Link>
-            <div className="flex items-center gap-1.5 mt-1 text-muted-foreground text-xs">
-              <span className="flex justify-center items-center bg-background/70 rounded-full w-5 h-5 font-semibold text-[10px] text-primary shrink-0">
-                {empName.charAt(0).toUpperCase()}
+            <div className="flex items-center gap-1.5 mt-1 text-muted-foreground text-xs min-w-0">
+              <span className="flex justify-center items-center bg-background/70 rounded-full w-5 h-5 font-semibold text-[10px] text-primary shrink-0 overflow-hidden">
+                {empAvatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={empAvatarUrl}
+                    alt={empName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  empName.charAt(0).toUpperCase()
+                )}
               </span>
-              <span className="truncate">{empName}</span>
+              <span className="truncate" dir="auto">
+                {empName}
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col flex-1 gap-3 px-5 py-4">
+      <div className="flex flex-col flex-1 gap-2.5 sm:gap-3 px-4 sm:px-5 py-3.5 sm:py-4">
         <div className="flex justify-between items-center gap-2 bg-muted/35 px-3 py-2.5 border border-border/40 rounded-xl">
           <div className="flex items-center gap-2 min-w-0">
             <Phone className="w-3.5 h-3.5 text-primary/70 shrink-0" />
@@ -134,7 +171,7 @@ export default function OwnerCard({
               className="font-medium text-foreground text-sm truncate"
               dir="ltr"
             >
-              {owner.phone}
+              {owner.phone || t("N/A")}
             </span>
           </div>
           {cleanPhone && (
@@ -162,11 +199,13 @@ export default function OwnerCard({
         </div>
 
         <div className="gap-2 grid grid-cols-2">
-          <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs">
+          <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs min-w-0">
             <MapPin className="w-3.5 h-3.5 text-primary/70 shrink-0" />
-            <span className="truncate">{owner.country || t("N/A")}</span>
+            <span className="truncate">
+              {countryLabel(owner.country, language) || t("N/A")}
+            </span>
           </div>
-          <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs">
+          <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs min-w-0">
             <Building2 className="w-3.5 h-3.5 text-primary/70 shrink-0" />
             <span className="truncate tabular-nums">
               {propertyCount} {t("Properties")}
@@ -175,7 +214,7 @@ export default function OwnerCard({
         </div>
 
         {owner.marketing_channel ? (
-          <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+          <div className="flex items-center gap-1.5 text-muted-foreground text-xs min-w-0">
             <Megaphone className="w-3.5 h-3.5 text-primary/70 shrink-0" />
             <span className="truncate">
               {t("Source")}:{" "}
@@ -190,17 +229,29 @@ export default function OwnerCard({
             <span className="truncate">{t("No marketing source")}</span>
           </div>
         )}
+
+        {createdLabel ? (
+          <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+            <CalendarDays className="w-3.5 h-3.5 text-primary/60 shrink-0" />
+            <span className="truncate">
+              {t("Created At")}:{" "}
+              <span className="font-medium text-foreground/70" dir="ltr">
+                {createdLabel}
+              </span>
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-auto border-primary/15 border-t bg-primary/[0.06]">
         <Link
           href={href}
-          className="group/link flex justify-between items-center gap-2 hover:bg-primary/10 px-5 py-3.5 w-full font-semibold text-primary hover:text-primary/90 text-sm transition-colors"
+          className="group/link flex justify-between items-center gap-2 hover:bg-primary/10 px-4 sm:px-5 py-3 sm:py-3.5 w-full font-semibold text-primary hover:text-primary/90 text-sm transition-colors"
         >
           <span>{t("View Details")}</span>
-          <ArrowUpRight className="w-4 h-4 opacity-70 group-hover/link:opacity-100 transition-all group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5" />
+          <ArrowUpRight className="w-4 h-4 opacity-70 group-hover/link:opacity-100 transition-all rtl:-scale-x-100 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 rtl:group-hover/link:-translate-x-0.5" />
         </Link>
       </div>
     </article>
   );
-};
+}

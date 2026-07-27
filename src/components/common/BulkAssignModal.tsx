@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { bilingualLabel, type BilingualName } from '@/lib/bilingualLabel';
 
 interface BulkAssignEmployee {
   id: string;
@@ -14,9 +16,8 @@ interface BulkAssignEmployee {
   email?: string;
 }
 
-interface BulkAssignStatus {
+interface BulkAssignStatus extends BilingualName {
   id: string;
-  name: string;
 }
 
 interface BulkAssignModalProps {
@@ -33,6 +34,7 @@ export default function BulkAssignModal({ isOpen, onClose, onConfirm, employees 
   const [statusId, setStatusId] = useState('keep_current');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { t } = useTranslation();
+  const { language } = useLanguage();
 
   const handleConfirm = async () => {
     if (!employeeId) return;
@@ -84,7 +86,7 @@ export default function BulkAssignModal({ isOpen, onClose, onConfirm, employees 
               <SelectContent>
                 <SelectItem value="keep_current">{t('Keep Current Status')}</SelectItem>
                 {statuses.map(s => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  <SelectItem key={s.id} value={s.id}>{bilingualLabel(s, language)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

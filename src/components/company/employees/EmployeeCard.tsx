@@ -17,6 +17,8 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { employeeDisplayName } from "@/lib/bilingualLabel";
+import { useLanguage } from "@/contexts/LanguageContext";
 import type { CompanyEmployeeWithDetails } from "@/types/supabase-entities.types";
 
 interface EmployeeCardProps {
@@ -49,10 +51,12 @@ export default function EmployeeCard({
   onDelete,
 }: EmployeeCardProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const isAdmin = employee.role === "company_super_admin";
   const record = employee.employee;
   const isDisabled = Boolean(record?.disabled);
-  const displayName = employee.name || t("Unnamed");
+  const displayName =
+    employeeDisplayName(record, language, employee.name) || t("Unnamed");
   const email = employee.email || record?.email || "";
   const phone = record?.phone || "";
   const cleanPhone = phone.replace(/\D/g, "");
@@ -77,8 +81,17 @@ export default function EmployeeCard({
         <div className="top-0 absolute inset-x-0 bg-gradient-to-r from-primary to-primary/40 h-1" />
 
         <div className="relative flex items-start gap-3.5">
-          <div className="flex justify-center items-center bg-primary/15 rounded-2xl ring-2 ring-primary/25 ring-offset-2 ring-offset-transparent w-14 h-14 font-outfit font-bold text-primary text-xl shadow-sm shrink-0">
-            {displayName.charAt(0).toUpperCase()}
+          <div className="relative flex justify-center items-center bg-primary/15 rounded-2xl ring-2 ring-primary/25 ring-offset-2 ring-offset-transparent w-14 h-14 font-outfit font-bold text-primary text-xl shadow-sm shrink-0 overflow-hidden">
+            {record?.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={record.avatar_url}
+                alt={displayName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              displayName.charAt(0).toUpperCase()
+            )}
           </div>
 
           <div className="flex-1 min-w-0">

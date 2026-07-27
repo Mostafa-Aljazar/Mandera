@@ -9,14 +9,23 @@ import type { TFunction } from "i18next";
  */
 export const OwnerSchema = (t: TFunction) =>
   z.object({
-    name: z.string().trim().min(1, t("Full name is required")),
+    name_en: z.string().trim().min(1, `${t("Full Name")} (EN)`),
+    name_ar: z.string().trim().min(1, `${t("Full Name")} (AR)`),
     phone: z
-      .string()
+      .string({
+        error: () => ({ message: t("Phone number is required") }),
+      })
       .min(1, t("Phone number is required"))
-      .refine((value) => isValidPhoneNumber(value), t("Enter a valid phone number")),
+      .refine(
+        (value) => isValidPhoneNumber(value),
+        t("Enter a valid phone number"),
+      ),
     country: z.string().trim().min(1, t("Country is required")),
     assigned_employee_id: z.string().min(1, t("Assigned employee is required")),
     marketing_channel: z.string().min(1, t("Marketing channel is required")),
   });
 
-export type TOwnerSchema = z.infer<ReturnType<typeof OwnerSchema>>;
+/** Form field values (pre-transform / input). */
+export type TOwnerSchema = z.input<ReturnType<typeof OwnerSchema>>;
+/** Parsed values after Zod transforms (e.g. trim). */
+export type TOwnerSchemaOutput = z.output<ReturnType<typeof OwnerSchema>>;

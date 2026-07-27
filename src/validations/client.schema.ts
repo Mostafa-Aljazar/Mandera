@@ -6,9 +6,14 @@ export const ClientSchema = (t: TFunction) =>
   z.object({
     name: z.string().trim().min(1, t("Name is required")),
     phone: z
-      .string()
+      .string({
+        error: () => ({ message: t("Phone number is required") }),
+      })
       .min(1, t("Phone number is required"))
-      .refine((value) => isValidPhoneNumber(value), t("Enter a valid phone number")),
+      .refine(
+        (value) => isValidPhoneNumber(value),
+        t("Enter a valid phone number"),
+      ),
     country_code: z.string().trim().min(1, t("Country is required")),
     interest_type: z.string().min(1, t("Interest type is required")),
     interested_properties: z
@@ -18,4 +23,5 @@ export const ClientSchema = (t: TFunction) =>
     marketing_channel: z.string().min(1, t("Marketing channel is required")),
   });
 
-export type TClientSchema = z.infer<ReturnType<typeof ClientSchema>>;
+export type TClientSchema = z.input<ReturnType<typeof ClientSchema>>;
+export type TClientSchemaOutput = z.output<ReturnType<typeof ClientSchema>>;

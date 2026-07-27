@@ -43,8 +43,15 @@ export function usePropertyTypes(companyId?: string) {
 export function useCreatePropertyType() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ companyId, name }: { companyId: string; name: string }) =>
-      createPropertyType(companyId, name),
+    mutationFn: ({
+      companyId,
+      nameEn,
+      nameAr,
+    }: {
+      companyId: string;
+      nameEn: string;
+      nameAr: string;
+    }) => createPropertyType(companyId, nameEn, nameAr),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["property_types", variables.companyId] });
     },
@@ -54,7 +61,15 @@ export function useCreatePropertyType() {
 export function useUpdatePropertyType() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) => updatePropertyType(id, name),
+    mutationFn: ({
+      id,
+      nameEn,
+      nameAr,
+    }: {
+      id: string;
+      nameEn: string;
+      nameAr: string;
+    }) => updatePropertyType(id, nameEn, nameAr),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["property_types"] });
     },
@@ -90,13 +105,15 @@ export function useCreateClientStatus() {
   return useMutation({
     mutationFn: ({
       companyId,
-      name,
+      nameEn,
+      nameAr,
       priorityOrder,
     }: {
       companyId: string;
-      name: string;
+      nameEn: string;
+      nameAr: string;
       priorityOrder: number;
-    }) => createClientStatus(companyId, name, priorityOrder),
+    }) => createClientStatus(companyId, nameEn, nameAr, priorityOrder),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["client_statuses", variables.companyId] });
     },
@@ -108,13 +125,15 @@ export function useUpdateClientStatus() {
   return useMutation({
     mutationFn: ({
       id,
-      name,
+      nameEn,
+      nameAr,
       priorityOrder,
     }: {
       id: string;
-      name: string;
+      nameEn: string;
+      nameAr: string;
       priorityOrder: number;
-    }) => updateClientStatus(id, name, priorityOrder),
+    }) => updateClientStatus(id, nameEn, nameAr, priorityOrder),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client_statuses"] });
     },
@@ -159,8 +178,15 @@ export function useOwnerStatusesSettings(companyId?: string) {
 export function useCreateOwnerStatus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ companyId, name }: { companyId: string; name: string }) =>
-      createOwnerStatus(companyId, name),
+    mutationFn: ({
+      companyId,
+      nameEn,
+      nameAr,
+    }: {
+      companyId: string;
+      nameEn: string;
+      nameAr: string;
+    }) => createOwnerStatus(companyId, nameEn, nameAr),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["owner_statuses", variables.companyId] });
     },
@@ -170,7 +196,15 @@ export function useCreateOwnerStatus() {
 export function useUpdateOwnerStatus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) => updateOwnerStatus(id, name),
+    mutationFn: ({
+      id,
+      nameEn,
+      nameAr,
+    }: {
+      id: string;
+      nameEn: string;
+      nameAr: string;
+    }) => updateOwnerStatus(id, nameEn, nameAr),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["owner_statuses"] });
     },

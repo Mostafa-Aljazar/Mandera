@@ -25,6 +25,8 @@ import {
   Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { countryLabel } from "@/lib/countries";
 import type { ClientWithRelations as Client } from "@/types/supabase-entities.types";
 
 interface ClientCardProps {
@@ -39,6 +41,7 @@ export default function ClientCard({
   onSelect,
 }: ClientCardProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const cleanPhone = client.phone.replace(/\D/g, "");
   const employeeName = client.employee?.name || t("Unassigned");
   const isSale = client.interest_type === "Sale";
@@ -207,7 +210,9 @@ export default function ClientCard({
         <div className="gap-2 grid grid-cols-2">
           <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs">
             <MapPin className="w-3.5 h-3.5 text-primary/70 shrink-0" />
-            <span className="truncate">{client.country_code}</span>
+            <span className="truncate">
+              {countryLabel(client.country_code, language) || t("N/A")}
+            </span>
           </div>
           <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs">
             <Building2 className="w-3.5 h-3.5 text-primary/70 shrink-0" />
