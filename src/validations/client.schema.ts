@@ -4,7 +4,8 @@ import type { TFunction } from "i18next";
 
 export const ClientSchema = (t: TFunction) =>
   z.object({
-    name: z.string().trim().min(1, t("Name is required")),
+    name_en: z.string().trim().min(1, `${t("Full Name")} (EN)`),
+    name_ar: z.string().trim().min(1, `${t("Full Name")} (AR)`),
     phone: z
       .string({
         error: () => ({ message: t("Phone number is required") }),

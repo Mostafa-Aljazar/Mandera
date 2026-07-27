@@ -6,7 +6,12 @@ import { X } from 'lucide-react';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { bilingualLabel, type BilingualName } from '@/lib/bilingualLabel';
+import {
+  bilingualLabel,
+  employeeDisplayName,
+  type BilingualName,
+  type EmployeeNameParts,
+} from '@/lib/bilingualLabel';
 
 interface ActiveFilters {
   statusId?: string | null;
@@ -24,7 +29,9 @@ interface FilterChipsProps {
   statuses?: Array<{ id: string } & BilingualName>;
   marketingChannels?: Array<{ id: string; name: string }>;
   areas?: Array<{ id: string; name: string }>;
-  employees?: Array<{ id: string; name?: string; email?: string }>;
+  employees?: Array<
+    { id: string; name?: string; email?: string } & EmployeeNameParts
+  >;
   onRemoveFilter: (key: string, value?: string) => void;
 }
 
@@ -46,7 +53,12 @@ export default function FilterChips({ activeFilters, statuses = [], marketingCha
 
   const getEmployeeName = (id: string) => {
     const employee = employees.find(e => e.id === id);
-    return employee ? (employee.name || employee.email) : id;
+    if (!employee) return id;
+    return (
+      employeeDisplayName(employee, language, employee.name) ||
+      employee.email ||
+      id
+    );
   };
 
   const formatDate = (date: string | Date | null | undefined) => {
@@ -158,12 +170,12 @@ export default function FilterChips({ activeFilters, statuses = [], marketingCha
       )}
 
       {activeFilters.employeeId && (
-        <Badge variant="secondary" className="pl-2 pr-1 py-1 flex items-center gap-1 bg-muted/80 text-foreground border border-border/50">
-          <span className="text-muted-foreground font-normal mr-1">{t('Employee:')}</span>
-          {getEmployeeName(activeFilters.employeeId)}
+        <Badge variant="secondary" className="ps-2 pe-1 py-1 flex items-center gap-1 bg-muted/80 text-foreground border border-border/50">
+          <span className="text-muted-foreground font-normal me-1">{t('Employee:')}</span>
+          <span dir="auto">{getEmployeeName(activeFilters.employeeId)}</span>
           <button
             onClick={() => onRemoveFilter('employeeId')}
-            className="ml-1 p-0.5 rounded-full hover:bg-background/80 hover:text-destructive transition-colors"
+            className="ms-1 p-0.5 rounded-full hover:bg-background/80 hover:text-destructive transition-colors"
           >
             <X className="h-3 w-3" />
           </button>

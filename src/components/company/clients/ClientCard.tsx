@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { bilingualLabel } from "@/lib/bilingualLabel";
 import { countryLabel } from "@/lib/countries";
 import type { ClientWithRelations as Client } from "@/types/supabase-entities.types";
 
@@ -42,11 +43,20 @@ export default function ClientCard({
 }: ClientCardProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
-  const cleanPhone = client.phone.replace(/\D/g, "");
+  const cleanPhone = (client.phone || "").replace(/\D/g, "");
   const employeeName = client.employee?.name || t("Unassigned");
   const isSale = client.interest_type === "Sale";
   const propertyCount = client.interested_properties?.length ?? 0;
   const href = `/company/clients/${client.id}`;
+  const displayName =
+    bilingualLabel(
+      {
+        name_en: client.name_en,
+        name_ar: client.name_ar,
+        name: client.name,
+      },
+      language,
+    ) || t("Unnamed");
 
   let followUp: { isOverdue: boolean; label: string } | null = null;
   if (client.follow_up_date) {
@@ -62,14 +72,13 @@ export default function ClientCard({
   return (
     <article
       className={cn(
-        "group relative flex flex-col bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] border border-border/60 rounded-2xl h-full overflow-hidden transition-all duration-300",
+        "group @container/client-card relative flex flex-col bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] border border-border/60 rounded-2xl h-full overflow-hidden transition-all duration-300",
         isSelected && "border-primary ring-2 ring-primary/15",
       )}
     >
-      {/* Top media / identity band */}
       <div
         className={cn(
-          "relative px-5 pt-5 pb-4 overflow-hidden",
+          "relative px-4 sm:px-5 pt-4 sm:pt-5 pb-4 overflow-hidden",
           isSale
             ? "bg-gradient-to-br from-emerald-500/[0.12] via-emerald-500/[0.04] to-transparent"
             : "bg-gradient-to-br from-sky-500/[0.12] via-sky-500/[0.04] to-transparent",
@@ -88,9 +97,9 @@ export default function ClientCard({
           )}
         />
 
-        {onSelect && (
+        {onSelect ? (
           <div
-            className="top-4 end-4 z-20 absolute"
+            className="top-3.5 end-3.5 sm:top-4 sm:end-4 z-20 absolute"
             onClick={(e) => e.stopPropagation()}
           >
             <Checkbox
@@ -99,53 +108,62 @@ export default function ClientCard({
               className={cn(
                 "data-[state=checked]:bg-primary data-[state=checked]:border-primary bg-background/90 backdrop-blur-sm shadow-sm",
                 !isSelected &&
-                  "opacity-0 group-hover:opacity-100 transition-opacity",
+                  "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity",
               )}
             />
           </div>
-        )}
+        ) : null}
 
-        <div className="relative flex items-start gap-3.5">
+        <div className="relative flex items-start gap-3 sm:gap-3.5">
           <div
             className={cn(
-              "flex justify-center items-center rounded-2xl w-14 h-14 font-outfit font-bold text-xl shadow-sm shrink-0 ring-2 ring-offset-2 ring-offset-transparent",
+              "flex justify-center items-center rounded-2xl w-12 h-12 sm:w-14 sm:h-14 font-outfit font-bold text-lg sm:text-xl shadow-sm shrink-0 ring-2 ring-offset-2 ring-offset-transparent overflow-hidden",
               isSale
                 ? "bg-emerald-500/15 text-emerald-700 ring-emerald-500/25"
                 : "bg-sky-500/15 text-sky-700 ring-sky-500/25",
             )}
           >
-            {client.name.charAt(0).toUpperCase()}
+            {client.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={client.avatar_url}
+                alt={displayName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              displayName.charAt(0).toUpperCase()
+            )}
           </div>
 
-          <div className="flex-1 min-w-0 pe-8">
-            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          <div className="flex-1 min-w-0 pe-8 text-start">
+            <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
               <Badge
                 variant="outline"
                 className={cn(
-                  "backdrop-blur-sm text-[10px] px-1.5 py-0 h-5 font-medium",
+                  "backdrop-blur-sm text-[10px] px-1.5 py-0 h-5 gap-0.5 font-medium border",
                   isSale
-                    ? "text-emerald-700 border-emerald-200/80 bg-emerald-500/10"
-                    : "text-sky-700 border-sky-200/80 bg-sky-500/10",
+                    ? "text-emerald-700 border-emerald-500/25 bg-emerald-500/10"
+                    : "text-sky-700 border-sky-500/25 bg-sky-500/10",
                 )}
               >
                 {isSale ? (
-                  <Home className="w-2.5 h-2.5 me-0.5" />
+                  <Home className="w-2.5 h-2.5" />
                 ) : (
-                  <Key className="w-2.5 h-2.5 me-0.5" />
+                  <Key className="w-2.5 h-2.5" />
                 )}
                 {t(client.interest_type)}
               </Badge>
-              {followUp && (
+              {followUp ? (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge
                         variant="outline"
                         className={cn(
-                          "backdrop-blur-sm text-[10px] px-1.5 py-0 h-5 gap-0.5 font-medium",
+                          "backdrop-blur-sm text-[10px] px-1.5 py-0 h-5 gap-0.5 font-medium border",
                           followUp.isOverdue
-                            ? "bg-red-500/10 text-red-600 border-red-200/80"
-                            : "bg-amber-500/10 text-amber-700 border-amber-200/80",
+                            ? "bg-red-500/10 text-red-600 border-red-500/30"
+                            : "bg-amber-500/10 text-amber-700 border-amber-500/30",
                         )}
                       >
                         <CalendarClock className="w-2.5 h-2.5" />
@@ -157,64 +175,77 @@ export default function ClientCard({
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-              )}
+              ) : null}
             </div>
 
             <Link
               href={href}
               className="block font-semibold text-foreground hover:text-primary text-[15px] truncate transition-colors"
+              dir="auto"
             >
-              {client.name}
+              {displayName}
             </Link>
-            <div className="flex items-center gap-1.5 mt-1 text-muted-foreground text-xs">
+            <div className="flex items-center gap-1.5 mt-1 text-muted-foreground text-xs min-w-0">
               <span className="flex justify-center items-center bg-background/70 rounded-full w-5 h-5 font-semibold text-[10px] text-primary shrink-0">
                 {employeeName.charAt(0).toUpperCase()}
               </span>
-              <span className="truncate">{employeeName}</span>
+              <span className="truncate" dir="auto">
+                {employeeName}
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Body */}
-      <div className="flex flex-col flex-1 gap-3 px-5 py-4">
+      <div className="flex flex-col flex-1 gap-2.5 sm:gap-3 px-4 sm:px-5 py-3.5 sm:py-4">
         <div className="flex justify-between items-center gap-2 bg-muted/35 px-3 py-2.5 border border-border/40 rounded-xl">
           <div className="flex items-center gap-2 min-w-0">
             <Phone className="w-3.5 h-3.5 text-primary/70 shrink-0" />
-            <span className="font-medium text-foreground text-sm truncate" dir="ltr">
-              {client.phone}
-            </span>
+            {client.phone ? (
+              <span
+                className="font-medium text-foreground text-sm truncate"
+                dir="ltr"
+              >
+                {client.phone}
+              </span>
+            ) : (
+              <span className="text-muted-foreground text-sm truncate">
+                {t("No phone number")}
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-0.5 shrink-0">
-            <a
-              href={`tel:${cleanPhone}`}
-              onClick={(e) => e.stopPropagation()}
-              title={t("Call")}
-              className="inline-flex justify-center items-center hover:bg-primary/10 rounded-lg w-8 h-8 text-muted-foreground hover:text-primary transition-colors"
-            >
-              <Phone className="w-3.5 h-3.5" />
-            </a>
-            <a
-              href={`https://wa.me/${cleanPhone}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              title={t("WhatsApp")}
-              className="inline-flex justify-center items-center hover:bg-[#25D366]/10 rounded-lg w-8 h-8 text-muted-foreground hover:text-[#25D366] transition-colors"
-            >
-              <MessageCircle className="w-3.5 h-3.5" />
-            </a>
-          </div>
+          {cleanPhone ? (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <a
+                href={`tel:${cleanPhone}`}
+                onClick={(e) => e.stopPropagation()}
+                title={t("Call")}
+                className="inline-flex justify-center items-center hover:bg-primary/10 rounded-lg w-8 h-8 text-muted-foreground hover:text-primary transition-colors"
+              >
+                <Phone className="w-3.5 h-3.5" />
+              </a>
+              <a
+                href={`https://wa.me/${cleanPhone}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title={t("WhatsApp")}
+                className="inline-flex justify-center items-center hover:bg-[#25D366]/10 rounded-lg w-8 h-8 text-muted-foreground hover:text-[#25D366] transition-colors"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          ) : null}
         </div>
 
         <div className="gap-2 grid grid-cols-2">
-          <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs">
+          <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs min-w-0">
             <MapPin className="w-3.5 h-3.5 text-primary/70 shrink-0" />
             <span className="truncate">
               {countryLabel(client.country_code, language) || t("N/A")}
             </span>
           </div>
-          <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs">
+          <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs min-w-0">
             <Building2 className="w-3.5 h-3.5 text-primary/70 shrink-0" />
             <span className="truncate tabular-nums">
               {propertyCount} {t("Properties")}
@@ -223,7 +254,7 @@ export default function ClientCard({
         </div>
 
         {client.marketing_channel ? (
-          <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+          <div className="flex items-center gap-1.5 text-muted-foreground text-xs min-w-0">
             <Megaphone className="w-3.5 h-3.5 text-primary/70 shrink-0" />
             <span className="truncate">
               {t("Source")}:{" "}
@@ -233,23 +264,22 @@ export default function ClientCard({
             </span>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 text-muted-foreground/50 text-xs">
+          <div className="flex items-center gap-1.5 text-muted-foreground/50 text-xs min-w-0">
             <User className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">{t("No marketing source")}</span>
           </div>
         )}
       </div>
 
-      {/* Footer link */}
-      <div className="mt-auto bg-muted/20 border-border/40 border-t">
+      <div className="mt-auto border-primary/15 border-t bg-primary/[0.06]">
         <Link
           href={href}
-          className="group/link flex justify-between items-center gap-2 hover:bg-primary/[0.04] px-5 py-3.5 w-full font-medium text-muted-foreground hover:text-primary text-sm transition-colors"
+          className="group/link flex justify-between items-center gap-2 hover:bg-primary/10 px-4 sm:px-5 py-3 sm:py-3.5 w-full font-semibold text-primary hover:text-primary/90 text-sm transition-colors"
         >
           <span>{t("View Details")}</span>
-          <ArrowUpRight className="w-4 h-4 opacity-60 group-hover/link:opacity-100 transition-all group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5" />
+          <ArrowUpRight className="w-4 h-4 opacity-70 group-hover/link:opacity-100 transition-all rtl:-scale-x-100 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 rtl:group-hover/link:-translate-x-0.5" />
         </Link>
       </div>
     </article>
   );
-};
+}

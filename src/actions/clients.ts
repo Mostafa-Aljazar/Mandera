@@ -1,6 +1,6 @@
 "use server";
 
-import { getServerSupabase } from "@/lib/supabase/server";
+import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
 import type {
   Client,
   ClientWithRelations,
@@ -10,6 +10,40 @@ import type {
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
 const CLIENTS_SELECT = "*, employee:profiles!clients_employee_id_fkey(id, name)";
+
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+
+async function uploadClientAvatar(
+  companyId: string,
+  file: File,
+): Promise<{ url: string; error?: undefined } | { url?: undefined; error: string }> {
+  if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+    return { error: "Please upload a JPG, PNG, or WebP image." };
+  }
+  if (file.size > MAX_AVATAR_BYTES) {
+    return { error: "Client photo must be less than 2MB." };
+  }
+
+  const admin = getSupabaseAdmin();
+  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const path = `${companyId}/clients/${crypto.randomUUID()}.${ext}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  const { error } = await admin.storage.from("company-files").upload(path, buffer, {
+    contentType: file.type,
+    upsert: false,
+  });
+  if (error) return { error: error.message };
+
+  const { data } = admin.storage.from("company-files").getPublicUrl(path);
+  return { url: data.publicUrl };
+}
 
 export interface ClientFilters {
   employeeId?: string;
@@ -98,23 +132,37 @@ export async function getClientStatusesForCompany(
 
 export interface CreateClientInput {
   companyId: string;
-  name: string;
+  name_en: string;
+  name_ar: string;
   phone: string;
   country_code: string;
   interest_type: string;
   interested_properties?: string[];
   employee_id: string;
   marketing_channel?: string | null;
+  avatar?: File | null;
 }
 
 export async function createClient(
   input: CreateClientInput,
 ): Promise<ActionResult<Client>> {
   const supabase = await getServerSupabase();
+  const nameEn = input.name_en.trim();
+  const nameAr = input.name_ar.trim();
+
+  let avatarUrl: string | null = null;
+  if (input.avatar) {
+    const upload = await uploadClientAvatar(input.companyId, input.avatar);
+    if (upload.error) return { error: upload.error };
+    avatarUrl = upload.url ?? null;
+  }
+
   const { data, error } = await supabase
     .from("clients")
     .insert({
-      name: input.name,
+      name: nameEn,
+      name_en: nameEn,
+      name_ar: nameAr,
       phone: input.phone,
       country_code: input.country_code,
       interest_type: input.interest_type,
@@ -122,6 +170,7 @@ export async function createClient(
       employee_id: input.employee_id,
       marketing_channel: input.marketing_channel || null,
       company_id: input.companyId,
+      avatar_url: avatarUrl,
     })
     .select()
     .single();
@@ -132,30 +181,49 @@ export async function createClient(
 
 export interface UpdateClientInput {
   id: string;
-  name: string;
+  companyId?: string;
+  name_en: string;
+  name_ar: string;
   phone: string;
   country_code: string;
   interest_type: string;
   interested_properties?: string[];
   employee_id: string;
   marketing_channel?: string | null;
+  avatar?: File | null;
+  removeAvatar?: boolean;
 }
 
 export async function updateClient(
   input: UpdateClientInput,
 ): Promise<ActionResult<Client>> {
   const supabase = await getServerSupabase();
+  const nameEn = input.name_en.trim();
+  const nameAr = input.name_ar.trim();
+
+  const patch: Record<string, unknown> = {
+    name: nameEn,
+    name_en: nameEn,
+    name_ar: nameAr,
+    phone: input.phone,
+    country_code: input.country_code,
+    interest_type: input.interest_type,
+    interested_properties: input.interested_properties ?? [],
+    employee_id: input.employee_id,
+    marketing_channel: input.marketing_channel || null,
+  };
+
+  if (input.avatar && input.companyId) {
+    const upload = await uploadClientAvatar(input.companyId, input.avatar);
+    if (upload.error) return { error: upload.error };
+    patch.avatar_url = upload.url;
+  } else if (input.removeAvatar) {
+    patch.avatar_url = null;
+  }
+
   const { data, error } = await supabase
     .from("clients")
-    .update({
-      name: input.name,
-      phone: input.phone,
-      country_code: input.country_code,
-      interest_type: input.interest_type,
-      interested_properties: input.interested_properties ?? [],
-      employee_id: input.employee_id,
-      marketing_channel: input.marketing_channel || null,
-    })
+    .update(patch)
     .eq("id", input.id)
     .select()
     .single();

@@ -496,6 +496,7 @@ const OwnersPage = () => {
                 <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
                   {currentUser?.role === "company_super_admin" && (
                     <Select
+                      key={`employee-filter-${language}`}
                       value={filterState.employeeId || "all"}
                       onValueChange={(val) =>
                         setFilterState((prev) => ({
@@ -511,8 +512,10 @@ const OwnersPage = () => {
                         <SelectItem value="all">{t("All Employees")}</SelectItem>
                         {employees.map((emp) => (
                           <SelectItem key={emp.id} value={emp.id}>
-                            {employeeDisplayName(emp, language, emp.name) ||
-                              emp.id}
+                            <span dir="auto">
+                              {employeeDisplayName(emp, language, emp.name) ||
+                                emp.id}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>

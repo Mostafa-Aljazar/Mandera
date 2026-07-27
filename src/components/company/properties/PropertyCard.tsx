@@ -2,209 +2,276 @@
 
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Card, CardContent, CardFooter } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DirhamIcon, formatAedAmount } from "@/components/ui/dirham-icon";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Eye,
-  Edit2,
+  ArrowUpRight,
   MapPin,
   Maximize,
-  Phone,
-  MessageCircle,
+  BedDouble,
+  Bath,
+  Building2,
+  UserRound,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { employeeDisplayName } from "@/lib/bilingualLabel";
+import { propertyDisplayTitle } from "@/components/company/properties/LinkedPropertyCard";
 import type { PropertyWithRelations as Property } from "@/types/supabase-entities.types";
 
-const STATUS_COLORS: Record<string, string> = {
+const FALLBACK_IMAGE =
+  "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&auto=format&fit=crop&q=80";
+
+const STATUS_STYLES: Record<string, string> = {
   Available:
-    "bg-emerald-500/10 text-emerald-600 border-emerald-200 hover:bg-emerald-500/20",
-  Sold: "bg-blue-500/10 text-blue-600 border-blue-200 hover:bg-blue-500/20",
+    "bg-emerald-500/15 text-emerald-800 border-emerald-500/30 dark:text-emerald-200",
+  Sold: "bg-sky-500/15 text-sky-800 border-sky-500/30 dark:text-sky-200",
   Rented:
-    "bg-purple-500/10 text-purple-600 border-purple-200 hover:bg-purple-500/20",
-  Hold: "bg-amber-500/10 text-amber-600 border-amber-200 hover:bg-amber-500/20",
+    "bg-violet-500/15 text-violet-800 border-violet-500/30 dark:text-violet-200",
+  Hold: "bg-amber-500/15 text-amber-800 border-amber-500/30 dark:text-amber-200",
   "Deal Completed":
-    "bg-slate-500/10 text-slate-600 border-slate-200 hover:bg-slate-500/20",
+    "bg-slate-500/15 text-slate-800 border-slate-500/30 dark:text-slate-200",
 };
 
-type PropertyCardData = Property;
-
 interface PropertyCardProps {
-  property: PropertyCardData;
-  onEdit: (property: PropertyCardData) => void;
-  onView: (property: PropertyCardData) => void;
-  onStatusChange?: (propertyId: string, status: string) => void;
+  property: Property;
+  onView: (property: Property) => void;
 }
 
-export default function PropertyCard({
-  property,
-  onEdit,
-  onView,
-  onStatusChange,
-}: PropertyCardProps) {
+export default function PropertyCard({ property, onView }: PropertyCardProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
+
   const imageUrl = property.images?.length
     ? property.images[0]
-    : "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400&auto=format&fit=crop&q=80";
+    : FALLBACK_IMAGE;
 
   const currentStatus = property.status || "Available";
-  const statusColor =
-    STATUS_COLORS[currentStatus] || STATUS_COLORS["Available"];
+  const statusStyle =
+    STATUS_STYLES[currentStatus] || STATUS_STYLES.Available;
+
+  const title =
+    propertyDisplayTitle(property, language) || t("Untitled property");
+  const hasArabicTitle = Boolean(property.title_ar?.trim());
+  const titleIsArabic = language === "ar" && hasArabicTitle;
 
   const areaName =
-    property.area_district_ref?.name || property.area || property.emirate;
-  const employeeName: string =
-    property.employee?.name ||
-    property.employee?.employee_record?.email ||
-    t("Unassigned");
-  const employeePhone = property.employee?.employee_record?.phone || "";
+    property.area_district_ref?.name ||
+    property.area ||
+    (property.emirate ? t(property.emirate) : "") ||
+    t("Location not set");
+
+  const propertyTypeName =
+    language === "ar"
+      ? property.property_type?.name_ar || property.property_type?.name_en
+      : property.property_type?.name_en || property.property_type?.name_ar;
+
+  const employeeRecord = property.employee?.employee_record;
+  const employeeName =
+    employeeDisplayName(
+      employeeRecord,
+      language,
+      property.employee?.name,
+    ) || t("Unassigned");
+  const employeeAvatar = employeeRecord?.avatar_url || null;
+  const employeeInitial = (employeeName || "?").charAt(0).toUpperCase();
+  const employeeNameIsArabic =
+    language === "ar" &&
+    Boolean(
+      employeeRecord?.first_name_ar?.trim() ||
+        employeeRecord?.last_name_ar?.trim(),
+    );
+
+  const sizeValue = property.building_area || property.land_area;
+  const isSale = property.listing_type === "Sale";
+  const listingLabel = isSale ? t("For Sale") : t("For Rent");
+  const hasPrice = property.price != null && Number(property.price) > 0;
+
+  const specs = [
+    property.bedrooms
+      ? { icon: BedDouble, value: property.bedrooms, label: t("Beds") }
+      : null,
+    property.bathrooms
+      ? { icon: Bath, value: property.bathrooms, label: t("Baths") }
+      : null,
+    sizeValue
+      ? { icon: Maximize, value: sizeValue, label: t("sqft") }
+      : null,
+  ].filter(Boolean) as {
+    icon: typeof BedDouble;
+    value: string | number;
+    label: string;
+  }[];
 
   return (
-    <Card className="group flex flex-col bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] border-border/60 rounded-2xl h-full overflow-hidden transition-all duration-300">
-      <div className="relative aspect-[4/3] overflow-hidden">
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={() => onView(property)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onView(property);
+        }
+      }}
+      className={cn(
+        "group flex flex-col bg-card border border-border/60 rounded-2xl h-full overflow-hidden",
+        "shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] hover:border-primary/25",
+        "transition-all duration-300 cursor-pointer",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2",
+      )}
+    >
+      <div className="relative bg-muted aspect-[16/10] overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageUrl}
-          alt={property.title || "Property image"}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          alt={title}
+          className="w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
         />
-        <div className="top-3 start-3 absolute flex flex-col items-start gap-2">
+        <div
+          className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent pointer-events-none"
+          aria-hidden
+        />
+
+        <div className="top-3 start-3 absolute flex flex-wrap items-center gap-1.5 max-w-[65%]">
           <Badge
-            variant={property.listing_type === "Sale" ? "default" : "secondary"}
-            className="shadow-sm"
+            className={cn(
+              "shadow-sm border-0 font-medium text-[11px]",
+              isSale
+                ? "bg-emerald-600 text-white hover:bg-emerald-600"
+                : "bg-sky-600 text-white hover:bg-sky-600",
+            )}
           >
-            {t(`For ${property.listing_type}`)}
+            {listingLabel}
           </Badge>
           <Badge
             variant="outline"
-            className={`shadow-sm backdrop-blur-md bg-background/90 ${statusColor}`}
+            className={cn(
+              "shadow-sm backdrop-blur-md bg-background/90 font-medium text-[11px]",
+              statusStyle,
+            )}
           >
             {t(currentStatus)}
           </Badge>
         </div>
-        <div className="top-3 end-3 absolute">
-          <Badge
-            variant="outline"
-            className="bg-background/90 shadow-sm backdrop-blur-sm font-mono text-xs"
-            dir="ltr"
-          >
-            {property.code}
-          </Badge>
+
+        {property.code ? (
+          <div className="top-3 end-3 absolute">
+            <Badge
+              variant="outline"
+              className="bg-background/90 shadow-sm backdrop-blur-sm font-mono text-[11px]"
+            >
+              <bdi dir="ltr">{property.code}</bdi>
+            </Badge>
+          </div>
+        ) : null}
+
+        <div className="bottom-3 inset-x-3 absolute">
+          <p className="font-outfit font-bold text-white text-xl sm:text-2xl tracking-tight drop-shadow-sm">
+            {hasPrice ? (
+              <bdi dir="ltr" className="inline-flex items-baseline gap-1.5">
+                <DirhamIcon
+                  className="relative top-px w-[0.9em] h-[0.9em] opacity-95"
+                  title={t("AED")}
+                />
+                <span>{formatAedAmount(property.price)}</span>
+                {!isSale ? (
+                  <span className="font-medium text-white/80 text-xs sm:text-sm">
+                    / {t("month")}
+                  </span>
+                ) : null}
+              </bdi>
+            ) : (
+              <span className="font-semibold text-base">
+                {t("Price on request")}
+              </span>
+            )}
+          </p>
         </div>
       </div>
 
-      <CardContent className="flex flex-col flex-1 p-5">
-        <div className="flex justify-between items-start gap-2 mb-2">
-          <h3 className="font-semibold group-hover:text-primary text-lg line-clamp-1 transition-colors">
-            {property.title}
-          </h3>
-        </div>
-        <p className="mb-4 font-outfit font-bold text-primary text-2xl" dir="ltr">
-          AED {property.price?.toLocaleString()}
-        </p>
+      <div className="flex flex-col flex-1 gap-3.5 p-4 sm:p-5 text-start">
+        <div className="space-y-1.5 min-w-0">
+          {propertyTypeName ? (
+            <p className="flex items-center gap-1.5 text-muted-foreground text-xs font-medium">
+              <Building2 className="w-3.5 h-3.5 shrink-0 opacity-80" />
+              <span className="truncate">{propertyTypeName}</span>
+            </p>
+          ) : null}
 
-        <div className="space-y-3 mt-auto mb-4 text-muted-foreground text-sm">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-primary/80 shrink-0" />
-              <span className="line-clamp-1">{areaName}</span>
-            </div>
-            {(property.building_area || property.land_area) && (
-              <div className="flex items-center gap-1.5 font-medium">
-                <Maximize className="w-4 h-4 text-primary/80 shrink-0" />
-                <span>
-                  {property.building_area || property.land_area} {t("sqft")}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-between items-center pt-3 border-border/50 border-t">
-            <div className="flex items-center gap-2">
-              <div className="flex justify-center items-center bg-primary/10 rounded-full w-7 h-7 font-semibold text-primary text-xs">
-                {employeeName.charAt(0).toUpperCase()}
-              </div>
-              <span className="max-w-[130px] font-medium text-foreground line-clamp-1">
-                {employeeName}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                asChild
-                variant="ghost"
-                size="icon"
-                className="hover:bg-primary/10 w-7 h-7 hover:text-primary"
-              >
-                <a href={`tel:+${employeePhone}`} title={t("Call Agent")}>
-                  <Phone className="w-3.5 h-3.5" />
-                </a>
-              </Button>
-              <Button
-                asChild
-                variant="ghost"
-                size="icon"
-                className="hover:bg-[#25D366]/10 w-7 h-7 hover:text-[#25D366]"
-              >
-                <a
-                  href={`https://wa.me/${employeePhone}?text=Property%20Code:%20${property.code}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={t("WhatsApp Agent")}
-                >
-                  <MessageCircle className="w-3.5 h-3.5" />
-                </a>
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Status Update */}
-        {onStatusChange && currentStatus !== "Deal Completed" && (
-          <div className="mt-auto pt-3 border-border/50 border-t">
-            <Select
-              value={currentStatus}
-              onValueChange={(val) => onStatusChange(property.id, val)}
+          <div className="flex items-start gap-2">
+            <h3
+              className="flex-1 min-w-0 font-outfit font-semibold text-foreground text-base sm:text-[1.05rem] leading-snug line-clamp-2 group-hover:text-primary transition-colors"
+              lang={titleIsArabic ? "ar" : "en"}
             >
-              <SelectTrigger className="bg-muted/30 h-8 text-xs">
-                <SelectValue placeholder={t("Update Status")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Available">{t("Available")}</SelectItem>
-                <SelectItem value="Sold">{t("Sold")}</SelectItem>
-                <SelectItem value="Rented">{t("Rented")}</SelectItem>
-                <SelectItem value="Hold">{t("Hold")}</SelectItem>
-                <SelectItem value="Deal Completed">
-                  {t("Deal Completed")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+              <bdi dir={titleIsArabic ? "rtl" : "ltr"}>{title}</bdi>
+            </h3>
+            <span className="inline-flex justify-center items-center bg-muted/70 group-hover:bg-primary/10 mt-0.5 rounded-full w-7 h-7 text-muted-foreground group-hover:text-primary transition-colors shrink-0">
+              <ArrowUpRight className="w-3.5 h-3.5 rtl:-scale-x-100" />
+            </span>
           </div>
-        )}
-      </CardContent>
 
-      <CardFooter className="flex justify-end items-center gap-3 bg-muted/20 mt-0 p-4 border-border/50 border-t">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2 w-full"
-          onClick={() => onView(property)}
-        >
-          <Eye className="w-4 h-4" /> {t("View")}
-        </Button>
-        <Button
-          variant="default"
-          size="sm"
-          className="gap-2 w-full"
-          onClick={() => onEdit(property)}
-        >
-          <Edit2 className="w-4 h-4" /> {t("Edit")}
-        </Button>
-      </CardFooter>
-    </Card>
+          <p className="flex items-center gap-1.5 text-muted-foreground text-sm min-w-0">
+            <MapPin className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+            <span className="truncate">
+              <bdi>{areaName}</bdi>
+            </span>
+          </p>
+        </div>
+
+        {specs.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {specs.map(({ icon: Icon, value, label }) => (
+              <span
+                key={label}
+                className="inline-flex items-center gap-1 bg-muted/60 px-2 py-1 rounded-lg text-muted-foreground text-xs"
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <bdi dir="ltr" className="font-semibold text-foreground tabular-nums">
+                  {value}
+                </bdi>
+                <span>{label}</span>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="flex justify-between items-center gap-3 mt-auto pt-3 border-border/50 border-t">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="relative flex justify-center items-center bg-primary/10 rounded-full w-9 h-9 font-semibold text-primary text-xs shrink-0 overflow-hidden ring-1 ring-primary/15">
+              {employeeAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={employeeAvatar}
+                  alt={employeeName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                employeeInitial
+              )}
+            </span>
+            <div className="min-w-0 text-start">
+              <p className="flex items-center gap-1 text-muted-foreground text-[11px] leading-none">
+                <UserRound className="w-3 h-3 shrink-0" />
+                {t("Assigned agent")}
+              </p>
+              <p
+                className="mt-1 font-medium text-foreground text-sm truncate"
+                lang={employeeNameIsArabic ? "ar" : "en"}
+              >
+                <bdi dir={employeeNameIsArabic ? "rtl" : "ltr"}>
+                  {employeeName}
+                </bdi>
+              </p>
+            </div>
+          </div>
+
+          <span className="inline-flex items-center gap-1 bg-primary/10 group-hover:bg-primary px-2.5 py-1.5 rounded-lg font-medium text-primary group-hover:text-primary-foreground text-xs whitespace-nowrap transition-colors shrink-0">
+            {t("View details")}
+            <ArrowUpRight className="w-3.5 h-3.5 rtl:-scale-x-100" />
+          </span>
+        </div>
+      </div>
+    </article>
   );
-};
+}

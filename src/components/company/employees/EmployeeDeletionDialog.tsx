@@ -1,30 +1,40 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, UserMinus, AlertTriangle } from 'lucide-react';
-import { useEmployeeDeletion } from '@/hooks/useEmployeeDeletion';
-import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
-import { useCompanyEmployeesLookup } from '@/hooks/queries/useProperties';
+import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Loader2, Trash2, AlertTriangle } from "lucide-react";
+import { useEmployeeDeletion } from "@/hooks/useEmployeeDeletion";
+import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
+import { employeeDisplayName } from "@/lib/bilingualLabel";
 
 interface EmployeeToDelete {
   id: string;
-  employeeId?: string;
-  name?: string;
-  firstName?: string;
-  _isBase?: boolean;
-}
-
-interface ReassignableEmployee {
-  id: string;
+  employeeId?: string | null;
   name?: string;
   email?: string;
-  employeeId?: string;
+  avatarUrl?: string | null;
+  firstName?: string;
+  _isBase?: boolean;
 }
 
 interface EmployeeDeletionDialogProps {
@@ -35,79 +45,161 @@ interface EmployeeDeletionDialogProps {
   companyId?: string;
 }
 
-export default function EmployeeDeletionDialog({ isOpen, onClose, employeeToDelete, onSuccess, companyId: propCompanyId }: EmployeeDeletionDialogProps) {
+export default function EmployeeDeletionDialog({
+  isOpen,
+  onClose,
+  employeeToDelete,
+  onSuccess,
+  companyId: propCompanyId,
+}: EmployeeDeletionDialogProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const { company } = useCompanyAuth();
   const activeCompanyId = propCompanyId || company?.id;
-  const { deleteEmployeeWorkflow, isDeleting, deletionProgress, deletionError } = useEmployeeDeletion();
+  const {
+    deleteEmployeeWorkflow,
+    isDeleting,
+    deletionProgress,
+    deletionError,
+  } = useEmployeeDeletion();
 
-  const [reassignOwnersTo, setReassignOwnersTo] = useState('');
-  const [reassignClientsTo, setReassignClientsTo] = useState('');
-  const [reassignPropertiesTo, setReassignPropertiesTo] = useState('');
+  const [reassignOwnersTo, setReassignOwnersTo] = useState("");
+  const [reassignClientsTo, setReassignClientsTo] = useState("");
+  const [reassignPropertiesTo, setReassignPropertiesTo] = useState("");
 
   const { data: employeesData } = useCompanyEmployeesLookup(
     isOpen ? activeCompanyId : undefined,
   );
-  const employees: ReassignableEmployee[] = (employeesData ?? []).filter(
-    (e) => e.id !== employeeToDelete?.id && e.id !== employeeToDelete?.employeeId,
+  const employees = (employeesData ?? []).filter(
+    (e) =>
+      e.id !== employeeToDelete?.id && e.id !== employeeToDelete?.employeeId,
   );
 
   useEffect(() => {
     if (!isOpen) {
-      // Reset form on close
-      setReassignOwnersTo('');
-      setReassignClientsTo('');
-      setReassignPropertiesTo('');
+      setReassignOwnersTo("");
+      setReassignClientsTo("");
+      setReassignPropertiesTo("");
     }
   }, [isOpen]);
 
-  // If it's a base-only employee missing company_employees, we technically bypass reassignment selection validation
-  // but to maintain UI consistency, we still demand form completion or hide it.
-  const isBaseOnly = employeeToDelete?._isBase;
-  const isFormValid = isBaseOnly || (reassignOwnersTo && reassignClientsTo && reassignPropertiesTo);
+  const isBaseOnly = Boolean(employeeToDelete?._isBase);
+  const isFormValid =
+    isBaseOnly ||
+    Boolean(reassignOwnersTo && reassignClientsTo && reassignPropertiesTo);
+  const displayName =
+    employeeToDelete?.name || employeeToDelete?.firstName || t("Unnamed");
 
   const handleConfirm = async () => {
     if (!employeeToDelete || !isFormValid) return;
-    
-    const result = await deleteEmployeeWorkflow(employeeToDelete, {
-      reassignOwnersTo,
-      reassignClientsTo,
-      reassignPropertiesTo
-    });
-    
+
+    const result = await deleteEmployeeWorkflow(
+      {
+        id: employeeToDelete.id,
+        employeeId: employeeToDelete.employeeId || undefined,
+        _isBase: employeeToDelete._isBase,
+      },
+      {
+        reassignOwnersTo,
+        reassignClientsTo,
+        reassignPropertiesTo,
+      },
+    );
+
     if (result.success) {
       setTimeout(() => {
         onSuccess?.();
         onClose();
-      }, 1000);
+      }, 700);
     }
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && !isDeleting && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-destructive font-outfit">
-            <UserMinus className="h-5 w-5" />
-            {t('Delete Employee')} - {employeeToDelete?.name || employeeToDelete?.firstName}
-          </DialogTitle>
-          <DialogDescription className="pt-2 text-base text-foreground/80">
-            {t('You must reassign the deleted employee\'s data to other employees to continue.')}
-          </DialogDescription>
-        </DialogHeader>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !isDeleting) onClose();
+      }}
+    >
+      <DialogContent
+        className="rounded-2xl sm:max-w-lg overflow-hidden p-0 gap-0"
+        onInteractOutside={(e) => {
+          if (isDeleting) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (isDeleting) e.preventDefault();
+        }}
+      >
+        <div className="relative px-6 pt-6 pb-4">
+          <div
+            className="absolute inset-0 bg-gradient-to-b from-destructive/[0.07] to-transparent pointer-events-none"
+            aria-hidden
+          />
+          <DialogHeader className="relative space-y-4 pe-0">
+            <div className="flex justify-center items-center bg-destructive/10 mx-auto rounded-2xl ring-4 ring-destructive/10 w-14 h-14">
+              <Trash2 className="w-6 h-6 text-destructive" />
+            </div>
+            <div className="space-y-2 text-center sm:text-start">
+              <DialogTitle className="font-outfit text-xl">
+                {t("Delete Employee")}
+              </DialogTitle>
+              <DialogDescription className="text-muted-foreground leading-relaxed">
+                {t(
+                  "You must reassign this employee's owners, clients, and properties before deleting.",
+                )}
+              </DialogDescription>
+            </div>
+          </DialogHeader>
 
-        {!isBaseOnly && (
-          <div className="space-y-5 py-4">
+          <div className="relative flex items-center gap-3 bg-muted/50 mt-5 p-3.5 border border-border/60 rounded-xl">
+            <div className="flex justify-center items-center bg-primary/15 rounded-xl w-11 h-11 font-outfit font-bold text-primary text-base shrink-0 overflow-hidden">
+              {employeeToDelete?.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={employeeToDelete.avatarUrl}
+                  alt={displayName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                displayName.charAt(0).toUpperCase() || "?"
+              )}
+            </div>
+            <div className="min-w-0 text-start">
+              <p className="font-semibold text-foreground truncate" dir="auto">
+                {displayName}
+              </p>
+              {employeeToDelete?.email ? (
+                <p
+                  className="mt-0.5 text-muted-foreground text-sm truncate"
+                  dir="ltr"
+                >
+                  {employeeToDelete.email}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {!isBaseOnly ? (
+          <div className="space-y-4 px-6 pb-2">
             <div className="space-y-2">
-              <Label className="text-foreground">{t('Transfer Owners to:')}</Label>
-              <Select value={reassignOwnersTo} onValueChange={setReassignOwnersTo} disabled={isDeleting}>
-                <SelectTrigger>
-                  <SelectValue placeholder={t('Select employee')} />
+              <Label className="text-foreground text-sm">
+                {t("Transfer Owners to:")}
+              </Label>
+              <Select
+                value={reassignOwnersTo}
+                onValueChange={setReassignOwnersTo}
+                disabled={isDeleting}
+              >
+                <SelectTrigger className="bg-background rounded-xl h-11">
+                  <SelectValue placeholder={t("Select employee")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {employees.map(emp => (
+                  {employees.map((emp) => (
                     <SelectItem key={`owner-${emp.id}`} value={emp.id}>
-                      {emp.name || emp.email}
+                      {employeeDisplayName(emp, language, emp.name) ||
+                        emp.email ||
+                        emp.id}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -115,15 +207,23 @@ export default function EmployeeDeletionDialog({ isOpen, onClose, employeeToDele
             </div>
 
             <div className="space-y-2">
-              <Label className="text-foreground">{t('Transfer Clients to:')}</Label>
-              <Select value={reassignClientsTo} onValueChange={setReassignClientsTo} disabled={isDeleting}>
-                <SelectTrigger>
-                  <SelectValue placeholder={t('Select employee')} />
+              <Label className="text-foreground text-sm">
+                {t("Transfer Clients to:")}
+              </Label>
+              <Select
+                value={reassignClientsTo}
+                onValueChange={setReassignClientsTo}
+                disabled={isDeleting}
+              >
+                <SelectTrigger className="bg-background rounded-xl h-11">
+                  <SelectValue placeholder={t("Select employee")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {employees.map(emp => (
+                  {employees.map((emp) => (
                     <SelectItem key={`client-${emp.id}`} value={emp.id}>
-                      {emp.name || emp.email}
+                      {employeeDisplayName(emp, language, emp.name) ||
+                        emp.email ||
+                        emp.id}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -131,55 +231,89 @@ export default function EmployeeDeletionDialog({ isOpen, onClose, employeeToDele
             </div>
 
             <div className="space-y-2">
-              <Label className="text-foreground">{t('Transfer Properties to:')}</Label>
-              <Select value={reassignPropertiesTo} onValueChange={setReassignPropertiesTo} disabled={isDeleting}>
-                <SelectTrigger>
-                  <SelectValue placeholder={t('Select employee')} />
+              <Label className="text-foreground text-sm">
+                {t("Transfer Properties to:")}
+              </Label>
+              <Select
+                value={reassignPropertiesTo}
+                onValueChange={setReassignPropertiesTo}
+                disabled={isDeleting}
+              >
+                <SelectTrigger className="bg-background rounded-xl h-11">
+                  <SelectValue placeholder={t("Select employee")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {employees.map(emp => (
+                  {employees.map((emp) => (
                     <SelectItem key={`prop-${emp.id}`} value={emp.id}>
-                      {emp.name || emp.email}
+                      {employeeDisplayName(emp, language, emp.name) ||
+                        emp.email ||
+                        emp.id}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
-        )}
+        ) : null}
 
-        {isDeleting && (
-          <div className="py-6 flex flex-col items-center justify-center space-y-4 bg-muted/30 rounded-lg mt-2">
-            <Loader2 className="h-8 w-8 text-primary animate-spin" />
-            <p className="text-sm font-medium text-primary animate-pulse">{deletionProgress}</p>
+        {isDeleting ? (
+          <div className="flex flex-col justify-center items-center gap-3 bg-muted/30 mx-6 mt-3 mb-1 py-6 border border-border/50 rounded-xl">
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            <p className="font-medium text-primary text-sm animate-pulse">
+              {deletionProgress}
+            </p>
           </div>
-        )}
+        ) : null}
 
-        {deletionError && !isDeleting && (
-          <Alert variant="destructive" className="mt-4">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>{t('Error')}</AlertTitle>
-            <AlertDescription className="mt-1 font-mono text-xs opacity-90 break-words">
-              {deletionError}
-            </AlertDescription>
-          </Alert>
-        )}
+        {deletionError && !isDeleting ? (
+          <div className="px-6 pt-3">
+            <Alert variant="destructive" className="rounded-xl">
+              <AlertTriangle className="w-4 h-4" />
+              <AlertTitle>{t("Error")}</AlertTitle>
+              <AlertDescription className="mt-1 text-xs break-words">
+                {deletionError}
+              </AlertDescription>
+            </Alert>
+          </div>
+        ) : null}
 
-        <DialogFooter className="sm:justify-between items-center mt-4 pt-2">
-          <Button variant="outline" onClick={onClose} disabled={isDeleting}>
-            {t('Cancel')}
-          </Button>
-
-          <Button 
-            variant="destructive" 
-            onClick={handleConfirm} 
-            disabled={!isFormValid || isDeleting || (deletionProgress === t('Deletion successful'))}
-            className="transition-all active:scale-[0.98]"
+        <DialogFooter className="bg-muted/30 mt-4 px-6 py-4 border-border/60 border-t sm:justify-between">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={isDeleting}
+            className="rounded-xl h-10"
           >
-            {deletionError ? t('Retry') : t('Confirm Delete')}
+            {t("Cancel")}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => void handleConfirm()}
+            disabled={
+              !isFormValid ||
+              isDeleting ||
+              deletionProgress === t("Deletion successful")
+            }
+            className="rounded-xl h-10 gap-2"
+          >
+            {isDeleting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {t("Deleting...")}
+              </>
+            ) : deletionError ? (
+              t("Retry")
+            ) : (
+              <>
+                <Trash2 className="w-4 h-4" />
+                {t("Confirm Delete")}
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
-};
+}

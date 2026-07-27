@@ -160,7 +160,15 @@ export interface PropertyWithRelations extends Property {
   employee?: {
     id: string;
     name: string | null;
-    employee_record?: { phone?: string; email?: string } | null;
+    employee_record?: {
+      phone?: string;
+      email?: string;
+      avatar_url?: string | null;
+      first_name_en?: string | null;
+      first_name_ar?: string | null;
+      last_name_en?: string | null;
+      last_name_ar?: string | null;
+    } | null;
   } | null;
   owner?: { id: string; name: string; phone: string } | null;
   area_district_ref?: { id: string; name: string } | null;
@@ -305,6 +313,8 @@ export interface ClientStatusHistory {
 export interface Client {
   id: string;
   name: string;
+  name_en: string;
+  name_ar: string;
   phone: string;
   country_code: string;
   interest_type: string;
@@ -315,6 +325,7 @@ export interface Client {
   follow_up_date: string | null;
   follow_up_time: string | null;
   status_id: string | null;
+  avatar_url: string | null;
   created_at: string;
   updated_at: string;
 }

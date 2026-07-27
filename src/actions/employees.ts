@@ -393,8 +393,22 @@ export async function updateEmployeeDisabled(
   employeeId: string,
   disabled: boolean,
 ): Promise<ActionResult<null>> {
-  const supabase = await getServerSupabase();
-  const { error } = await supabase
+  const admin = getSupabaseAdmin();
+
+  if (disabled) {
+    const { data: linkedProfile, error: profileError } = await admin
+      .from("profiles")
+      .select("id, role")
+      .eq("employee_id", employeeId)
+      .eq("role", "company_super_admin")
+      .maybeSingle();
+    if (profileError) return { error: profileError.message };
+    if (linkedProfile) {
+      return { error: "Company managers cannot be disabled." };
+    }
+  }
+
+  const { error } = await admin
     .from("employees")
     .update({ disabled })
     .eq("id", employeeId);

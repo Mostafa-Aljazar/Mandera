@@ -1,6 +1,6 @@
 "use server";
 
-import { getServerSupabase } from "@/lib/supabase/server";
+import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
 import type {
   Property,
   PropertyWithRelations,
@@ -23,7 +23,19 @@ const PROPERTIES_SELECT = `
   property_type:property_types(id, name_en, name_ar),
   owner:owners(id, name, phone),
   area_district_ref:areas_districts(id, name),
-  employee:profiles!properties_employee_id_fkey(id, name, employee_record:employees!profiles_employee_id_fkey(phone, email))
+  employee:profiles!properties_employee_id_fkey(
+    id,
+    name,
+    employee_record:employees!profiles_employee_id_fkey(
+      phone,
+      email,
+      avatar_url,
+      first_name_en,
+      first_name_ar,
+      last_name_en,
+      last_name_ar
+    )
+  )
 `;
 
 export async function getProperties(
@@ -108,7 +120,25 @@ export async function getOwnersForCompany(companyId: string) {
 
 export async function getCompanyEmployeesForCompany(companyId: string) {
   const supabase = await getServerSupabase();
-  const { data, error } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const admin = getSupabaseAdmin();
+  const { data: me } = await admin
+    .from("profiles")
+    .select("role, company_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (
+    !me ||
+    (me.role !== "master_admin" && me.company_id !== companyId)
+  ) {
+    return { error: "Unauthorized" };
+  }
+
+  const { data, error } = await admin
     .from("profiles")
     .select(
       "id, role, company_id, employee_id, name, employee:employees!profiles_employee_id_fkey(avatar_url, first_name_en, first_name_ar, last_name_en, last_name_ar)",
