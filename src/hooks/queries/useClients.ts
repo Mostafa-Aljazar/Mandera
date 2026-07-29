@@ -9,7 +9,8 @@ import {
   updateClient,
   updateClientFollowUp,
   bulkAssignClients,
-  getClientsExportData,
+  bulkDeleteClients,
+  bulkCreateClients,
   getClientsBySource,
   getUpcomingFollowUps,
   getClientStatusHistory,
@@ -18,6 +19,7 @@ import {
   type CreateClientInput,
   type UpdateClientInput,
   type BulkAssignInput,
+  type BulkCreateClientRow,
   type ClientsBySourceFilters,
   type AddClientStatusInput,
 } from "@/actions/clients";
@@ -152,6 +154,39 @@ export function useBulkAssignClients() {
   });
 }
 
+export function useBulkDeleteClients() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      clientIds,
+      companyId,
+    }: {
+      clientIds: string[];
+      companyId: string;
+    }) => bulkDeleteClients(clientIds, companyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
+export function useBulkCreateClients() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      companyId,
+      rows,
+    }: {
+      companyId: string;
+      rows: BulkCreateClientRow[];
+    }) => bulkCreateClients(companyId, rows),
+    onSuccess: (result, variables) => {
+      if (result.error) return;
+      queryClient.invalidateQueries({ queryKey: ["clients", variables.companyId] });
+    },
+  });
+}
+
 export function useAddClientStatus() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -165,5 +200,3 @@ export function useAddClientStatus() {
     },
   });
 }
-
-export { getClientsExportData };

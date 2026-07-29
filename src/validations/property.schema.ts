@@ -12,7 +12,8 @@ const requiredText = (t: TFunction, msg: string) =>
 /**
  * Portal-ready property schema.
  * Required fields cover Bayut/dubizzle XML + PropertyFinder AE rules
- * (see docs/PORTAL_INTEGRATION_PLAN.md + propertyfinder.md AE required set).
+ * (see docs/portals/portal-integration-plan.md + propertyfinder-api-reference.md
+ * AE required set).
  */
 export const PropertySchema = (t: TFunction) =>
   z
@@ -47,7 +48,7 @@ export const PropertySchema = (t: TFunction) =>
       is_off_plan: z.boolean().default(false),
       project_status: z.string().default(""),
       amenities: z.array(z.string()).default([]),
-      features: z.array(z.string()).default([]),
+      video_urls: z.array(z.string()).default([]),
       permit_type: requiredText(t, "Permit type is required"),
       issuing_license_number: z.string().default(""),
       city: requiredText(t, "City is required"),

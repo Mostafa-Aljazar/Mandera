@@ -37,6 +37,7 @@ interface CompanyAuthContextValue {
   company: Company | null;
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
+  refreshCompany: () => Promise<void>;
   isAuthenticated: boolean;
   initialLoading: boolean;
 }
@@ -210,12 +211,23 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
     setCurrentCompany(null);
   };
 
+  const refreshCompany = async () => {
+    if (!currentUser?.company_id) return;
+    const { data, error } = await supabase
+      .from("companies")
+      .select("*")
+      .eq("id", currentUser.company_id)
+      .single();
+    if (!error && data) setCurrentCompany(data as Company);
+  };
+
   const value: CompanyAuthContextValue = {
     currentUser,
     currentCompany,
     company: currentCompany,
     login,
     logout,
+    refreshCompany,
     isAuthenticated: !!currentUser,
     initialLoading,
   };

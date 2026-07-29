@@ -1,3 +1,9 @@
+> **Archived — historical record only.** The migration this plan describes is complete; the repo
+> has also since been flattened out of the `apps/web` monorepo shape referenced throughout (paths
+> below are stale — read `src/...` where you see `apps/web/src/...`). See
+> [`SUPABASE_MIGRATION_STATUS.md`](SUPABASE_MIGRATION_STATUS.md) for what actually shipped, and
+> [`CLAUDE.md`](../../CLAUDE.md) at the repo root for the current, accurate architecture.
+
 # PocketBase → Supabase Full Migration
 
 ## Context

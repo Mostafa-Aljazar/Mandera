@@ -1,5 +1,6 @@
 // Map a CRM property (+ the company's PF credentials) to a PropertyFinder
-// POST /v1/listings request body. See docs/propertyfinder.md & openapi.json.
+// POST /v1/listings request body. See docs/portals/propertyfinder-api-reference.md
+// & docs/portals/propertyfinder-openapi.json.
 
 import type {
   PortalCredentials,
@@ -129,6 +130,10 @@ export function mapPropertyToPfListing(
     .filter((url) => url && url.trim() !== "")
     .map((url) => ({ original: { url } }));
 
+  // PF only accepts a single primary video per listing (media.videos.default) —
+  // Bayut/dubizzle's <Videos> tag supports a list, so just take the first.
+  const firstVideo = (property.video_urls ?? []).find((url) => url && url.trim() !== "");
+
   const body: Record<string, unknown> = {
     reference: property.code,
     category: mapCategory(typeName),
@@ -144,7 +149,7 @@ export function mapPropertyToPfListing(
     price: { type: priceType, amounts: { [priceType]: amount } },
     size: property.building_area ?? property.land_area ?? undefined,
     amenities: property.amenities ?? [],
-    media: { images },
+    media: firstVideo ? { images, videos: { default: firstVideo } } : { images },
   };
 
   const bedrooms = mapBedrooms(property.bedrooms);
@@ -152,6 +157,11 @@ export function mapPropertyToPfListing(
   if (property.bathrooms) body.bathrooms = property.bathrooms;
   if (property.furnishing) body.furnishingType = property.furnishing;
   if (property.project_status) body.projectStatus = property.project_status;
+  if (property.available_from) body.availableFrom = property.available_from;
+  if (property.parking_slots !== null && property.parking_slots !== undefined) {
+    body.parkingSlots = property.parking_slots;
+    body.hasParkingOnSite = property.parking_slots > 0;
+  }
 
   const uaeEmirate = mapEmirate(property.emirate);
   if (uaeEmirate) body.uaeEmirate = uaeEmirate;

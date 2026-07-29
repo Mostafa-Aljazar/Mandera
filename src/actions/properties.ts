@@ -21,7 +21,7 @@ export interface PropertyFilters {
 const PROPERTIES_SELECT = `
   *,
   property_type:property_types(id, name_en, name_ar),
-  owner:owners(id, name, phone),
+  owner:owners(id, name, name_en, name_ar, phone),
   area_district_ref:areas_districts(id, name),
   employee:profiles!properties_employee_id_fkey(
     id,
@@ -37,6 +37,24 @@ const PROPERTIES_SELECT = `
     )
   )
 `;
+
+export interface PropertyCodeOption {
+  id: string;
+  code: string;
+}
+
+/** Lightweight code->id lookup, used to link imported owners to their existing properties. */
+export async function getPropertyCodesForCompany(
+  companyId: string,
+): Promise<ActionResult<PropertyCodeOption[]>> {
+  const supabase = await getServerSupabase();
+  const { data, error } = await supabase
+    .from("properties")
+    .select("id, code")
+    .eq("company_id", companyId);
+  if (error) return { error: error.message };
+  return { data: data ?? [] };
+}
 
 export async function getProperties(
   companyId: string,
@@ -265,6 +283,31 @@ async function uploadPropertyImages(
   return urls;
 }
 
+/** Floor plan images (Bayut's <Floor_Plans>) reuse the same public bucket, under its own prefix. */
+async function uploadPropertyFloorPlans(
+  companyId: string,
+  files: File[],
+): Promise<string[]> {
+  if (files.length === 0) return [];
+
+  const supabase = await getServerSupabase();
+  const urls: string[] = [];
+
+  for (const file of files) {
+    const path = `${companyId}/floor-plans/${crypto.randomUUID()}-${file.name}`;
+    const { error } = await supabase.storage
+      .from("property-images")
+      .upload(path, file, { contentType: file.type });
+
+    if (error) throw new Error(`Floor plan upload failed: ${error.message}`);
+
+    const { data } = supabase.storage.from("property-images").getPublicUrl(path);
+    urls.push(data.publicUrl);
+  }
+
+  return urls;
+}
+
 async function generatePropertyCode(
   companyId: string,
   companyCode: string,
@@ -301,7 +344,6 @@ export interface PropertyPortalFields {
   is_off_plan?: boolean | null;
   project_status?: string | null;
   amenities?: string[] | null;
-  features?: string[] | null;
   permit_type?: string | null;
   issuing_license_number?: string | null;
   city?: string | null;
@@ -315,6 +357,7 @@ export interface PropertyPortalFields {
   offplan_amount_paid?: number | null;
   available_from?: string | null;
   parking_slots?: number | null;
+  video_urls?: string[] | null;
 }
 
 /** Build the DB column subset for the portal fields, skipping `undefined`. */
@@ -333,7 +376,6 @@ function portalColumns(input: PropertyPortalFields): Record<string, unknown> {
   assign("is_off_plan");
   assign("project_status");
   assign("amenities");
-  assign("features");
   assign("permit_type");
   assign("issuing_license_number");
   assign("city");
@@ -347,6 +389,7 @@ function portalColumns(input: PropertyPortalFields): Record<string, unknown> {
   assign("offplan_amount_paid");
   assign("available_from");
   assign("parking_slots");
+  assign("video_urls");
   return cols;
 }
 
@@ -371,6 +414,7 @@ export interface CreatePropertyInput extends PropertyPortalFields {
   status?: string | null;
   advertising_permit_number?: string | null;
   images?: File[];
+  floor_plans?: File[];
 }
 
 export async function createProperty(
@@ -385,6 +429,7 @@ export async function createProperty(
       input.listing_type,
     );
     const imageUrls = await uploadPropertyImages(input.companyId, input.images ?? []);
+    const floorPlanUrls = await uploadPropertyFloorPlans(input.companyId, input.floor_plans ?? []);
 
     const { data, error } = await supabase
       .from("properties")
@@ -405,6 +450,7 @@ export async function createProperty(
         title: input.title,
         description: input.description || "",
         images: imageUrls,
+        floor_plan_urls: floorPlanUrls,
         status: input.status || "Available",
         advertising_permit_number: input.advertising_permit_number || "",
         ...portalColumns(input),
@@ -448,6 +494,7 @@ export interface UpdatePropertyInput extends PropertyPortalFields {
   status?: string | null;
   advertising_permit_number?: string | null;
   images?: File[];
+  floor_plans?: File[];
 }
 
 export async function updateProperty(
@@ -458,7 +505,7 @@ export async function updateProperty(
   try {
     const { data: existing, error: fetchError } = await supabase
       .from("properties")
-      .select("employee_id, images")
+      .select("employee_id, images, floor_plan_urls")
       .eq("id", input.id)
       .single();
 
@@ -466,6 +513,10 @@ export async function updateProperty(
 
     const newImageUrls = await uploadPropertyImages(input.companyId, input.images ?? []);
     const images = newImageUrls.length > 0 ? newImageUrls : existing.images;
+
+    const newFloorPlanUrls = await uploadPropertyFloorPlans(input.companyId, input.floor_plans ?? []);
+    const floorPlanUrls =
+      newFloorPlanUrls.length > 0 ? newFloorPlanUrls : existing.floor_plan_urls;
 
     const { data, error } = await supabase
       .from("properties")
@@ -484,6 +535,7 @@ export async function updateProperty(
         title: input.title,
         description: input.description || "",
         images,
+        floor_plan_urls: floorPlanUrls,
         status: input.status || "Available",
         advertising_permit_number: input.advertising_permit_number || "",
         ...portalColumns(input),

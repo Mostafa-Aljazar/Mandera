@@ -6,6 +6,7 @@
 // listing from a portal, emit it with <Property_Status>deleted</Property_Status>.
 
 import type { PropertyWithRelations } from "@/types/supabase-entities.types";
+import { amenityLabel } from "./amenities";
 
 /** A property paired with the portals it should appear on and its feed status. */
 export interface FeedItem {
@@ -106,7 +107,10 @@ export function buildPropertyXml(item: FeedItem): string {
     tag("plotArea", p.land_area) +
     tag("Bedrooms", p.bedrooms) +
     tag("Bathrooms", p.bathrooms) +
-    childListTag("Features", "Feature", p.features) +
+    // Bayut's Features are free text (no fixed enum); reuse the same amenity
+    // selection the form collects for PropertyFinder rather than asking the
+    // user to fill in a second, separate list.
+    childListTag("Features", "Feature", (p.amenities ?? []).map(amenityLabel)) +
     tag("Off_Plan", p.is_off_plan ? "Yes" : "No") +
     `    <Portals>\n${portalTags}\n    </Portals>\n` +
     tag("Last_Updated", formatTimestamp(p.updated_at)) +
@@ -132,6 +136,8 @@ export function buildPropertyXml(item: FeedItem): string {
     tag("Sub_Locality", p.sub_locality) +
     tag("Tower_Name", p.tower_name) +
     childListTag("Images", "Image", p.images) +
+    childListTag("Videos", "Video", p.video_urls) +
+    childListTag("Floor_Plans", "Floor_Plan", p.floor_plan_urls) +
     tag("Listing_Agent", agentName) +
     tag("Listing_Agent_Phone", agentPhone) +
     tag("Listing_Agent_Email", agentEmail) +

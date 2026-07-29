@@ -106,12 +106,12 @@ const RevenuePage = () => {
       dateTo: dateTo ? `${format(dateTo, "yyyy-MM-dd")} 23:59:59` : undefined,
     },
   );
-  const revenues = revenuesData ?? [];
+  const revenues = useMemo(() => revenuesData ?? [], [revenuesData]);
 
   const { data: employeesData } = useCompanyEmployeesLookup(
     isSuperAdmin ? company?.id : undefined,
   );
-  const employees = employeesData ?? [];
+  const employees = useMemo(() => employeesData ?? [], [employeesData]);
 
   const filteredRevenues = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();

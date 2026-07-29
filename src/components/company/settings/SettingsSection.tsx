@@ -3,10 +3,16 @@
 import React from "react";
 import { cn } from "@/lib/utils";
 
+interface SettingsSectionLogo {
+  src: string;
+  alt: string;
+}
+
 interface SettingsSectionProps {
   title: string;
   description?: string;
   icon?: React.ElementType;
+  logos?: SettingsSectionLogo[];
   action?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
@@ -16,6 +22,7 @@ export default function SettingsSection({
   title,
   description,
   icon: Icon,
+  logos,
   action,
   children,
   className,
@@ -29,7 +36,22 @@ export default function SettingsSection({
     >
       <div className="flex sm:flex-row flex-col sm:justify-between sm:items-center gap-4 px-4 sm:px-6 py-4 sm:py-5 border-border/50 border-b">
         <div className="flex items-start gap-3 min-w-0">
-          {Icon ? (
+          {logos && logos.length > 0 ? (
+            <span className="flex items-center gap-2 shrink-0">
+              {logos.map((logo) => (
+                <span
+                  key={logo.src}
+                  className="flex justify-center items-center border border-border/40 rounded-full overflow-hidden w-11 h-11 sm:w-14 sm:h-14"
+                >
+                  <img
+                    src={logo.src}
+                    alt={logo.alt}
+                    className="w-full h-full object-cover"
+                  />
+                </span>
+              ))}
+            </span>
+          ) : Icon ? (
             <span className="flex justify-center items-center bg-muted rounded-xl w-9 h-9 sm:w-10 sm:h-10 text-foreground/70 shrink-0">
               <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
             </span>

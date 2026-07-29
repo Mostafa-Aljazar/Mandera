@@ -185,10 +185,10 @@ const PropertiesPage = () => {
     company?.id,
     propertyFilters,
   );
-  const properties = propertiesData ?? [];
+  const properties = useMemo(() => propertiesData ?? [], [propertiesData]);
 
   const { data: allAreasData } = useAreasDistrictsLookup(company?.id);
-  const allAreasDistricts = allAreasData ?? [];
+  const allAreasDistricts = useMemo(() => allAreasData ?? [], [allAreasData]);
 
   const stats = useMemo(() => {
     const rent = properties.filter((p) => p.listing_type === "Rent");
@@ -531,11 +531,28 @@ const PropertiesPage = () => {
                         statuses={propertyStatuses}
                         areas={allAreasDistricts}
                         showPriceFilters={true}
+                        initialValues={{
+                          ...filterState,
+                          minPrice: priceFilters.minPrice,
+                          maxPrice: priceFilters.maxPrice,
+                        }}
                         onPriceChange={setPriceFilters}
                         onApplyFilters={(filters) => {
-                          setFilterState(
-                            filters as unknown as PropertyFilterState,
-                          );
+                          setFilterState({
+                            statusId:
+                              (filters.statusId as string | null) ?? null,
+                            areas: Array.isArray(filters.areas)
+                              ? (filters.areas as string[])
+                              : [],
+                            createdFromDate:
+                              (filters.createdFromDate as Date | null) ?? null,
+                            createdToDate:
+                              (filters.createdToDate as Date | null) ?? null,
+                            updatedFromDate:
+                              (filters.updatedFromDate as Date | null) ?? null,
+                            updatedToDate:
+                              (filters.updatedToDate as Date | null) ?? null,
+                          });
                           setStatusFilter(
                             (filters.statusId as string) || "All",
                           );

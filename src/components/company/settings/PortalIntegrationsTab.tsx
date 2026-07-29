@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { companyDisplayName } from "@/lib/bilingualLabel";
 import {
   usePortalCredentials,
   useUpsertPortalCredentials,
@@ -16,6 +18,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
   Globe,
   Building2,
   RefreshCw,
@@ -25,12 +33,15 @@ import {
   CheckCircle2,
   XCircle,
   ClipboardCopy,
+  HelpCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ConnectionDiagnosticStep } from "@/lib/portals/propertyfinder/client";
 
 export default function PortalIntegrationsTab() {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const { company, currentUser } = useCompanyAuth();
   const companyId = currentUser?.company_id || company?.id;
 
@@ -138,7 +149,7 @@ export default function PortalIntegrationsTab() {
     if (!diagnostics) return;
     const lines = [
       `PropertyFinder connection test — ${new Date().toISOString()}`,
-      `Company: ${company?.company_name ?? companyId}`,
+      `Company: ${companyDisplayName(company, language) || companyId}`,
       "",
       ...diagnostics.map(
         (s) =>
@@ -153,11 +164,12 @@ export default function PortalIntegrationsTab() {
     <div className="space-y-6">
       {/* Bayut + dubizzle */}
       <SettingsSection
-        title={t("Bayut & dubizzle")}
+        title={t("Bayut & Dubizzle")}
         description={t(
-          "One combined XML feed. Give this feed URL to Bayut/dubizzle to sync your listings.",
+          "One combined XML feed. Give this feed URL to Bayut/Dubizzle to sync your listings.",
         )}
         icon={Globe}
+        logos={[{ src: "/logos/dubizzle-group.png", alt: "Dubizzle Group" }]}
         action={
           <div className="flex items-center gap-2">
             <Label htmlFor="bayut-enabled" className="text-muted-foreground text-sm">
@@ -211,6 +223,30 @@ export default function PortalIntegrationsTab() {
             )}
             {feedUrl ? t("Regenerate Feed URL") : t("Generate Feed URL")}
           </Button>
+
+          <Accordion type="single" collapsible className="rounded-xl border border-border/60 bg-muted/20 px-4">
+            <AccordionItem value="how-it-works" className="border-none">
+              <AccordionTrigger className="gap-2 text-sm font-medium hover:no-underline">
+                <span className="flex items-center gap-2 text-start">
+                  <HelpCircle className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  {t("How does publishing to Bayut & Dubizzle actually work?")}
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="text-sm leading-relaxed text-muted-foreground">
+                <div
+                  className="portal-help-content rich-text-content"
+                  dangerouslySetInnerHTML={{ __html: t("bayut_portal_help_html") }}
+                />
+                <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-amber-800 dark:text-amber-200">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div
+                    className="[&_p]:text-justify [&_p+p]:mt-1"
+                    dangerouslySetInnerHTML={{ __html: t("bayut_portal_help_hint_html") }}
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
       </SettingsSection>
 
@@ -219,6 +255,7 @@ export default function PortalIntegrationsTab() {
         title={t("PropertyFinder")}
         description={t("Enterprise API credentials from PF Expert → Developer Resources.")}
         icon={Building2}
+        logos={[{ src: "/logos/propertyfinder.png", alt: "PropertyFinder" }]}
         action={
           <div className="flex items-center gap-2">
             <Label htmlFor="pf-enabled" className="text-muted-foreground text-sm">
@@ -270,6 +307,32 @@ export default function PortalIntegrationsTab() {
               }
             />
           </div>
+          <div className="md:col-span-2">
+            <Accordion type="single" collapsible className="rounded-xl border border-border/60 bg-muted/20 px-4">
+              <AccordionItem value="pf-how-it-works" className="border-none">
+                <AccordionTrigger className="gap-2 text-sm font-medium hover:no-underline">
+                  <span className="flex items-center gap-2 text-start">
+                    <HelpCircle className="w-4 h-4 shrink-0 text-muted-foreground" />
+                    {t("How does PropertyFinder publishing work, and how do I get these credentials?")}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="text-sm leading-relaxed text-muted-foreground">
+                  <div
+                    className="portal-help-content rich-text-content"
+                    dangerouslySetInnerHTML={{ __html: t("pf_portal_help_html") }}
+                  />
+                  <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-amber-800 dark:text-amber-200">
+                    <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <div
+                      className="[&_p]:text-justify [&_p+p]:mt-1"
+                      dangerouslySetInnerHTML={{ __html: t("pf_portal_help_hint_html") }}
+                    />
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </div>
+
           <div className="md:col-span-2 flex sm:flex-row flex-col justify-end gap-2">
             <Button
               variant="outline"

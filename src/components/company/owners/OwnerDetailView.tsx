@@ -482,7 +482,6 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
             <div className="relative shrink-0">
               <div className="flex justify-center items-center bg-amber-500/10 rounded-2xl ring-2 ring-amber-500/30 ring-offset-2 ring-offset-background w-14 h-14 sm:w-16 sm:h-16 font-outfit font-bold text-amber-800 text-xl shadow-sm overflow-hidden">
                 {currentAvatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={currentAvatarUrl}
                     alt={displayName}
@@ -585,7 +584,6 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <div className="flex justify-center items-center bg-primary/10 rounded-full w-9 h-9 font-semibold text-primary text-sm shrink-0 overflow-hidden">
                 {employeeAvatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={employeeAvatarUrl}
                     alt={employeeName}
@@ -1061,7 +1059,6 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                 <div className="bg-card shadow-sm p-4 border border-border/60 rounded-xl text-center">
                   <div className="flex justify-center items-center bg-primary/10 mx-auto mb-3 rounded-full ring-4 ring-primary/5 w-14 h-14 font-outfit font-bold text-primary text-xl overflow-hidden">
                     {employeeAvatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={employeeAvatarUrl}
                         alt={employeeName}
@@ -1201,7 +1198,6 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
             <div className="relative flex items-center gap-3 bg-muted/50 mt-5 p-3.5 border border-border/60 rounded-xl">
               <div className="flex justify-center items-center bg-amber-500/15 rounded-xl w-11 h-11 font-outfit font-bold text-amber-800 text-base shrink-0 overflow-hidden">
                 {currentAvatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={currentAvatarUrl}
                     alt={displayName}

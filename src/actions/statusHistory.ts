@@ -94,16 +94,21 @@ export async function getStatusHistory(
 
   if (error) return { error: error.message };
 
+  const historyRows = (data ?? []) as unknown as Array<{
+    created_by?: string | null;
+    [key: string]: unknown;
+  }>;
+
   const creatorIds = [
     ...new Set(
-      (data ?? [])
-        .map((h: { created_by?: string | null }) => h.created_by)
+      historyRows
+        .map((h) => h.created_by)
         .filter((id): id is string => Boolean(id)),
     ),
   ];
   const creators = await loadCreatorNames(supabase, creatorIds);
 
-  const rows: HistoryRecord[] = (data ?? []).map((h: any) => {
+  const rows: HistoryRecord[] = historyRows.map((h: any) => {
     const creator = h.created_by ? creators.get(h.created_by) : undefined;
     return {
       id: h.id,

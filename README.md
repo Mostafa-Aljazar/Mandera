@@ -59,7 +59,7 @@ Mandera CRM has two separate authentication realms, each with its own login page
 
 | Entity | What it tracks |
 |---|---|
-| **Properties** | Listings with price, commission percentage, land/building area, emirate and area, listing type (sale or rent), a RERA/DLD-style advertising permit number, and up to 12 photos per listing. |
+| **Properties** | Listings with price, commission percentage, land/building area, emirate and area, listing type (sale or rent), a RERA/DLD-style advertising permit number, and up to 12 photos plus video and floor-plan URLs per listing. |
 | **Owners** | Landlords and sellers, each moved through a per-company configurable status pipeline (e.g. *New Lead → Negotiating → Listed*), with a full audit trail of every status change. |
 | **Clients** | Buyers and tenants (leads), tracked through their own sales pipeline, with follow-up date/time scheduling and a complete interaction history — each client can express interest in up to 4 properties at once. |
 | **Employees** | Sales agents, officers, and managers, each with an HR profile separate from their login identity, and assignable to specific owners, properties, and clients. |
@@ -75,7 +75,8 @@ Mandera CRM has two separate authentication realms, each with its own login page
 - 🔐 **Two-tier, cookie-based authentication** — separate Master Admin and Company (Super Admin / Employee) login flows, with session state readable server-side so Next.js middleware can block unauthenticated access before any protected page is ever rendered.
 - 📊 **Role-scoped dashboards** — Company Super Admins see full company-wide metrics and a team leaderboard; employees see only their own assigned pipeline.
 - 📅 **Follow-up scheduling** — a dedicated calendar widget surfaces upcoming and overdue client follow-ups on the company dashboard.
-- 📤 **CSV export** — clients, owners, and revenue data can all be exported to CSV, with UTF-8 BOM handling so Arabic text renders correctly in Excel.
+- 📤 **Bulk Excel import/export** — clients and owners can be exported to a formatted `.xlsx` template (with in-cell dropdown validation for statuses, sources, and assigned employees) and re-imported in bulk, alongside a plain CSV export for revenue data.
+- 🌍 **Portal syndication** — properties can be published directly to Bayut/dubizzle (combined XML feed) and PropertyFinder (Enterprise API), with per-company credentials and per-portal publish status tracked on each listing.
 - 💳 **Subscription lifecycle enforcement** — tenant accounts can be frozen or allowed to lapse based on subscription end date, blocking company login while preserving the underlying data.
 
 ---
@@ -134,7 +135,8 @@ mandera-crm/
 ├── supabase/
 │   └── migrations/          # SQL schema migrations
 ├── public/                  # Static assets
-├── docs/                    # README assets
+├── docs/                    # Portal-integration references + a sample listing for manual
+│                             # form testing — see docs/README.md
 ├── package.json
 └── next.config.js
 ```
@@ -210,10 +212,11 @@ Deploy the Next.js app to your host (e.g. Hostinger). Point environment variable
 
 ## Documentation
 
-- [`.claude/PROJECT_ARCHITECTURE_V2_NEXTJS.md`](.claude/PROJECT_ARCHITECTURE_V2_NEXTJS.md) — Next.js frontend architecture
-- [`.claude/SUPABASE_MIGRATION_STATUS.md`](.claude/SUPABASE_MIGRATION_STATUS.md) — Supabase migration status
-- [`.claude/SUPABASE_MIGRATION_PLAN.md`](.claude/SUPABASE_MIGRATION_PLAN.md) — migration plan notes
+- [`CLAUDE.md`](CLAUDE.md) — current architecture, conventions, and working rules for this repo
+- [`docs/README.md`](docs/README.md) — portal-syndication architecture and API references (Bayut/dubizzle, PropertyFinder), plus a sample property listing for manual form testing
 - [`.claude/LOCAL_DEV_CREDENTIALS.md`](.claude/LOCAL_DEV_CREDENTIALS.md) — local login credentials (gitignored)
+- [`.claude/skills/`](.claude/skills/) — deeper how-to notes for specific recurring workflows (Supabase schema changes, the Excel import/export module)
+- [`.claude/archive/`](.claude/archive/) — historical record of the Vite→Next.js port and the PocketBase→Supabase migration (superseded, kept for context)
 
 ---
 

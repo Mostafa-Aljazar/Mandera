@@ -78,10 +78,10 @@ export default function FollowUpCalendarWidget() {
     refetch: refetchFollowUps,
   } = useUpcomingFollowUps(company?.id, restrictToEmployeeId);
 
-  const now = new Date();
   const dateLocale = i18n.language === "ar" ? ar : enUS;
 
   const followUps: ProcessedClient[] = useMemo(() => {
+    const now = new Date();
     return (followUpsData ?? [])
       .map((client) => {
         const followUpDateTime = buildFollowUpDateTime(

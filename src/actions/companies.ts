@@ -25,6 +25,40 @@ async function uploadCompanyDocumentFile(
   return { url: data.publicUrl };
 }
 
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+const ALLOWED_LOGO_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+
+async function uploadCompanyLogo(
+  companyId: string,
+  file: File,
+): Promise<{ url: string; error?: undefined } | { url?: undefined; error: string }> {
+  if (!ALLOWED_LOGO_TYPES.has(file.type)) {
+    return { error: "Please upload a JPG, PNG, or WebP image." };
+  }
+  if (file.size > MAX_LOGO_BYTES) {
+    return { error: "Company logo must be less than 2MB." };
+  }
+
+  const admin = getSupabaseAdmin();
+  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const path = `${companyId}/logo/${crypto.randomUUID()}.${ext}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  const { error } = await admin.storage.from("company-files").upload(path, buffer, {
+    contentType: file.type,
+    upsert: false,
+  });
+  if (error) return { error: error.message };
+
+  const { data } = admin.storage.from("company-files").getPublicUrl(path);
+  return { url: data.publicUrl };
+}
+
 export async function getCompanies(): Promise<ActionResult<Company[]>> {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
@@ -86,7 +120,8 @@ async function generateCompanyCode(): Promise<string> {
 }
 
 export interface CreateCompanyInput {
-  companyName: string;
+  companyNameEn: string;
+  companyNameAr: string;
   phone: string;
   adminName: string;
   email: string;
@@ -96,6 +131,7 @@ export interface CreateCompanyInput {
   maxEmployeeCount: number;
   notes?: string;
   files?: File[];
+  logo?: File | null;
 }
 
 export async function createCompany(
@@ -108,7 +144,8 @@ export async function createCompany(
     .from("companies")
     .insert({
       company_code: companyCode,
-      company_name: input.companyName,
+      company_name_en: input.companyNameEn,
+      company_name_ar: input.companyNameAr,
       phone: input.phone,
       admin_name: input.adminName,
       notes: input.notes?.trim() || null,
@@ -122,6 +159,13 @@ export async function createCompany(
     .single();
 
   if (companyError) return { error: companyError.message };
+
+  if (input.logo) {
+    const upload = await uploadCompanyLogo(companyRecord.id, input.logo);
+    if (!upload.error) {
+      await admin.from("companies").update({ logo_url: upload.url }).eq("id", companyRecord.id);
+    }
+  }
 
   const { data: authData, error: authError } = await admin.auth.admin.createUser({
     email: input.email,
@@ -173,7 +217,8 @@ export async function createCompany(
 
 export interface UpdateCompanyInput {
   id: string;
-  companyName: string;
+  companyNameEn: string;
+  companyNameAr: string;
   phone: string;
   adminName: string;
   email: string;
@@ -181,23 +226,34 @@ export interface UpdateCompanyInput {
   subscriptionEndDate: string;
   maxEmployeeCount: number;
   notes?: string;
+  logo?: File | null;
+  removeLogo?: boolean;
 }
 
 export async function updateCompany(input: UpdateCompanyInput): Promise<ActionResult<null>> {
   const supabase = await getServerSupabase();
-  const { error } = await supabase
-    .from("companies")
-    .update({
-      company_name: input.companyName,
-      phone: input.phone,
-      admin_name: input.adminName,
-      notes: input.notes?.trim() || null,
-      email: input.email,
-      subscription_start_date: input.subscriptionStartDate,
-      subscription_end_date: input.subscriptionEndDate,
-      max_employee_count: input.maxEmployeeCount,
-    })
-    .eq("id", input.id);
+
+  const patch: Record<string, unknown> = {
+    company_name_en: input.companyNameEn,
+    company_name_ar: input.companyNameAr,
+    phone: input.phone,
+    admin_name: input.adminName,
+    notes: input.notes?.trim() || null,
+    email: input.email,
+    subscription_start_date: input.subscriptionStartDate,
+    subscription_end_date: input.subscriptionEndDate,
+    max_employee_count: input.maxEmployeeCount,
+  };
+
+  if (input.logo) {
+    const upload = await uploadCompanyLogo(input.id, input.logo);
+    if (upload.error) return { error: upload.error };
+    patch.logo_url = upload.url;
+  } else if (input.removeLogo) {
+    patch.logo_url = null;
+  }
+
+  const { error } = await supabase.from("companies").update(patch).eq("id", input.id);
   if (error) return { error: error.message };
   return { data: null };
 }

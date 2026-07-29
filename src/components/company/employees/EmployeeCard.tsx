@@ -87,7 +87,6 @@ export default function EmployeeCard({
         <div className="relative flex items-start gap-3 sm:gap-3.5">
           <div className="flex justify-center items-center bg-primary/15 rounded-2xl ring-2 ring-primary/25 ring-offset-2 ring-offset-transparent w-12 h-12 sm:w-14 sm:h-14 font-outfit font-bold text-primary text-lg sm:text-xl shadow-sm shrink-0 overflow-hidden">
             {record?.avatar_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={record.avatar_url}
                 alt={displayName}

@@ -1,3 +1,9 @@
+> **Archived — historical record only.** Describes the original **Vite + React Router + PocketBase**
+> stack, before both the Next.js port and the Supabase migration. None of the file paths, tech
+> stack, or data-access patterns below are current. For today's architecture, see
+> [`CLAUDE.md`](../../CLAUDE.md) at the repo root. Kept for context on why certain decisions were
+> made during later migrations.
+
 # Mandera CRM — Project Overview & Architecture
 
 ## What this project is

@@ -5,7 +5,8 @@ import type { TFunction } from "i18next";
 export const NewCompanySchema = (t: TFunction) =>
   z
     .object({
-      companyName: z.string().trim().min(1, t("Company name")),
+      companyNameEn: z.string().trim().min(1, t("Company name")),
+      companyNameAr: z.string().trim().min(1, t("Company name")),
       phone: z
         .string()
         .min(1, t("Phone number is required"))

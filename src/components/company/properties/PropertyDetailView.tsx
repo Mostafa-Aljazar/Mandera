@@ -36,8 +36,11 @@ import {
   Building2,
   Tag,
   User,
+  Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { employeeDisplayName, titleCaseName } from "@/lib/bilingualLabel";
+import { DirhamIcon, formatAedAmount } from "@/components/ui/dirham-icon";
 import type { Portal } from "@/types/supabase-entities.types";
 
 const STATUS_TONE: Record<string, string> = {
@@ -58,7 +61,7 @@ const PUB_TONE: Record<string, string> = {
 
 const PORTAL_LABEL_KEY: Record<Portal, string> = {
   bayut: "Bayut",
-  dubizzle: "dubizzle",
+  dubizzle: "Dubizzle",
   propertyfinder: "PropertyFinder",
 };
 
@@ -107,11 +110,6 @@ export default function PropertyDetailView({ propertyId }: Props) {
 
   const primary = (en?: string | null, ar?: string | null) =>
     language === "ar" ? ar || en || "" : en || ar || "";
-  const secondary = (en?: string | null, ar?: string | null) => {
-    const other = language === "ar" ? en : ar;
-    const main = primary(en, ar);
-    return other && other !== main ? other : "";
-  };
 
   const handleDelete = async () => {
     if (!propertyId) return;
@@ -127,33 +125,49 @@ export default function PropertyDetailView({ propertyId }: Props) {
 
   if (isCreate) {
     return (
-      <div className="pb-14">
-        <div className="border-b border-border/60 bg-card/80 backdrop-blur-sm">
-          <div className="container mx-auto px-4 max-w-6xl py-3">
-            <Link href="/company/properties">
-              <Button variant="ghost" size="sm" className="-ms-2 h-9 text-muted-foreground hover:text-foreground">
-                <ArrowLeft className="h-4 w-4 me-2 rtl:rotate-180" />
-                {t("Back to Properties")}
-              </Button>
+      <div className="pb-28 sm:pb-14">
+        <section className="relative border-border/50 border-b overflow-hidden">
+          <div
+            className="absolute inset-0 bg-gradient-to-br from-emerald-500/[0.09] via-transparent to-primary/[0.03]"
+            aria-hidden
+          />
+          <div
+            className="absolute inset-0 pattern-grid-lg opacity-30"
+            aria-hidden
+          />
+
+          <div className="relative mx-auto px-4 sm:px-6 py-5 sm:py-8 container max-w-6xl">
+            <Link
+              href="/company/properties"
+              className="inline-flex items-center gap-1.5 mb-4 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
+              {t("Back to Properties")}
             </Link>
-          </div>
-        </div>
 
-        <div className="container mx-auto px-4 max-w-6xl pt-6 sm:pt-8">
-          <div className="mb-6 sm:mb-8">
-            <p className="text-xs font-medium uppercase tracking-wide text-primary mb-1">
-              {t("Portal-ready listing")}
-            </p>
-            <h1 className="font-outfit text-2xl sm:text-3xl font-extrabold tracking-tight">
-              {t("Add Property")}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground leading-relaxed">
-              {t(
-                "Complete all required fields so this property can be published to Bayut, dubizzle and PropertyFinder.",
-              )}
-            </p>
+            <div className="flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0 max-w-2xl text-start">
+                <Badge
+                  variant="secondary"
+                  className="mb-3 bg-primary/10 hover:bg-primary/10 border-primary/15 text-primary gap-1.5"
+                >
+                  <Building2 className="w-3.5 h-3.5" />
+                  {t("Portal-ready listing")}
+                </Badge>
+                <h1 className="font-outfit font-extrabold text-foreground text-2xl sm:text-3xl lg:text-4xl tracking-tight">
+                  {t("Add Property")}
+                </h1>
+                <p className="mt-2 text-muted-foreground text-sm sm:text-[15px] leading-relaxed">
+                  {t(
+                    "Complete all required fields so this property can be published to Bayut, dubizzle and PropertyFinder.",
+                  )}
+                </p>
+              </div>
+            </div>
           </div>
+        </section>
 
+        <div className="mx-auto px-4 sm:px-6 py-5 sm:py-7 container max-w-6xl">
           <PropertyForm
             mode="create"
             onSaved={(id) => router.push(`/company/properties/${id}`)}
@@ -179,21 +193,46 @@ export default function PropertyDetailView({ propertyId }: Props) {
 
   if (isEditing) {
     return (
-      <div className="pb-14">
-        <div className="border-b border-border/60 bg-card/80 backdrop-blur-sm">
-          <div className="container mx-auto px-4 max-w-6xl py-3">
-            <Button variant="ghost" size="sm" className="-ms-2 h-9" onClick={() => setIsEditing(false)}>
-              <ArrowLeft className="h-4 w-4 me-2 rtl:rotate-180" /> {t("Cancel")}
-            </Button>
+      <div className="pb-28 sm:pb-14">
+        <section className="relative border-border/50 border-b overflow-hidden">
+          <div
+            className="absolute inset-0 bg-gradient-to-br from-emerald-500/[0.09] via-transparent to-primary/[0.03]"
+            aria-hidden
+          />
+          <div
+            className="absolute inset-0 pattern-grid-lg opacity-30"
+            aria-hidden
+          />
+
+          <div className="relative mx-auto px-4 sm:px-6 py-5 sm:py-8 container max-w-6xl">
+            <button
+              type="button"
+              onClick={() => setIsEditing(false)}
+              className="inline-flex items-center gap-1.5 mb-4 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
+              {t("Cancel")}
+            </button>
+
+            <div className="min-w-0 max-w-2xl text-start">
+              <Badge
+                variant="secondary"
+                className="mb-3 bg-primary/10 hover:bg-primary/10 border-primary/15 text-primary gap-1.5"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                {t("Edit Property")}
+              </Badge>
+              <h1 className="font-outfit font-extrabold text-foreground text-2xl sm:text-3xl tracking-tight">
+                {t("Edit Property")}
+              </h1>
+              <p className="mt-2 font-mono text-sm text-muted-foreground" dir="ltr">
+                {property.code}
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="container mx-auto px-4 max-w-6xl pt-6 sm:pt-8">
-          <div className="mb-6">
-            <h1 className="font-outfit text-2xl font-extrabold tracking-tight">{t("Edit Property")}</h1>
-            <p className="mt-1 font-mono text-sm text-muted-foreground" dir="ltr">
-              {property.code}
-            </p>
-          </div>
+        </section>
+
+        <div className="mx-auto px-4 sm:px-6 py-5 sm:py-7 container max-w-6xl">
           <PropertyForm
             mode="edit"
             property={property}
@@ -209,11 +248,10 @@ export default function PropertyDetailView({ propertyId }: Props) {
   const hero = activeImage ?? images[0] ?? null;
   const isRent = property.listing_type === "Rent";
   const title = primary(property.title, property.title_ar);
-  const titleAlt = secondary(property.title, property.title_ar);
   const description = primary(property.description, property.description_ar);
-  const descriptionAlt = secondary(property.description, property.description_ar);
   const amenities = property.amenities ?? [];
-  const features = property.features ?? [];
+  const videoUrls = (property.video_urls ?? []).filter(Boolean);
+  const floorPlanUrls = (property.floor_plan_urls ?? []).filter(Boolean);
 
   const locationParts = [
     property.city,
@@ -289,6 +327,38 @@ export default function PropertyDetailView({ propertyId }: Props) {
 
   const agentPhone = property.employee?.employee_record?.phone;
   const agentEmail = property.employee?.employee_record?.email;
+  const employeeRecord = (() => {
+    const raw = property.employee?.employee_record as
+      | NonNullable<typeof property.employee>["employee_record"]
+      | NonNullable<typeof property.employee>["employee_record"][]
+      | null
+      | undefined;
+    if (!raw) return null;
+    return Array.isArray(raw) ? raw[0] ?? null : raw;
+  })();
+  const agentName = titleCaseName(
+    employeeDisplayName(employeeRecord, language, property.employee?.name) ||
+      property.employee?.name ||
+      "",
+  );
+  const ownerName = titleCaseName((() => {
+    const owner = property.owner;
+    if (!owner) return "";
+    if (language === "ar") {
+      return (
+        owner.name_ar?.trim() ||
+        owner.name_en?.trim() ||
+        owner.name?.trim() ||
+        ""
+      );
+    }
+    return (
+      owner.name_en?.trim() ||
+      owner.name_ar?.trim() ||
+      owner.name?.trim() ||
+      ""
+    );
+  })());
   const hasSideThumbs = images.length > 1;
 
   return (
@@ -329,18 +399,13 @@ export default function PropertyDetailView({ propertyId }: Props) {
       </div>
 
       <div className="container mx-auto px-4 max-w-6xl pt-6 sm:pt-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-7">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-7 lg:items-start">
           {/* ===================== MAIN ===================== */}
           <div className="lg:col-span-8 space-y-5">
             {/* Gallery + overview as one composition */}
             <div className="rounded-2xl border border-border/70 bg-card overflow-hidden">
               {/* Media */}
-              <div
-                className={cn(
-                  "grid gap-1.5 bg-muted/40 p-1.5",
-                  hasSideThumbs ? "sm:grid-cols-[1fr_5.5rem]" : "",
-                )}
-              >
+              <div className="bg-muted/40 p-1.5 space-y-1.5">
                 <div className="relative aspect-[16/10] sm:aspect-[16/9] overflow-hidden rounded-xl bg-muted">
                   {hero ? (
                     <img src={hero} alt={title} className="absolute inset-0 h-full w-full object-cover" />
@@ -382,14 +447,14 @@ export default function PropertyDetailView({ propertyId }: Props) {
                 </div>
 
                 {hasSideThumbs && (
-                  <div className="hidden sm:flex flex-col gap-1.5 overflow-y-auto max-h-[min(100%,28rem)]">
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
                     {images.map((url, idx) => (
                       <button
                         key={`${url}-${idx}`}
                         type="button"
                         onClick={() => setActiveImage(url)}
                         className={cn(
-                          "relative aspect-square shrink-0 overflow-hidden rounded-lg transition-all",
+                          "relative h-16 w-20 sm:h-[4.5rem] sm:w-24 shrink-0 overflow-hidden rounded-lg transition-all",
                           hero === url
                             ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
                             : "opacity-70 hover:opacity-100",
@@ -401,25 +466,6 @@ export default function PropertyDetailView({ propertyId }: Props) {
                   </div>
                 )}
               </div>
-
-              {/* Mobile thumbs */}
-              {hasSideThumbs && (
-                <div className="flex sm:hidden gap-1.5 px-1.5 pb-1.5 overflow-x-auto">
-                  {images.map((url, idx) => (
-                    <button
-                      key={`m-${url}-${idx}`}
-                      type="button"
-                      onClick={() => setActiveImage(url)}
-                      className={cn(
-                        "relative h-14 w-20 shrink-0 overflow-hidden rounded-lg",
-                        hero === url ? "ring-2 ring-primary" : "opacity-70",
-                      )}
-                    >
-                      <img src={url} alt="" className="h-full w-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {/* Overview body */}
               <div className="p-5 sm:p-6 space-y-4">
@@ -441,27 +487,31 @@ export default function PropertyDetailView({ propertyId }: Props) {
                   <h1 className="font-outfit text-2xl sm:text-[1.75rem] font-extrabold tracking-tight leading-snug text-foreground">
                     {title || property.code}
                   </h1>
-                  {titleAlt && (
-                    <p
-                      className="mt-1 text-sm text-muted-foreground"
-                      dir={language === "ar" ? "ltr" : "rtl"}
-                    >
-                      {titleAlt}
-                    </p>
-                  )}
                 </div>
 
                 <div className="flex flex-wrap items-end justify-between gap-3">
-                  <p
-                    className="font-outfit text-[1.75rem] sm:text-3xl font-bold text-primary tabular-nums tracking-tight"
-                    dir="ltr"
-                  >
-                    AED {Number(property.price).toLocaleString()}
-                    {isRent && property.rent_frequency ? (
-                      <span className="ms-1.5 text-sm font-medium text-muted-foreground">
-                        / {t(property.rent_frequency)}
+                  <p className="font-outfit text-[1.75rem] sm:text-3xl font-bold text-primary tabular-nums tracking-tight">
+                    {property.price != null && Number(property.price) > 0 ? (
+                      <bdi
+                        dir="ltr"
+                        className="inline-flex items-baseline gap-1.5"
+                      >
+                        <DirhamIcon
+                          className="relative top-px w-[0.85em] h-[0.85em]"
+                          title={t("AED")}
+                        />
+                        <span>{formatAedAmount(property.price)}</span>
+                        {isRent && property.rent_frequency ? (
+                          <span className="ms-0.5 text-sm font-medium text-muted-foreground">
+                            / {t(property.rent_frequency)}
+                          </span>
+                        ) : null}
+                      </bdi>
+                    ) : (
+                      <span className="text-lg font-semibold text-muted-foreground">
+                        {t("Price on request")}
                       </span>
-                    ) : null}
+                    )}
                   </p>
                 </div>
 
@@ -502,30 +552,32 @@ export default function PropertyDetailView({ propertyId }: Props) {
               </div>
             </div>
 
-            {/* Description */}
-            {(description || descriptionAlt) && (
+            {/* Description — current app language only */}
+            {description ? (
               <Section title={t("Description")}>
-                {description && (
-                  <p className="text-[15px] leading-relaxed text-foreground/80 whitespace-pre-line">
-                    {description}
-                  </p>
-                )}
-                {descriptionAlt && (
-                  <p
-                    className={cn(
-                      "text-[15px] leading-relaxed text-muted-foreground whitespace-pre-line",
-                      description ? "mt-4 pt-4 border-t border-border/50" : "",
-                    )}
-                    dir={language === "ar" ? "ltr" : "rtl"}
-                  >
-                    {descriptionAlt}
-                  </p>
-                )}
+                <div
+                  className="space-y-3.5 text-start"
+                  dir={language === "ar" ? "rtl" : "ltr"}
+                >
+                  {description
+                    .trim()
+                    .split(/\n\s*\n/)
+                    .map((block) => block.replace(/\n+/g, " ").trim())
+                    .filter(Boolean)
+                    .map((paragraph, index) => (
+                      <p
+                        key={index}
+                        className="text-[15px] leading-[1.85] text-foreground/80 text-justify [text-align-last:start]"
+                      >
+                        {paragraph}
+                      </p>
+                    ))}
+                </div>
               </Section>
-            )}
+            ) : null}
 
             {/* Amenities */}
-            {(amenities.length > 0 || features.length > 0) && (
+            {amenities.length > 0 && (
               <Section title={t("Amenities")}>
                 <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
                   {amenities.map((slug) => (
@@ -536,15 +588,49 @@ export default function PropertyDetailView({ propertyId }: Props) {
                       <span>{t(amenityI18nKey(slug))}</span>
                     </li>
                   ))}
-                  {features.map((f) => (
-                    <li key={f} className="flex items-center gap-2.5 text-sm">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                        <Check className="w-3 h-3" strokeWidth={2.5} />
-                      </span>
-                      <span>{f}</span>
-                    </li>
-                  ))}
                 </ul>
+              </Section>
+            )}
+
+            {/* Video & Floor Plans (Bayut/dubizzle) */}
+            {(videoUrls.length > 0 || floorPlanUrls.length > 0) && (
+              <Section title={t("Property Video")}>
+                {videoUrls.length > 0 && (
+                  <ul className="space-y-2">
+                    {videoUrls.map((url) => (
+                      <li key={url}>
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          dir="ltr"
+                          className="inline-flex items-center gap-2 text-sm text-primary hover:underline break-all"
+                        >
+                          <Video className="w-4 h-4 shrink-0" />
+                          {url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {floorPlanUrls.length > 0 && (
+                  <div className={cn(videoUrls.length > 0 && "mt-4 pt-4 border-t border-border/50")}>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">{t("Floor Plans")}</p>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {floorPlanUrls.map((url) => (
+                        <a
+                          key={url}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg overflow-hidden border aspect-square block"
+                        >
+                          <img src={url} alt="" className="w-full h-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </Section>
             )}
 
@@ -616,15 +702,30 @@ export default function PropertyDetailView({ propertyId }: Props) {
             </Section>
 
             {/* Agent */}
-            {property.employee?.name && (
+            {agentName ? (
               <Section title={t("Listing Agent")} icon={User}>
                 <div className="flex items-center gap-3 mb-4">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-outfit text-base font-bold">
-                    {property.employee.name.charAt(0).toUpperCase()}
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-outfit text-base font-bold overflow-hidden">
+                    {employeeRecord?.avatar_url ? (
+                      <img
+                        src={employeeRecord.avatar_url}
+                        alt={agentName}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      agentName.charAt(0).toUpperCase()
+                    )}
                   </span>
                   <div className="min-w-0">
-                    <p className="font-semibold truncate leading-tight">{property.employee.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{t("Assigned Agent")}</p>
+                    <p
+                      className="font-semibold truncate leading-tight"
+                      dir="auto"
+                    >
+                      {agentName}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {t("Assigned Agent")}
+                    </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
@@ -675,12 +776,14 @@ export default function PropertyDetailView({ propertyId }: Props) {
                   })}
                 </div>
               </Section>
-            )}
+            ) : null}
 
             {/* Owner */}
-            {property.owner && (
+            {property.owner && ownerName ? (
               <Section title={t("Owner")}>
-                <p className="font-semibold">{property.owner.name}</p>
+                <p className="font-semibold" dir="auto">
+                  {ownerName}
+                </p>
                 {property.owner.phone && (
                   <a
                     href={`tel:${property.owner.phone}`}
@@ -692,7 +795,7 @@ export default function PropertyDetailView({ propertyId }: Props) {
                   </a>
                 )}
               </Section>
-            )}
+            ) : null}
 
             {/* Timeline */}
             <div className="rounded-2xl border border-border/70 bg-card p-5">

@@ -464,7 +464,6 @@ export default function ClientDetailView({
         <div className="bg-card shadow-sm p-4 border border-border/60 rounded-xl text-center">
           <div className="flex justify-center items-center bg-primary/10 mx-auto mb-3 rounded-full ring-4 ring-primary/5 w-14 h-14 font-outfit font-bold text-primary text-xl overflow-hidden">
             {employeeAvatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={employeeAvatarUrl}
                 alt={employeeName}
@@ -661,7 +660,6 @@ export default function ClientDetailView({
               )}
             >
               {currentAvatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={currentAvatarUrl}
                   alt={displayName}
@@ -1297,7 +1295,6 @@ export default function ClientDetailView({
                                             )}
                                           >
                                             <div className="relative rounded-lg w-14 h-14 sm:w-16 sm:h-16 overflow-hidden bg-muted shrink-0 ring-1 ring-border/50">
-                                              {/* eslint-disable-next-line @next/next/no-img-element */}
                                               <img
                                                 src={imageUrl}
                                                 alt={title}

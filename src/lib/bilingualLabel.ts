@@ -12,9 +12,26 @@ export function bilingualLabel(
 ): string {
   if (!item) return "";
   if (language === "ar") {
-    return item.name_ar || item.name_en || item.name || "";
+    return titleCaseName(item.name_ar || item.name_en || item.name || "");
   }
-  return item.name_en || item.name_ar || item.name || "";
+  return titleCaseName(item.name_en || item.name_ar || item.name || "");
+}
+
+export type CompanyNameParts = {
+  company_name_en?: string | null;
+  company_name_ar?: string | null;
+};
+
+/** Company display name from bilingual company_name_en/company_name_ar. */
+export function companyDisplayName(
+  company: CompanyNameParts | null | undefined,
+  language: string,
+): string {
+  if (!company) return "";
+  return bilingualLabel(
+    { name_en: company.company_name_en, name_ar: company.company_name_ar },
+    language,
+  );
 }
 
 export type EmployeeNameParts = {
@@ -33,7 +50,7 @@ export function employeeDisplayName(
   language: string,
   fallback?: string | null,
 ): string {
-  if (!record) return fallback?.trim() || "";
+  if (!record) return titleCaseName(fallback?.trim() || "");
 
   const isAr = language === "ar";
   const first = isAr
@@ -44,5 +61,18 @@ export function employeeDisplayName(
     : record.last_name_en || record.last_name_ar || record.last_name;
 
   const full = [first, last].filter(Boolean).join(" ").trim();
-  return full || fallback?.trim() || "";
+  return titleCaseName(full || fallback?.trim() || "");
+}
+
+/** Capitalize the first character of each word (safe for Arabic — no case change). */
+export function titleCaseName(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(
+      (part) =>
+        part.charAt(0).toLocaleUpperCase() + part.slice(1).toLocaleLowerCase(),
+    )
+    .join(" ");
 }

@@ -79,7 +79,7 @@ export default function SubscriptionRenewalForm({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            Renew subscription for {company?.company_name}
+            Renew subscription for {company?.company_name_en}
           </DialogTitle>
         </DialogHeader>
         <Form {...form}>

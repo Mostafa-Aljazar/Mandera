@@ -1,3 +1,9 @@
+> **Archived — historical record only.** Covers the Next.js App Router port while the backend was
+> **still PocketBase** and the frontend **still plain JS/JSX** (no TypeScript, no TanStack Query).
+> Both changed in the later Supabase migration — see [`SUPABASE_MIGRATION_PLAN.md`](SUPABASE_MIGRATION_PLAN.md)
+> / [`SUPABASE_MIGRATION_STATUS.md`](SUPABASE_MIGRATION_STATUS.md) for that transition, and
+> [`CLAUDE.md`](../../CLAUDE.md) at the repo root for the current, accurate architecture.
+
 # Mandera CRM — Architecture Reference V2 (Next.js Frontend)
 
 This is the updated architecture doc reflecting the frontend migration from **Vite + React + react-router-dom** to **Next.js App Router**. The original doc, [PROJECT_ARCHITECTURE.md](PROJECT_ARCHITECTURE.md), remains as a historical record of the pre-migration Vite SPA — refer to it for the backend/PocketBase sections (unchanged) and for context on what changed and why.

@@ -14,8 +14,9 @@ import {
   Cell,
 } from "recharts";
 import { useClientsBySource } from "@/hooks/queries/useClients";
-import { ChartColumn, Filter, TrendingUp } from "lucide-react";
+import { ChartColumn, Filter, TrendingUp, CalendarRange } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DatePicker } from "@/components/ui/date-picker";
 
 const CHART_COLORS = [
   "hsl(192 85% 30%)",
@@ -42,6 +43,8 @@ export default function ClientsBySourceWidget({
 }: ClientsBySourceWidgetProps) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState("this_month");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   const PERIODS = useMemo(
     () => [
@@ -50,6 +53,7 @@ export default function ClientsBySourceWidget({
       { id: "this_week", label: t("This Week") },
       { id: "this_month", label: t("This Month") },
       { id: "this_year", label: t("This Year") },
+      { id: "custom", label: t("Custom Range") },
     ],
     [t],
   );
@@ -60,6 +64,12 @@ export default function ClientsBySourceWidget({
     let end = new Date();
 
     switch (selectedPeriod) {
+      case "custom": {
+        if (!customFrom || !customTo) return null;
+        start = new Date(`${customFrom}T00:00:00`);
+        end = new Date(`${customTo}T23:59:59.999`);
+        break;
+      }
       case "today":
         start.setHours(0, 0, 0, 0);
         end.setHours(23, 59, 59, 999);
@@ -105,11 +115,14 @@ export default function ClientsBySourceWidget({
     };
   }
 
-  const { startStr, endStr } = getDateRange(period);
-  const { data: sourceData, isLoading } = useClientsBySource(companyId, {
-    createdFrom: startStr,
-    createdTo: endStr,
-  });
+  const dateRange = getDateRange(period);
+  const needsCustomRange = period === "custom" && !dateRange;
+  const { data: sourceData, isLoading } = useClientsBySource(
+    companyId,
+    dateRange
+      ? { createdFrom: dateRange.startStr, createdTo: dateRange.endStr }
+      : undefined,
+  );
 
   const data = useMemo(() => {
     const rows = [...(sourceData ?? [])].sort((a, b) => b.count - a.count);
@@ -188,27 +201,61 @@ export default function ClientsBySourceWidget({
           </div>
         </div>
 
-        <div className="flex gap-1 bg-muted/50 p-1 border border-border/60 rounded-full w-full sm:w-auto overflow-x-auto shrink-0">
-          {PERIODS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setPeriod(p.id)}
-              className={cn(
-                "px-3 py-1.5 rounded-full font-medium text-xs whitespace-nowrap transition-colors",
-                period === p.id
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex flex-col items-end gap-2.5 w-full sm:w-auto shrink-0">
+          <div className="flex gap-1 bg-muted/50 p-1 border border-border/60 rounded-full w-full sm:w-auto overflow-x-auto">
+            {PERIODS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPeriod(p.id)}
+                className={cn(
+                  "flex items-center gap-1 px-3 py-1.5 rounded-full font-medium text-xs whitespace-nowrap transition-colors",
+                  period === p.id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {p.id === "custom" && <CalendarRange className="w-3.5 h-3.5" />}
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {period === "custom" && (
+            <div className="flex sm:flex-row flex-col items-stretch sm:items-center gap-2 w-full sm:w-auto">
+              <DatePicker
+                value={customFrom}
+                onChange={setCustomFrom}
+                max={customTo || undefined}
+                placeholder={t("From Date")}
+                className="sm:w-40 h-9 text-xs"
+              />
+              <DatePicker
+                value={customTo}
+                onChange={setCustomTo}
+                min={customFrom || undefined}
+                placeholder={t("To Date")}
+                className="sm:w-40 h-9 text-xs"
+              />
+            </div>
+          )}
         </div>
       </div>
 
       <div className="relative p-4 sm:p-6">
-        {isLoading ? (
+        {needsCustomRange ? (
+          <div className="flex flex-col justify-center items-center bg-muted/20 px-4 py-16 border border-border border-dashed rounded-xl text-center">
+            <span className="flex justify-center items-center bg-muted mb-4 border border-border/60 rounded-2xl w-14 h-14">
+              <CalendarRange className="opacity-60 w-6 h-6 text-muted-foreground" />
+            </span>
+            <p className="font-medium text-foreground">
+              {t("Select a date range")}
+            </p>
+            <p className="mt-1.5 max-w-sm text-muted-foreground text-sm leading-relaxed">
+              {t("Pick both a from and a to date above to see results.")}
+            </p>
+          </div>
+        ) : isLoading ? (
           <div className="space-y-4">
             <div className="gap-3 grid grid-cols-3">
               {[1, 2, 3].map((i) => (

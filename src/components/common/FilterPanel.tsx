@@ -54,10 +54,22 @@ const DatePickerPopover = ({ date, setDate, label }: DatePickerPopoverProps) => 
 };
 
 interface FilterPanelProps {
-  statuses?: Array<{ id: string } & BilingualName>;
+  statuses?: Array<{ id: string } & BilingualName & { name?: string }>;
   marketingChannels?: Array<{ id: string; name: string }>;
   areas?: Array<{ id: string; name: string }>;
   showPriceFilters?: boolean;
+  /** Applied filter values used to hydrate the panel when it opens. */
+  initialValues?: {
+    statusId?: string | null;
+    marketingChannel?: string | null;
+    areas?: string[];
+    createdFromDate?: Date | null;
+    createdToDate?: Date | null;
+    updatedFromDate?: Date | null;
+    updatedToDate?: Date | null;
+    minPrice?: string;
+    maxPrice?: string;
+  };
   onApplyFilters: (filters: Record<string, unknown>) => void;
   onClearFilters: () => void;
   onPriceChange?: (prices: { minPrice: string; maxPrice: string }) => void;
@@ -68,22 +80,23 @@ export default function FilterPanel({
   marketingChannels = [],
   areas = [],
   showPriceFilters = false,
+  initialValues,
   onApplyFilters,
   onClearFilters,
   onPriceChange
 }: FilterPanelProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
-  const [statusId, setStatusId] = useState('');
-  const [marketingChannel, setMarketingChannel] = useState('');
-  const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
-  const [createdFromDate, setCreatedFromDate] = useState<Date | null>(null);
-  const [createdToDate, setCreatedToDate] = useState<Date | null>(null);
-  const [updatedFromDate, setUpdatedFromDate] = useState<Date | null>(null);
-  const [updatedToDate, setUpdatedToDate] = useState<Date | null>(null);
+  const [statusId, setStatusId] = useState(initialValues?.statusId || 'all');
+  const [marketingChannel, setMarketingChannel] = useState(initialValues?.marketingChannel || 'all');
+  const [selectedAreas, setSelectedAreas] = useState<string[]>(initialValues?.areas || []);
+  const [createdFromDate, setCreatedFromDate] = useState<Date | null>(initialValues?.createdFromDate || null);
+  const [createdToDate, setCreatedToDate] = useState<Date | null>(initialValues?.createdToDate || null);
+  const [updatedFromDate, setUpdatedFromDate] = useState<Date | null>(initialValues?.updatedFromDate || null);
+  const [updatedToDate, setUpdatedToDate] = useState<Date | null>(initialValues?.updatedToDate || null);
 
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
+  const [minPrice, setMinPrice] = useState(initialValues?.minPrice || '');
+  const [maxPrice, setMaxPrice] = useState(initialValues?.maxPrice || '');
 
   useEffect(() => {
     if (onPriceChange) {
@@ -126,14 +139,14 @@ export default function FilterPanel({
       createdToDate,
       updatedFromDate,
       updatedToDate,
-      minPrice,
-      maxPrice
+      minPrice: minPrice || null,
+      maxPrice: maxPrice || null,
     });
   };
 
   const handleClear = () => {
-    setStatusId('');
-    setMarketingChannel('');
+    setStatusId('all');
+    setMarketingChannel('all');
     setSelectedAreas([]);
     setCreatedFromDate(null);
     setCreatedToDate(null);
@@ -196,14 +209,16 @@ export default function FilterPanel({
               {statuses.length > 0 && (
                 <div className="flex flex-col space-y-1.5">
                   <Label className="font-medium text-muted-foreground text-xs">{t('Current Status')}</Label>
-                  <Select value={statusId} onValueChange={setStatusId}>
+                  <Select value={statusId || 'all'} onValueChange={setStatusId}>
                     <SelectTrigger className="bg-background w-full h-10">
                       <SelectValue placeholder={t('All Current Statuses')} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">{t('All Current Statuses')}</SelectItem>
                       {statuses.map(s => (
-                        <SelectItem key={s.id} value={s.id}>{bilingualLabel(s, language)}</SelectItem>
+                        <SelectItem key={s.id} value={s.id}>
+                          {bilingualLabel(s, language) || (s as { name?: string }).name || s.id}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -213,7 +228,7 @@ export default function FilterPanel({
               {marketingChannels.length > 0 && (
                 <div className="flex flex-col space-y-1.5">
                   <Label className="font-medium text-muted-foreground text-xs">{t('Marketing Channel')}</Label>
-                  <Select value={marketingChannel} onValueChange={setMarketingChannel}>
+                  <Select value={marketingChannel || 'all'} onValueChange={setMarketingChannel}>
                     <SelectTrigger className="bg-background w-full h-10">
                       <SelectValue placeholder={t('All Channels')} />
                     </SelectTrigger>

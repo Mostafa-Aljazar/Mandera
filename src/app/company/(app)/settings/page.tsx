@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
+import GeneralSettingsTab from "@/components/company/settings/GeneralSettingsTab";
 import OwnerStatusesTab from "@/components/company/settings/OwnerStatusesTab";
 import AreasDistrictsTab from "@/components/company/settings/AreasDistrictsTab";
 import MarketingChannelsTab from "@/components/company/settings/MarketingChannelsTab";
@@ -95,6 +96,7 @@ import {
 } from "@/hooks/queries/useSettings";
 
 const SETTINGS_TABS = [
+  "general",
   "employees",
   "property-types",
   "client-statuses",
@@ -144,6 +146,7 @@ const SettingsPage = () => {
   };
 
   const navItems: { value: SettingsTab; label: string; icon: LucideIcon }[] = [
+    { value: "general", label: t("General"), icon: Settings2 },
     { value: "employees", label: t("Employees"), icon: Users },
     { value: "property-types", label: t("Property Types"), icon: Building2 },
     { value: "client-statuses", label: t("Client Status"), icon: ListChecks },
@@ -595,7 +598,7 @@ const SettingsPage = () => {
             </div>
 
             {/* Desktop sidebar */}
-            <aside className="hidden lg:block lg:sticky lg:top-24">
+            <aside className="hidden lg:block">
               <nav
                 aria-label={t("Settings")}
                 className="bg-card shadow-[var(--shadow-subtle)] p-2 border border-border/60 rounded-2xl"
@@ -986,6 +989,7 @@ const SettingsPage = () => {
                 </SettingsSection>
               )}
 
+              {activeTab === "general" && <GeneralSettingsTab />}
               {activeTab === "owner-statuses" && <OwnerStatusesTab />}
               {activeTab === "areas-districts" && <AreasDistrictsTab />}
               {activeTab === "marketing-channels" && <MarketingChannelsTab />}

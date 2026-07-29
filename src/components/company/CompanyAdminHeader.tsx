@@ -28,6 +28,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { companyDisplayName } from "@/lib/bilingualLabel";
 import type { LucideIcon } from "lucide-react";
 
 const LOGO_URL =
@@ -140,9 +141,16 @@ export default function CompanyAdminHeader() {
               </Link>
 
               {company ? (
-                <div className="hidden md:block ps-3 border-border/60 border-s min-w-0">
+                <div className="hidden md:flex items-center gap-2 ps-3 border-border/60 border-s min-w-0">
+                  {company.logo_url ? (
+                    <img
+                      src={company.logo_url}
+                      alt={companyDisplayName(company, language)}
+                      className="rounded-md w-7 h-7 object-cover shrink-0"
+                    />
+                  ) : null}
                   <p className="font-medium text-foreground/80 text-sm truncate max-w-[12rem] lg:max-w-[16rem]">
-                    {company.company_name}
+                    {companyDisplayName(company, language)}
                   </p>
                 </div>
               ) : null}
@@ -233,8 +241,15 @@ export default function CompanyAdminHeader() {
                   {t("platformName")}
                 </p>
                 {company ? (
-                  <p className="mt-0.5 font-medium text-muted-foreground text-sm truncate">
-                    {company.company_name}
+                  <p className="flex items-center gap-1.5 mt-0.5 font-medium text-muted-foreground text-sm truncate">
+                    {company.logo_url ? (
+                      <img
+                        src={company.logo_url}
+                        alt=""
+                        className="rounded w-4 h-4 object-cover shrink-0"
+                      />
+                    ) : null}
+                    <span className="truncate">{companyDisplayName(company, language)}</span>
                   </p>
                 ) : null}
                 {currentUser?.name ? (

@@ -25,6 +25,10 @@ import {
 } from "@/actions/settings";
 import { getCompanyEmployees } from "@/actions/employees";
 import { getAreasDistrictsForCompany } from "@/actions/properties";
+import {
+  updateCompanyGeneralSettings,
+  type UpdateCompanyGeneralSettingsInput,
+} from "@/actions/company-settings";
 
 // --- Property Types ---
 
@@ -332,5 +336,18 @@ export function useSettingsEmployees(companyId?: string) {
       return result.data;
     },
     enabled: !!companyId,
+  });
+}
+
+// --- General Settings (company self-service) ---
+
+export function useUpdateCompanyGeneralSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateCompanyGeneralSettingsInput) => updateCompanyGeneralSettings(input),
+    onSuccess: (result, variables) => {
+      if (result.error) return;
+      queryClient.invalidateQueries({ queryKey: ["company", variables.companyId] });
+    },
   });
 }

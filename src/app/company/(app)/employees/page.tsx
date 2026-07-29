@@ -177,7 +177,7 @@ const EmployeeListPage = () => {
     isLoading,
     refetch,
   } = useCompanyEmployees(isSuperAdmin ? company?.id : undefined);
-  const employees = employeesData ?? [];
+  const employees = useMemo(() => employeesData ?? [], [employeesData]);
   const updateDisabledMutation = useUpdateEmployeeDisabled();
 
   useEffect(() => {

@@ -91,27 +91,34 @@ export async function getClients(
   if (filters.updatedFrom) query = query.gte("updated_at", filters.updatedFrom);
   if (filters.updatedTo) query = query.lte("updated_at", filters.updatedTo);
 
-  let { data, error } = await query;
+  const { data, error } = await query;
   if (error) return { error: error.message };
   let clients = (data ?? []) as unknown as ClientWithRelations[];
 
   if (filters.statusId) {
+    // Prefer the synced clients.status_id column; fall back to latest
+    // history entry for legacy rows where status_id was never set.
     const { data: histMatches, error: histError } = await supabase
       .from("client_status_history")
-      .select("client_id")
+      .select("client_id, status_id")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
 
     if (histError) return { error: histError.message };
 
-    const latestStatusMap = new Map<string, string | null>();
-    (histMatches ?? []).forEach((h: any) => {
-      if (!latestStatusMap.has(h.client_id)) {
-        latestStatusMap.set(h.client_id, h.status_id);
-      }
-    });
+    const latestFromHistory = new Map<string, string | null>();
+    (histMatches ?? []).forEach(
+      (h: { client_id: string; status_id: string | null }) => {
+        if (!latestFromHistory.has(h.client_id)) {
+          latestFromHistory.set(h.client_id, h.status_id);
+        }
+      },
+    );
 
-    clients = clients.filter((c) => latestStatusMap.get(c.id) === filters.statusId);
+    clients = clients.filter((c) => {
+      const currentStatus = c.status_id ?? latestFromHistory.get(c.id) ?? null;
+      return currentStatus === filters.statusId;
+    });
   }
 
   return { data: clients };
@@ -259,6 +266,21 @@ export interface BulkAssignInput {
   createdByName: string;
 }
 
+export async function bulkDeleteClients(
+  clientIds: string[],
+  companyId: string,
+): Promise<ActionResult<{ deleted: number }>> {
+  if (clientIds.length === 0) return { error: "No clients to delete." };
+  const supabase = await getServerSupabase();
+  const { error, count } = await supabase
+    .from("clients")
+    .delete({ count: "exact" })
+    .in("id", clientIds)
+    .eq("company_id", companyId);
+  if (error) return { error: error.message };
+  return { data: { deleted: count ?? clientIds.length } };
+}
+
 export async function bulkAssignClients(
   input: BulkAssignInput,
 ): Promise<ActionResult<null>> {
@@ -306,60 +328,64 @@ export async function bulkAssignClients(
   return { data: null };
 }
 
-export interface ClientExportRow {
-  id: string;
-  name: string;
-  phone: string;
-  employee_name: string | null;
-  marketing_channel: string | null;
-  status_name: string | null;
-  created_at: string;
+const MAX_BULK_IMPORT_ROWS = 1000;
+
+/** Returns which of the given phone numbers already belong to an existing client. */
+export async function checkExistingClientPhones(
+  companyId: string,
+  phones: string[],
+): Promise<ActionResult<string[]>> {
+  if (phones.length === 0) return { data: [] };
+  const supabase = await getServerSupabase();
+  const { data, error } = await supabase
+    .from("clients")
+    .select("phone")
+    .eq("company_id", companyId)
+    .in("phone", phones);
+  if (error) return { error: error.message };
+  return { data: (data ?? []).map((row) => row.phone) };
 }
 
-export async function getClientsExportData(
+export interface BulkCreateClientRow {
+  name_en: string;
+  name_ar: string;
+  phone: string;
+  country_code: string;
+  interest_type: string;
+  employee_id: string;
+  marketing_channel: string | null;
+}
+
+export async function bulkCreateClients(
   companyId: string,
-): Promise<ActionResult<ClientExportRow[]>> {
+  rows: BulkCreateClientRow[],
+): Promise<ActionResult<{ inserted: number }>> {
+  if (rows.length === 0) return { error: "No rows to import." };
+  if (rows.length > MAX_BULK_IMPORT_ROWS) {
+    return { error: `Cannot import more than ${MAX_BULK_IMPORT_ROWS} rows at once.` };
+  }
+
   const supabase = await getServerSupabase();
-
-  const [{ data: clients, error: clientsError }, { data: histories, error: histError }, { data: profiles, error: profilesError }] =
-    await Promise.all([
-      supabase.from("clients").select("*").eq("company_id", companyId),
-      supabase
-        .from("client_status_history")
-        .select("*, status:client_statuses(id, name_en, name_ar)")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false }),
-      supabase.from("profiles").select("id, name").eq("company_id", companyId),
-    ]);
-
-  if (clientsError) return { error: clientsError.message };
-  if (histError) return { error: histError.message };
-  if (profilesError) return { error: profilesError.message };
-
-  const statusMap = new Map<string, string>();
-  (histories ?? []).forEach((h: any) => {
-    if (!statusMap.has(h.client_id)) {
-      statusMap.set(
-        h.client_id,
-        h.status?.name_en ?? h.status?.name_ar ?? "",
-      );
-    }
+  const payload = rows.map((row) => {
+    const nameEn = row.name_en.trim();
+    return {
+      name: nameEn,
+      name_en: nameEn,
+      name_ar: row.name_ar.trim(),
+      phone: row.phone,
+      country_code: row.country_code,
+      interest_type: row.interest_type,
+      interested_properties: [],
+      employee_id: row.employee_id,
+      marketing_channel: row.marketing_channel || null,
+      company_id: companyId,
+      avatar_url: null,
+    };
   });
 
-  const profileNameMap = new Map<string, string>();
-  (profiles ?? []).forEach((p) => profileNameMap.set(p.id, p.name ?? ""));
-
-  const rows: ClientExportRow[] = (clients ?? []).map((c) => ({
-    id: c.id,
-    name: c.name,
-    phone: c.phone,
-    employee_name: c.employee_id ? profileNameMap.get(c.employee_id) ?? null : null,
-    marketing_channel: c.marketing_channel,
-    status_name: statusMap.get(c.id) ?? null,
-    created_at: c.created_at,
-  }));
-
-  return { data: rows };
+  const { data, error } = await supabase.from("clients").insert(payload).select("id");
+  if (error) return { error: error.message };
+  return { data: { inserted: data?.length ?? 0 } };
 }
 
 export interface ClientsBySourceFilters {

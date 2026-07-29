@@ -122,7 +122,6 @@ export default function PropertyCard({ property, onView }: PropertyCardProps) {
       )}
     >
       <div className="relative bg-muted aspect-[16/10] overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageUrl}
           alt={title}
@@ -240,7 +239,6 @@ export default function PropertyCard({ property, onView }: PropertyCardProps) {
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="relative flex justify-center items-center bg-primary/10 rounded-full w-9 h-9 font-semibold text-primary text-xs shrink-0 overflow-hidden ring-1 ring-primary/15">
               {employeeAvatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={employeeAvatar}
                   alt={employeeName}

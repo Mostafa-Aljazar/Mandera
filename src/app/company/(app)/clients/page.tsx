@@ -11,7 +11,7 @@ import {
   useClients,
   useClientStatuses,
   useBulkAssignClients,
-  getClientsExportData,
+  useBulkDeleteClients,
 } from "@/hooks/queries/useClients";
 import { useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
 import { useMarketingChannels } from "@/hooks/queries/useOwners";
@@ -20,7 +20,11 @@ import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import ClientCard from "@/components/company/clients/ClientCard";
 import FilterPanel from "@/components/common/FilterPanel";
 import FilterChips from "@/components/common/FilterChips";
+import SelectionCountBadge from "@/components/common/SelectionCountBadge";
 import BulkAssignModal from "@/components/common/BulkAssignModal";
+import ImportClientsDialog from "@/components/company/clients/ImportClientsDialog";
+import ExportClientsDialog from "@/components/company/clients/ExportClientsDialog";
+import DeleteClientsDialog from "@/components/company/clients/DeleteClientsDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,15 +47,16 @@ import {
   Key,
   Filter,
   Download,
+  Upload,
   Search,
   ChevronLeft,
   ChevronRight,
   CalendarClock,
+  Trash2,
 } from "lucide-react";
-import { format, isBefore } from "date-fns";
+import { isBefore } from "date-fns";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { generateCSV, downloadCSV } from "@/utils/csvExport";
 import type { ClientWithRelations as Client } from "@/types/supabase-entities.types";
 
 const PAGE_SIZE = 9;
@@ -183,6 +188,10 @@ const ClientsPage = () => {
 
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [page, setPage] = useState(1);
 
   const clientFilters = {
@@ -226,15 +235,19 @@ const ClientsPage = () => {
     company?.id,
     clientFilters,
   );
-  const clients = clientsData ?? [];
+  const clients = useMemo(() => clientsData ?? [], [clientsData]);
   const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
-  const employees = employeesData ?? [];
+  const employees = useMemo(() => employeesData ?? [], [employeesData]);
   const { data: statusesData } = useClientStatuses(company?.id);
-  const statuses = statusesData ?? [];
+  const statuses = useMemo(() => statusesData ?? [], [statusesData]);
   const { data: marketingChannelsData } = useMarketingChannels(company?.id);
-  const marketingChannels = marketingChannelsData ?? [];
+  const marketingChannels = useMemo(
+    () => marketingChannelsData ?? [],
+    [marketingChannelsData],
+  );
 
   const bulkAssignMutation = useBulkAssignClients();
+  const bulkDeleteMutation = useBulkDeleteClients();
 
   const openClient = (client: Client | null = null) => {
     if (client?.id) {
@@ -331,44 +344,6 @@ const ClientsPage = () => {
   );
   const pageNumbers = getPageNumbers(currentPage, totalPages);
 
-  const handleExportCSV = async () => {
-    if (clients.length === 0) {
-      toast.info(t("No data to export"));
-      return;
-    }
-
-    const loadingToast = toast.loading(t("Exporting CSV..."));
-    try {
-      const result = await getClientsExportData(company!.id);
-      if (result.error) throw new Error(result.error);
-      const rows = result.data;
-
-      const headers = [
-        "اسم العميل",
-        "رقم الهاتف",
-        "الموظف المسؤول",
-        "قناة التسويق",
-        "الحالة",
-        "تاريخ الإنشاء",
-      ];
-      const columns = [
-        (c: (typeof rows)[number]) => c.name || "",
-        (c: (typeof rows)[number]) => c.phone || "",
-        (c: (typeof rows)[number]) => c.employee_name || "غير مسند",
-        (c: (typeof rows)[number]) => c.marketing_channel || "",
-        (c: (typeof rows)[number]) => c.status_name || "بدون حالة",
-        (c: (typeof rows)[number]) =>
-          c.created_at ? format(new Date(c.created_at), "dd/MM/yyyy") : "",
-      ];
-
-      const csvString = generateCSV(rows, columns, headers);
-      downloadCSV(csvString, `clients_${format(new Date(), "yyyy-MM-dd")}.csv`);
-      toast.success(t("Exported successfully"), { id: loadingToast });
-    } catch (err) {
-      console.error(err);
-      toast.error(t("Export error"), { id: loadingToast });
-    }
-  };
 
   const handleRemoveFilter = (key: keyof ClientFilterState) => {
     setFilterState((prev) => ({ ...prev, [key]: null }));
@@ -381,15 +356,10 @@ const ClientsPage = () => {
   };
 
   const toggleSelectAll = (checked: boolean | "indeterminate") => {
-    if (checked === true) {
-      setSelectedClientIds((prev) => {
-        const next = new Set(prev);
-        paginatedClients.forEach((c) => next.add(c.id));
-        return Array.from(next);
-      });
+    if (checked) {
+      setSelectedClientIds(currentListings.map((c) => c.id));
     } else {
-      const pageIds = new Set(paginatedClients.map((c) => c.id));
-      setSelectedClientIds((prev) => prev.filter((id) => !pageIds.has(id)));
+      setSelectedClientIds([]);
     }
   };
 
@@ -425,6 +395,32 @@ const ClientsPage = () => {
           "An error occurred during bulk assignment. Some clients may not have been updated.",
         ),
       );
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!company?.id) return;
+    setIsDeleting(true);
+    try {
+      const result = await bulkDeleteMutation.mutateAsync({
+        clientIds: selectedClientIds,
+        companyId: company.id,
+      });
+      if (result.error) throw new Error(result.error);
+      toast.success(
+        selectedClientIds.length === 1
+          ? t("Client deleted successfully.")
+          : t("{{count}} clients deleted successfully.", {
+              count: selectedClientIds.length,
+            }),
+      );
+      setSelectedClientIds([]);
+      setIsDeleteDialogOpen(false);
+    } catch (err) {
+      console.error(err);
+      toast.error(t("Error deleting clients."));
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -487,6 +483,8 @@ const ClientsPage = () => {
             <ClientCard
               key={c.id}
               client={c}
+              employees={employees}
+              companyId={company?.id}
               isSelected={selectedClientIds.includes(c.id)}
               onSelect={toggleClientSelection}
             />
@@ -596,28 +594,53 @@ const ClientsPage = () => {
 
               <div className="hidden sm:flex flex-wrap items-center gap-2 shrink-0">
                 {selectedClientIds.length > 0 && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setIsBulkModalOpen(true)}
-                    className="gap-2 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary rounded-xl h-10"
-                  >
-                    <Users className="w-4 h-4" />
-                    {t("Assign Selected")}
-                    <span className="bg-primary/15 px-1.5 rounded-md tabular-nums text-[11px]">
-                      {selectedClientIds.length}
-                    </span>
-                  </Button>
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsBulkModalOpen(true)}
+                      className="gap-2 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary rounded-xl h-10"
+                    >
+                      <Users className="w-4 h-4" />
+                      {t("Assign Selected")}
+                      <span className="bg-primary/15 px-1.5 rounded-md tabular-nums text-[11px]">
+                        {selectedClientIds.length}
+                      </span>
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsDeleteDialogOpen(true)}
+                      className="gap-2 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 text-destructive rounded-xl h-10"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      {t("Delete Selected")}
+                      <span className="bg-destructive/15 px-1.5 rounded-md tabular-nums text-[11px]">
+                        {selectedClientIds.length}
+                      </span>
+                    </Button>
+                  </>
                 )}
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleExportCSV}
+                  onClick={() => setIsExportDialogOpen(true)}
                   className="gap-2 rounded-xl h-10"
                 >
-                  <Download className="w-4 h-4" />
+                  <Upload className="w-4 h-4" />
                   {t("Export")}
                 </Button>
+                {currentUser?.role === "company_super_admin" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsImportDialogOpen(true)}
+                    className="gap-2 rounded-xl h-10"
+                  >
+                    <Download className="w-4 h-4" />
+                    {t("Import")}
+                  </Button>
+                )}
                 <Button
                   onClick={() => openClient(null)}
                   size="sm"
@@ -724,12 +747,22 @@ const ClientsPage = () => {
 
                   <Button
                     variant="outline"
-                    onClick={handleExportCSV}
+                    onClick={() => setIsExportDialogOpen(true)}
                     className="sm:hidden rounded-xl h-11"
                   >
-                    <Download className="w-4 h-4" />
+                    <Upload className="w-4 h-4" />
                     {t("Export")}
                   </Button>
+                  {currentUser?.role === "company_super_admin" && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsImportDialogOpen(true)}
+                      className="sm:hidden rounded-xl h-11"
+                    >
+                      <Download className="w-4 h-4" />
+                      {t("Import")}
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -740,8 +773,24 @@ const ClientsPage = () => {
                       <FilterPanel
                         statuses={statuses}
                         marketingChannels={marketingChannels}
+                        initialValues={filterState}
                         onApplyFilters={(filters) =>
-                          setFilterState((prev) => ({ ...prev, ...filters }))
+                          setFilterState((prev) => ({
+                            ...prev,
+                            statusId:
+                              (filters.statusId as string | null) ?? null,
+                            marketingChannel:
+                              (filters.marketingChannel as string | null) ??
+                              null,
+                            createdFromDate:
+                              (filters.createdFromDate as Date | null) ?? null,
+                            createdToDate:
+                              (filters.createdToDate as Date | null) ?? null,
+                            updatedFromDate:
+                              (filters.updatedFromDate as Date | null) ?? null,
+                            updatedToDate:
+                              (filters.updatedToDate as Date | null) ?? null,
+                          }))
                         }
                         onClearFilters={() =>
                           setFilterState((prev) => ({
@@ -826,10 +875,14 @@ const ClientsPage = () => {
                     <div className="flex items-center gap-2.5">
                       <Checkbox
                         checked={
-                          paginatedClients.length > 0 &&
-                          paginatedClients.every((c) =>
+                          currentListings.length > 0 &&
+                          currentListings.every((c) =>
                             selectedClientIds.includes(c.id),
                           )
+                            ? true
+                            : selectedClientIds.length > 0
+                              ? "indeterminate"
+                              : false
                         }
                         onCheckedChange={toggleSelectAll}
                         id="select-all-clients"
@@ -843,12 +896,12 @@ const ClientsPage = () => {
                     </div>
                     {selectedClientIds.length > 0 && (
                       <>
-                        <Badge
-                          variant="secondary"
-                          className="bg-primary/10 text-primary border-primary/15"
-                        >
-                          {t("Selected")} {selectedClientIds.length}
-                        </Badge>
+                        <SelectionCountBadge
+                          count={selectedClientIds.length}
+                          label={t("Selected")}
+                          onClear={() => setSelectedClientIds([])}
+                          clearLabel={t("Clear selection")}
+                        />
                         <Button
                           variant="secondary"
                           size="sm"
@@ -857,6 +910,15 @@ const ClientsPage = () => {
                         >
                           <Users className="w-3.5 h-3.5" />
                           {t("Assign Selected")}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setIsDeleteDialogOpen(true)}
+                          className="sm:hidden gap-1.5 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 text-destructive rounded-lg h-8"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          {t("Delete")}
                         </Button>
                       </>
                     )}
@@ -894,6 +956,39 @@ const ClientsPage = () => {
             employees={employees}
             statuses={statuses}
             selectedCount={selectedClientIds.length}
+          />
+
+          <DeleteClientsDialog
+            clientIds={selectedClientIds}
+            isOpen={isDeleteDialogOpen}
+            onClose={() => setIsDeleteDialogOpen(false)}
+            onConfirm={handleBulkDelete}
+            isDeleting={isDeleting}
+          />
+
+          {company?.id && (
+            <ImportClientsDialog
+              isOpen={isImportDialogOpen}
+              onClose={() => setIsImportDialogOpen(false)}
+              companyId={company.id}
+              employees={employees}
+              marketingChannels={marketingChannels.map((c) => c.name)}
+              language={language}
+            />
+          )}
+
+          <ExportClientsDialog
+            isOpen={isExportDialogOpen}
+            onClose={() => setIsExportDialogOpen(false)}
+            rows={
+              selectedClientIds.length > 0
+                ? currentListings.filter((c) => selectedClientIds.includes(c.id))
+                : currentListings
+            }
+            selectedCount={selectedClientIds.length}
+            employees={employees}
+            statuses={statuses}
+            language={language}
           />
         </div>
 

@@ -83,7 +83,9 @@ export async function getOwners(
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
 
-  if (filters.assignedEmployeeId) {
+  if (filters.assignedEmployeeId === "unassigned") {
+    query = query.is("assigned_employee_id", null);
+  } else if (filters.assignedEmployeeId) {
     query = query.eq("assigned_employee_id", filters.assignedEmployeeId);
   }
   if (filters.marketingChannel) {
@@ -94,16 +96,29 @@ export async function getOwners(
   if (filters.updatedFrom) query = query.gte("updated_at", filters.updatedFrom);
   if (filters.updatedTo) query = query.lte("updated_at", filters.updatedTo);
 
+  // Current status = latest owner_status_history row only (not any past status).
   if (filters.statusId) {
     const { data: histMatches, error: histError } = await supabase
       .from("owner_status_history")
-      .select("owner_id")
+      .select("owner_id, status_id")
       .eq("company_id", companyId)
-      .eq("status_id", filters.statusId);
+      .order("created_at", { ascending: false });
 
     if (histError) return { error: histError.message };
 
-    const matchedOwnerIds = [...new Set((histMatches ?? []).map((h) => h.owner_id))];
+    const latestStatusMap = new Map<string, string | null>();
+    (histMatches ?? []).forEach(
+      (h: { owner_id: string; status_id: string | null }) => {
+        if (!latestStatusMap.has(h.owner_id)) {
+          latestStatusMap.set(h.owner_id, h.status_id);
+        }
+      },
+    );
+
+    const matchedOwnerIds = [...latestStatusMap.entries()]
+      .filter(([, statusId]) => statusId === filters.statusId)
+      .map(([ownerId]) => ownerId);
+
     if (matchedOwnerIds.length === 0) return { data: [] };
     query = query.in("id", matchedOwnerIds);
   }
@@ -272,6 +287,21 @@ export async function deleteOwner(id: string): Promise<ActionResult<null>> {
   return { data: null };
 }
 
+export async function bulkDeleteOwners(
+  ownerIds: string[],
+  companyId: string,
+): Promise<ActionResult<{ deleted: number }>> {
+  if (ownerIds.length === 0) return { error: "No owners to delete." };
+  const supabase = await getServerSupabase();
+  const { error, count } = await supabase
+    .from("owners")
+    .delete({ count: "exact" })
+    .in("id", ownerIds)
+    .eq("company_id", companyId);
+  if (error) return { error: error.message };
+  return { data: { deleted: count ?? ownerIds.length } };
+}
+
 export async function bulkReassignOwners(
   ownerIds: string[],
   targetEmployeeId: string,
@@ -285,72 +315,137 @@ export async function bulkReassignOwners(
   return { data: null };
 }
 
-export interface OwnerExportRow {
-  id: string;
-  name: string;
-  phone: string;
-  assigned_employee_name: string | null;
-  marketing_channel: string | null;
-  status_name: string | null;
-  properties_count: number;
-  last_status_date: string | null;
-  created_at: string;
+const MAX_BULK_IMPORT_ROWS = 1000;
+
+/** Returns which of the given phone numbers already belong to an existing owner. */
+export async function checkExistingOwnerPhones(
+  companyId: string,
+  phones: string[],
+): Promise<ActionResult<string[]>> {
+  if (phones.length === 0) return { data: [] };
+  const supabase = await getServerSupabase();
+  const { data, error } = await supabase
+    .from("owners")
+    .select("phone")
+    .eq("company_id", companyId)
+    .in("phone", phones);
+  if (error) return { error: error.message };
+  return { data: (data ?? []).map((row) => row.phone) };
 }
 
-export async function getOwnersExportData(
+export interface BulkCreateOwnerRow {
+  name_en: string;
+  name_ar: string;
+  phone: string;
+  country: string;
+  assigned_employee_id: string | null;
+  marketing_channel: string | null;
+  /** Existing property ids to attach (properties.owner_id) once the owner is created. */
+  property_ids: string[];
+}
+
+export async function bulkCreateOwners(
   companyId: string,
-): Promise<ActionResult<OwnerExportRow[]>> {
+  rows: BulkCreateOwnerRow[],
+): Promise<ActionResult<{ inserted: number }>> {
+  if (rows.length === 0) return { error: "No rows to import." };
+  if (rows.length > MAX_BULK_IMPORT_ROWS) {
+    return { error: `Cannot import more than ${MAX_BULK_IMPORT_ROWS} rows at once.` };
+  }
+
+  const supabase = await getServerSupabase();
+  const payload = rows.map((row) => {
+    const nameEn = row.name_en.trim();
+    return {
+      name: nameEn,
+      name_en: nameEn,
+      name_ar: row.name_ar.trim(),
+      phone: row.phone,
+      country: row.country,
+      marketing_channel: row.marketing_channel || null,
+      assigned_employee_id: row.assigned_employee_id || null,
+      company_id: companyId,
+      avatar_url: null,
+    };
+  });
+
+  const { data, error } = await supabase.from("owners").insert(payload).select("id, phone");
+  if (error) return { error: error.message };
+
+  // Link each row's resolved existing properties to its newly-created owner.
+  // Matched by phone (guaranteed unique within the batch by the import parser).
+  const ownerIdByPhone = new Map((data ?? []).map((o) => [o.phone, o.id]));
+  for (const row of rows) {
+    if (row.property_ids.length === 0) continue;
+    const ownerId = ownerIdByPhone.get(row.phone);
+    if (!ownerId) continue;
+    const { error: linkError } = await supabase
+      .from("properties")
+      .update({ owner_id: ownerId })
+      .in("id", row.property_ids);
+    if (linkError) return { error: linkError.message };
+  }
+
+  return { data: { inserted: data?.length ?? 0 } };
+}
+
+export interface OwnerStatusCountRow {
+  owner_id: string;
+  status_name_en: string | null;
+  status_name_ar: string | null;
+  properties_count: number;
+}
+
+/**
+ * Latest status + property count per owner — owners don't carry a status
+ * column directly (unlike clients), so the configurable export UI fetches
+ * this supplemental map to merge with the already-loaded owner rows.
+ */
+export async function getOwnerStatusAndCounts(
+  companyId: string,
+): Promise<ActionResult<OwnerStatusCountRow[]>> {
   const supabase = await getServerSupabase();
 
-  const [{ data: owners, error: ownersError }, { data: histories, error: histError }, { data: props, error: propsError }, { data: profiles, error: profilesError }] =
-    await Promise.all([
-      supabase.from("owners").select("*").eq("company_id", companyId),
-      supabase
-        .from("owner_status_history")
-        .select("*, status:owner_statuses(id, name_en, name_ar)")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false }),
-      supabase.from("properties").select("id, owner_id").eq("company_id", companyId),
-      supabase.from("profiles").select("id, name").eq("company_id", companyId),
-    ]);
+  const [
+    { data: owners, error: ownersError },
+    { data: histories, error: histError },
+    { data: props, error: propsError },
+  ] = await Promise.all([
+    supabase.from("owners").select("id").eq("company_id", companyId),
+    supabase
+      .from("owner_status_history")
+      .select("owner_id, status:owner_statuses(name_en, name_ar)")
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false }),
+    supabase.from("properties").select("id, owner_id").eq("company_id", companyId),
+  ]);
 
   if (ownersError) return { error: ownersError.message };
   if (histError) return { error: histError.message };
   if (propsError) return { error: propsError.message };
-  if (profilesError) return { error: profilesError.message };
 
-  const statusMap = new Map<string, { name: string; created_at: string }>();
+  const statusMap = new Map<string, { name_en: string | null; name_ar: string | null }>();
   (histories ?? []).forEach((h: any) => {
     if (!statusMap.has(h.owner_id)) {
       statusMap.set(h.owner_id, {
-        name: h.status?.name_en ?? h.status?.name_ar ?? "",
-        created_at: h.created_at,
+        name_en: h.status?.name_en ?? null,
+        name_ar: h.status?.name_ar ?? null,
       });
     }
   });
 
-  const propsCountMap = new Map<string, number>();
+  const countMap = new Map<string, number>();
   (props ?? []).forEach((p) => {
-    propsCountMap.set(p.owner_id, (propsCountMap.get(p.owner_id) ?? 0) + 1);
+    countMap.set(p.owner_id, (countMap.get(p.owner_id) ?? 0) + 1);
   });
 
-  const profileNameMap = new Map<string, string>();
-  (profiles ?? []).forEach((p) => profileNameMap.set(p.id, p.name ?? ""));
-
-  const rows: OwnerExportRow[] = (owners ?? []).map((o) => {
+  const rows: OwnerStatusCountRow[] = (owners ?? []).map((o) => {
     const status = statusMap.get(o.id);
     return {
-      id: o.id,
-      name: o.name,
-      phone: o.phone,
-      assigned_employee_name: o.assigned_employee_id
-        ? profileNameMap.get(o.assigned_employee_id) ?? null
-        : null,
-      marketing_channel: o.marketing_channel,
-      status_name: status?.name ?? null,
-      properties_count: propsCountMap.get(o.id) ?? 0,
-      last_status_date: status?.created_at ?? null,
-      created_at: o.created_at,
+      owner_id: o.id,
+      status_name_en: status?.name_en ?? null,
+      status_name_ar: status?.name_ar ?? null,
+      properties_count: countMap.get(o.id) ?? 0,
     };
   });
 

@@ -12,10 +12,12 @@ import {
   updateOwner,
   deleteOwner,
   bulkReassignOwners,
-  getOwnersExportData,
+  bulkCreateOwners,
+  bulkDeleteOwners,
   type OwnerFilters,
   type CreateOwnerInput,
   type UpdateOwnerInput,
+  type BulkCreateOwnerRow,
 } from "@/actions/owners";
 
 export function useOwner(ownerId?: string, companyId?: string) {
@@ -90,18 +92,6 @@ export function useOwnerLatestStatus(ownerId?: string, companyId?: string) {
   });
 }
 
-export function useOwnersExport(companyId?: string) {
-  return useQuery({
-    queryKey: ["owners", "export", companyId],
-    queryFn: async () => {
-      const result = await getOwnersExportData(companyId!);
-      if (result.error) throw new Error(result.error);
-      return result.data;
-    },
-    enabled: false,
-  });
-}
-
 export function useCreateOwner() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -136,6 +126,39 @@ export function useDeleteOwner() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteOwner(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["owners"] });
+    },
+  });
+}
+
+export function useBulkCreateOwners() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      companyId,
+      rows,
+    }: {
+      companyId: string;
+      rows: BulkCreateOwnerRow[];
+    }) => bulkCreateOwners(companyId, rows),
+    onSuccess: (result, variables) => {
+      if (result.error) return;
+      queryClient.invalidateQueries({ queryKey: ["owners", variables.companyId] });
+    },
+  });
+}
+
+export function useBulkDeleteOwners() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      ownerIds,
+      companyId,
+    }: {
+      ownerIds: string[];
+      companyId: string;
+    }) => bulkDeleteOwners(ownerIds, companyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["owners"] });
     },

@@ -70,7 +70,6 @@ export default function LinkedPropertyCard({
       )}
     >
       <div className="relative w-full sm:w-[128px] aspect-[16/10] sm:aspect-auto sm:self-stretch sm:min-h-[112px] shrink-0 overflow-hidden bg-muted">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageUrl}
           alt={title}

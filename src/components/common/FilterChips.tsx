@@ -42,8 +42,15 @@ export default function FilterChips({ activeFilters, statuses = [], marketingCha
   if (!activeFilters) return null;
 
   const getStatusName = (id: string) => {
-    const status = statuses.find(s => s.id === id);
-    return status ? bilingualLabel(status, language) || t('Unknown Status') : t('Unknown Status');
+    const status = statuses.find(s => s.id === id) as
+      | ({ id: string } & BilingualName & { name?: string })
+      | undefined;
+    if (!status) return t('Unknown Status');
+    return (
+      bilingualLabel(status, language) ||
+      status.name ||
+      t('Unknown Status')
+    );
   };
 
   const getAreaName = (id: string) => {
@@ -52,6 +59,7 @@ export default function FilterChips({ activeFilters, statuses = [], marketingCha
   };
 
   const getEmployeeName = (id: string) => {
+    if (id === 'unassigned') return t('Unassigned');
     const employee = employees.find(e => e.id === id);
     if (!employee) return id;
     return (

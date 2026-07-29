@@ -169,7 +169,7 @@ function CompanyRow({
           </span>
           <div className="min-w-0">
             <p className="font-semibold text-foreground truncate">
-              {company.company_name || company.company_code}
+              {company.company_name_en || company.company_code}
             </p>
             <p className="font-mono text-muted-foreground text-xs truncate" dir="ltr">
               {company.company_code}
@@ -270,7 +270,7 @@ function CompanyMobileCard({
         </span>
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-foreground truncate">
-            {company.company_name || company.company_code}
+            {company.company_name_en || company.company_code}
           </p>
           <p className="mt-0.5 text-muted-foreground text-xs truncate">
             {company.email}
@@ -341,7 +341,7 @@ export default function CompanyListPage() {
   const [isFreezing, setIsFreezing] = useState(false);
 
   const { data: companiesData, isLoading: loading } = useCompanies();
-  const companies = companiesData ?? [];
+  const companies = useMemo(() => companiesData ?? [], [companiesData]);
   const toggleFreezeMutation = useToggleCompanyFreeze();
   const deleteCascadeMutation = useDeleteCompanyCascade();
 
@@ -361,7 +361,8 @@ export default function CompanyListPage() {
       if (statusFilter === "frozen" && !company.is_frozen) return false;
       if (!q) return true;
       return (
-        company.company_name?.toLowerCase().includes(q) ||
+        company.company_name_en?.toLowerCase().includes(q) ||
+        company.company_name_ar?.toLowerCase().includes(q) ||
         company.company_code?.toLowerCase().includes(q) ||
         company.email?.toLowerCase().includes(q)
       );
@@ -762,7 +763,7 @@ export default function CompanyListPage() {
                 "Are you sure you want to delete this company? All related data will be permanently deleted.",
               )}
               <div className="bg-muted mt-4 p-3 border border-border rounded-xl font-medium">
-                {deleteDialog.company?.company_name}
+                {deleteDialog.company?.company_name_en}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -811,7 +812,7 @@ export default function CompanyListPage() {
                 ? t("Do you want to unfreeze this company?")
                 : t("Do you want to freeze this company?")}
               <div className="bg-muted mt-4 p-3 border border-border rounded-xl font-medium">
-                {freezeDialog.company?.company_name}
+                {freezeDialog.company?.company_name_en}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

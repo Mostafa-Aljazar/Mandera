@@ -102,7 +102,7 @@ export async function getCompanyEmployees(
   companyId: string,
 ): Promise<ActionResult<CompanyEmployeeWithDetails[]>> {
   const access = await assertCompanyAccess(companyId);
-  if (!access.ok) return { error: access.error };
+  if (access.ok !== true) return { error: access.error };
 
   // Admin client: profiles RLS previously blocked listing teammates.
   const admin = getSupabaseAdmin();
@@ -123,7 +123,7 @@ export async function getCompanyEmployee(
   companyId: string,
 ): Promise<ActionResult<CompanyEmployeeWithDetails>> {
   const access = await assertCompanyAccess(companyId);
-  if (!access.ok) return { error: access.error };
+  if (access.ok !== true) return { error: access.error };
 
   const admin = getSupabaseAdmin();
 
@@ -176,7 +176,7 @@ export async function getEmployeeCount(companyId?: string): Promise<ActionResult
   if (!companyId) return { data: 0 };
 
   const access = await assertCompanyAccess(companyId);
-  if (!access.ok) return { error: access.error };
+  if (access.ok !== true) return { error: access.error };
 
   const admin = getSupabaseAdmin();
   // Seat usage includes the company admin + employees (profiles), not only
@@ -309,7 +309,7 @@ export async function updateEmployee(
   if (!input.companyId) return { error: "Company is required." };
 
   const access = await assertCompanyAccess(input.companyId);
-  if (!access.ok) return { error: access.error };
+  if (access.ok !== true) return { error: access.error };
 
   const canManageOthers =
     access.role === "company_super_admin" || access.role === "master_admin";

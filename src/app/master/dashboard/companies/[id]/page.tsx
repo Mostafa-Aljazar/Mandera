@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -39,6 +39,7 @@ import {
   CalendarRange,
   FileText,
   FileUp,
+  ImageUp,
   KeyRound,
   Loader2,
   Mail,
@@ -90,6 +91,10 @@ export default function CompanyEditPage() {
   const [docNote, setDocNote] = useState("");
   const [docFile, setDocFile] = useState<File | null>(null);
   const [savingDoc, setSavingDoc] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [removeLogo, setRemoveLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const { data: company, isLoading: fetchLoading, isError } = useCompany(companyId);
   const updateCompanyMutation = useUpdateCompany();
@@ -101,7 +106,8 @@ export default function CompanyEditPage() {
   const form = useForm<TCompanySchema>({
     resolver: zodResolver(CompanySchema(t)),
     defaultValues: {
-      companyName: "",
+      companyNameEn: "",
+      companyNameAr: "",
       phone: "",
       adminName: "",
       email: "",
@@ -117,7 +123,8 @@ export default function CompanyEditPage() {
   useEffect(() => {
     if (company) {
       form.reset({
-        companyName: company.company_name,
+        companyNameEn: company.company_name_en,
+        companyNameAr: company.company_name_ar,
         phone: company.phone ?? "",
         adminName: company.admin_name ?? "",
         email: company.email,
@@ -129,6 +136,22 @@ export default function CompanyEditPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company]);
+
+  function applyLogoFile(file: File) {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+    setRemoveLogo(false);
+  }
+
+  function clearLogoSelection() {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoFile(null);
+    setLogoPreview(null);
+    if (logoInputRef.current) logoInputRef.current.value = "";
+  }
+
+  const currentLogoUrl = removeLogo ? null : logoPreview || company?.logo_url || null;
 
   useEffect(() => {
     if (isError) {
@@ -144,7 +167,8 @@ export default function CompanyEditPage() {
     try {
       const result = await updateCompanyMutation.mutateAsync({
         id: companyId,
-        companyName: formData.companyName,
+        companyNameEn: formData.companyNameEn,
+        companyNameAr: formData.companyNameAr,
         phone: formData.phone,
         adminName: formData.adminName,
         email: formData.email,
@@ -152,10 +176,13 @@ export default function CompanyEditPage() {
         subscriptionEndDate: formData.subscriptionEndDate,
         maxEmployeeCount: Number(formData.maxEmployeeCount),
         notes: formData.notes,
+        logo: logoFile,
+        removeLogo: removeLogo && !logoFile,
       });
       if (result.error) throw new Error(result.error);
 
       toast.success(t("Company updated successfully"));
+      clearLogoSelection();
       router.push("/master/dashboard/companies");
     } catch (error) {
       console.error("Error updating company:", error);
@@ -245,7 +272,7 @@ export default function CompanyEditPage() {
                   {t("Edit company")}
                 </h1>
                 <p className="mt-2 max-w-xl text-muted-foreground text-sm sm:text-base leading-relaxed">
-                  {company?.company_name}
+                  {company?.company_name_en}
                 </p>
               </div>
 
@@ -274,22 +301,97 @@ export default function CompanyEditPage() {
                     title={t("Company details")}
                     description={t("company_form_details_desc")}
                   >
-                    <FormField
-                      control={form.control}
-                      name="companyName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t("Company name")}</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              className="bg-background border-border/60 rounded-xl h-11"
+                    <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
+                      <FormField
+                        control={form.control}
+                        name="companyNameEn"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{`${t("Company name")} (EN)`}</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                dir="ltr"
+                                className="bg-background border-border/60 rounded-xl h-11"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="companyNameAr"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{`${t("Company name")} (AR)`}</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                dir="rtl"
+                                className="bg-background border-border/60 rounded-xl h-11"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="font-medium text-sm leading-none">
+                        {t("Company Logo")}
+                      </label>
+                      <div className="flex items-center gap-4">
+                        <div className="flex justify-center items-center bg-muted/30 border border-border/60 rounded-xl w-16 h-16 overflow-hidden shrink-0">
+                          {currentLogoUrl ? (
+                            <img
+                              src={currentLogoUrl}
+                              alt={t("Company Logo")}
+                              className="w-full h-full object-cover"
                             />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                          ) : (
+                            <ImageUp className="w-5 h-5 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={logoInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) applyLogoFile(file);
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="rounded-lg h-9"
+                            onClick={() => logoInputRef.current?.click()}
+                          >
+                            {logoFile || company?.logo_url ? t("Change logo") : t("Upload logo")}
+                          </Button>
+                          {(logoFile || company?.logo_url) && !removeLogo ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="rounded-lg h-9 text-destructive hover:text-destructive"
+                              onClick={() => {
+                                clearLogoSelection();
+                                if (company?.logo_url) setRemoveLogo(true);
+                              }}
+                            >
+                              {t("Remove")}
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
 
                     <FormField
                       control={form.control}

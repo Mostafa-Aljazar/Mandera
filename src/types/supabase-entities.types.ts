@@ -17,7 +17,9 @@ export interface Profile {
 export interface Company {
   id: string;
   company_code: string;
-  company_name: string;
+  company_name_en: string;
+  company_name_ar: string;
+  logo_url: string | null;
   email: string;
   phone: string | null;
   admin_name: string | null;
@@ -131,7 +133,6 @@ export interface Property {
   is_off_plan: boolean | null;
   project_status: string | null;
   amenities: string[] | null;
-  features: string[] | null;
   permit_type: string | null;
   issuing_license_number: string | null;
   city: string | null;
@@ -146,6 +147,9 @@ export interface Property {
   offplan_amount_paid: number | null;
   available_from: string | null;
   parking_slots: number | null;
+  // Portal extras (migration 28) — Bayut's <Videos>/<Floor_Plans> tags.
+  video_urls: string[] | null;
+  floor_plan_urls: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -170,7 +174,13 @@ export interface PropertyWithRelations extends Property {
       last_name_ar?: string | null;
     } | null;
   } | null;
-  owner?: { id: string; name: string; phone: string } | null;
+  owner?: {
+    id: string;
+    name: string;
+    name_en?: string | null;
+    name_ar?: string | null;
+    phone: string;
+  } | null;
   area_district_ref?: { id: string; name: string } | null;
 }
 

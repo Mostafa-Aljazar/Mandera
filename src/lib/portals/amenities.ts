@@ -1,4 +1,4 @@
-// PropertyFinder's fixed `amenities` enum (see docs/openapi.json). The form
+// PropertyFinder's fixed `amenities` enum (see docs/portals/propertyfinder-openapi.json). The form
 // stores these exact slugs on `properties.amenities` so the PF mapper can pass
 // them through unchanged; the Bayut feed renders them as free-form <Feature>s.
 

@@ -172,7 +172,7 @@ export default function PfLocationPicker({ companyId, value, onChange }: Props) 
                       <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                       <span>
                         {t(
-                          "PropertyFinder is not configured yet. Ask your administrator to add the PropertyFinder API keys before picking a location.",
+                          "PropertyFinder API keys are missing. Open Settings → Portals, paste your API Key & Secret, enable PropertyFinder, then come back here to search.",
                         )}
                       </span>
                     </div>

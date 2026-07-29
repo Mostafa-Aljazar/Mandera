@@ -13,7 +13,7 @@ const AddPropertyPage = () => {
     <>
       <DocumentHead title={`${t("Add Property")} | MANDERA CRM`} />
       <CompanyAdminHeader />
-      <main className="bg-gradient-to-b from-muted/40 via-background to-background min-h-[calc(100vh-68px)]">
+      <main className="bg-gradient-to-b from-muted/35 via-background to-background min-h-[calc(100vh-68px)]">
         <PropertyDetailView />
       </main>
     </>

@@ -154,7 +154,6 @@ export default function EmployeeDeletionDialog({
           <div className="relative flex items-center gap-3 bg-muted/50 mt-5 p-3.5 border border-border/60 rounded-xl">
             <div className="flex justify-center items-center bg-primary/15 rounded-xl w-11 h-11 font-outfit font-bold text-primary text-base shrink-0 overflow-hidden">
               {employeeToDelete?.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={employeeToDelete.avatarUrl}
                   alt={displayName}
@@ -197,9 +196,7 @@ export default function EmployeeDeletionDialog({
                 <SelectContent>
                   {employees.map((emp) => (
                     <SelectItem key={`owner-${emp.id}`} value={emp.id}>
-                      {employeeDisplayName(emp, language, emp.name) ||
-                        emp.email ||
-                        emp.id}
+                      {employeeDisplayName(emp, language, emp.name) || emp.id}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -221,9 +218,7 @@ export default function EmployeeDeletionDialog({
                 <SelectContent>
                   {employees.map((emp) => (
                     <SelectItem key={`client-${emp.id}`} value={emp.id}>
-                      {employeeDisplayName(emp, language, emp.name) ||
-                        emp.email ||
-                        emp.id}
+                      {employeeDisplayName(emp, language, emp.name) || emp.id}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -245,9 +240,7 @@ export default function EmployeeDeletionDialog({
                 <SelectContent>
                   {employees.map((emp) => (
                     <SelectItem key={`prop-${emp.id}`} value={emp.id}>
-                      {employeeDisplayName(emp, language, emp.name) ||
-                        emp.email ||
-                        emp.id}
+                      {employeeDisplayName(emp, language, emp.name) || emp.id}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -1,5 +1,5 @@
 // PropertyFinder Enterprise API client (server-only).
-// Base: https://atlas.propertyfinder.com  — see docs/propertyfinder.md.
+// Base: https://atlas.propertyfinder.com — see docs/portals/propertyfinder-api-reference.md.
 //
 // Auth: exchange the company's apiKey/apiSecret for a 30-min JWT (no refresh
 // flow). We cache the token on the company's `company_portal_credentials` row

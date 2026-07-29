@@ -11,9 +11,11 @@ import FollowUpCalendarWidget from "@/components/company/dashboard/FollowUpCalen
 import ClientPipelineWidget from "@/components/company/dashboard/ClientPipelineWidget";
 import ClientsBySourceWidget from "@/components/company/dashboard/ClientsBySourceWidget";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useCompanyOperationsStats } from "@/hooks/queries/useProperties";
 import { useBaseEmployee } from "@/hooks/queries/useEmployees";
 import { cn } from "@/lib/utils";
+import { companyDisplayName } from "@/lib/bilingualLabel";
 import {
   Building2,
   Home,
@@ -187,6 +189,7 @@ function ActionCard({
 export default function CompanyDashboardPage() {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
+  const { language } = useLanguage();
 
   const isSuperAdmin = currentUser?.role === "company_super_admin";
 
@@ -212,7 +215,7 @@ export default function CompanyDashboardPage() {
     employeeRecord?.job_title === "admin";
 
   const greetingName =
-    currentUser?.name?.split(" ")[0] || company?.company_name || "";
+    currentUser?.name?.split(" ")[0] || companyDisplayName(company, language) || "";
 
   return (
     <>
@@ -244,7 +247,7 @@ export default function CompanyDashboardPage() {
                 <p className="mt-2 max-w-xl text-muted-foreground text-sm sm:text-base leading-relaxed">
                   {t("Here's a summary of operations at")}{" "}
                   <span className="font-semibold text-foreground/85">
-                    {company?.company_name ?? "—"}
+                    {companyDisplayName(company, language) || "—"}
                   </span>
                 </p>
               </div>

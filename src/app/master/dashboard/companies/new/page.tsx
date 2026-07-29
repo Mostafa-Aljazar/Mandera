@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -35,6 +35,7 @@ import {
   Building2,
   CalendarRange,
   FileUp,
+  ImageUp,
   KeyRound,
   Loader2,
   Mail,
@@ -82,12 +83,16 @@ export default function CompanyFormPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const createCompanyMutation = useCreateCompany();
 
   const form = useForm<TNewCompanySchema>({
     resolver: zodResolver(NewCompanySchema(t)),
     defaultValues: {
-      companyName: "",
+      companyNameEn: "",
+      companyNameAr: "",
       phone: "",
       adminName: "",
       email: "",
@@ -110,12 +115,26 @@ export default function CompanyFormPage() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function applyLogoFile(file: File) {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+  }
+
+  function clearLogoSelection() {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoFile(null);
+    setLogoPreview(null);
+    if (logoInputRef.current) logoInputRef.current.value = "";
+  }
+
   const handleSubmit = form.handleSubmit(async (formData) => {
     setLoading(true);
 
     try {
       const result = await createCompanyMutation.mutateAsync({
-        companyName: formData.companyName,
+        companyNameEn: formData.companyNameEn,
+        companyNameAr: formData.companyNameAr,
         phone: formData.phone,
         adminName: formData.adminName,
         email: formData.email,
@@ -125,6 +144,7 @@ export default function CompanyFormPage() {
         maxEmployeeCount: Number(formData.maxEmployeeCount),
         notes: formData.notes,
         files,
+        logo: logoFile,
       });
       if (result.error) throw new Error(result.error);
 
@@ -195,23 +215,96 @@ export default function CompanyFormPage() {
                     title={t("Company details")}
                     description={t("company_form_details_desc")}
                   >
-                    <FormField
-                      control={form.control}
-                      name="companyName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t("Company name")}</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              placeholder={t("company_name_placeholder")}
-                              className="bg-background border-border/60 rounded-xl h-11"
+                    <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
+                      <FormField
+                        control={form.control}
+                        name="companyNameEn"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{`${t("Company name")} (EN)`}</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                dir="ltr"
+                                placeholder={t("company_name_placeholder")}
+                                className="bg-background border-border/60 rounded-xl h-11"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="companyNameAr"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{`${t("Company name")} (AR)`}</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                dir="rtl"
+                                placeholder={t("company_name_placeholder")}
+                                className="bg-background border-border/60 rounded-xl h-11"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="font-medium text-sm leading-none">
+                        {t("Company Logo")}
+                      </label>
+                      <div className="flex items-center gap-4">
+                        <div className="flex justify-center items-center bg-muted/30 border border-border/60 rounded-xl w-16 h-16 overflow-hidden shrink-0">
+                          {logoPreview ? (
+                            <img
+                              src={logoPreview}
+                              alt={t("Company Logo")}
+                              className="w-full h-full object-cover"
                             />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                          ) : (
+                            <ImageUp className="w-5 h-5 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={logoInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) applyLogoFile(file);
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="rounded-lg h-9"
+                            onClick={() => logoInputRef.current?.click()}
+                          >
+                            {logoFile ? t("Change logo") : t("Upload logo")}
+                          </Button>
+                          {logoFile ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="rounded-lg h-9 text-destructive hover:text-destructive"
+                              onClick={clearLogoSelection}
+                            >
+                              {t("Remove")}
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
 
                     <FormField
                       control={form.control}

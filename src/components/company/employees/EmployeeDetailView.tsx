@@ -239,11 +239,11 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
   const { data: activityData, isFetching: loadingActivity } =
     useEmployeeActivity(profileId, company?.id);
 
-  const owners = ownersData ?? [];
-  const clients = clientsData ?? [];
-  const properties = propertiesData ?? [];
-  const revenues = revenuesData ?? [];
-  const activity = activityData ?? [];
+  const owners = useMemo(() => ownersData ?? [], [ownersData]);
+  const clients = useMemo(() => clientsData ?? [], [clientsData]);
+  const properties = useMemo(() => propertiesData ?? [], [propertiesData]);
+  const revenues = useMemo(() => revenuesData ?? [], [revenuesData]);
+  const activity = useMemo(() => activityData ?? [], [activityData]);
 
   const totalCommission = useMemo(
     () =>
@@ -470,7 +470,6 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
           <div className="relative flex items-center gap-3.5 sm:gap-4 px-4 sm:px-6 py-5">
             <div className="relative flex justify-center items-center bg-primary/15 rounded-2xl ring-2 ring-primary/30 ring-offset-2 ring-offset-background w-14 h-14 sm:w-16 sm:h-16 font-outfit font-bold text-primary text-xl shadow-sm shrink-0 overflow-hidden">
               {currentAvatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={currentAvatarUrl}
                   alt={displayName}

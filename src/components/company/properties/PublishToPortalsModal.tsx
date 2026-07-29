@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 
 const PORTALS: { key: Portal; labelKey: string }[] = [
   { key: "bayut", labelKey: "Bayut" },
-  { key: "dubizzle", labelKey: "dubizzle" },
+  { key: "dubizzle", labelKey: "Dubizzle" },
   { key: "propertyfinder", labelKey: "PropertyFinder" },
 ];
 
