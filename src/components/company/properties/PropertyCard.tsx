@@ -55,6 +55,13 @@ export default function PropertyCard({ property, onView }: PropertyCardProps) {
   const hasArabicTitle = Boolean(property.title_ar?.trim());
   const titleIsArabic = language === "ar" && hasArabicTitle;
 
+  const note =
+    language === "ar"
+      ? property.note_ar?.trim() || property.note_en?.trim() || ""
+      : property.note_en?.trim() || property.note_ar?.trim() || "";
+  const noteIsArabic =
+    language === "ar" && Boolean(property.note_ar?.trim());
+
   const areaName =
     property.area_district_ref?.name ||
     property.area ||
@@ -216,6 +223,15 @@ export default function PropertyCard({ property, onView }: PropertyCardProps) {
               <bdi>{areaName}</bdi>
             </span>
           </p>
+
+          {note ? (
+            <p
+              className="text-muted-foreground text-xs leading-relaxed line-clamp-2"
+              lang={noteIsArabic ? "ar" : "en"}
+            >
+              <bdi dir={noteIsArabic ? "rtl" : "ltr"}>{note}</bdi>
+            </p>
+          ) : null}
         </div>
 
         {specs.length > 0 ? (

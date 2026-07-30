@@ -35,6 +35,9 @@ export const PropertySchema = (t: TFunction) =>
       employee_id: requiredText(t, "Assigned employee is required"),
       title: requiredText(t, "Title is required"),
       description: requiredText(t, "Description is required"),
+      // Internal bilingual notes — optional, company-only (not portal-published)
+      note_en: z.string().trim().default(""),
+      note_ar: z.string().trim().default(""),
       status: z.string().default("Available"),
       advertising_permit_number: requiredText(t, "Permit number is required"),
       // Portal / publishing — required for Bayut + PropertyFinder

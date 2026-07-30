@@ -383,6 +383,8 @@ function defaultValues(
       employee_id: property.employee_id,
       title: property.title,
       description: property.description || "",
+      note_en: property.note_en || "",
+      note_ar: property.note_ar || "",
       status: property.status || "Available",
       advertising_permit_number: property.advertising_permit_number || "",
       title_ar: property.title_ar || "",
@@ -425,6 +427,8 @@ function defaultValues(
     employee_id: isEmployee ? (currentUserId ?? "") : "",
     title: "",
     description: "",
+    note_en: "",
+    note_ar: "",
     status: "Available",
     advertising_permit_number: "",
     title_ar: "",
@@ -688,6 +692,8 @@ export default function PropertyForm({
         employee_id: finalEmployeeId,
         title: values.title,
         description: values.description || "",
+        note_en: values.note_en || "",
+        note_ar: values.note_ar || "",
         status: values.status || "Available",
         advertising_permit_number: values.advertising_permit_number || "",
         images: imagesFiles,
@@ -979,6 +985,50 @@ export default function PropertyForm({
                         placeholder="الوصف الكامل بالعربية للمنصات…"
                         value={formData.description_ar}
                         onChange={(e) => form.setValue("description_ar", e.target.value, { shouldValidate: true })}
+                      />
+                    </FieldBlock>
+                  </div>
+                </div>
+
+                {/* Internal bilingual notes — company employees only, not portal-published */}
+                <div className="rounded-lg border border-border/50 bg-muted/15 p-3.5 space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2 text-start">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-sm">{t("Internal notes")}</h3>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                        {t("Visible only to your company — not published to portals.")}
+                      </p>
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
+                      <Badge variant="outline" className="text-[10px]" dir="ltr">EN</Badge>
+                      <Badge variant="outline" className="text-[10px]" dir="ltr">AR</Badge>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FieldBlock
+                      label={`${t("Internal note")} (EN)`}
+                      error={errors.note_en?.message}
+                    >
+                      <Textarea
+                        dir="ltr"
+                        className="min-h-[96px] resize-y rounded-md"
+                        placeholder={t("Optional note for your team…")}
+                        value={formData.note_en}
+                        onChange={(e) => form.setValue("note_en", e.target.value, { shouldValidate: true })}
+                      />
+                    </FieldBlock>
+
+                    <FieldBlock
+                      label={`${t("Internal note")} (AR)`}
+                      error={errors.note_ar?.message}
+                    >
+                      <Textarea
+                        dir="rtl"
+                        className="min-h-[96px] resize-y rounded-md"
+                        placeholder={t("Optional note for your team…")}
+                        value={formData.note_ar}
+                        onChange={(e) => form.setValue("note_ar", e.target.value, { shouldValidate: true })}
                       />
                     </FieldBlock>
                   </div>

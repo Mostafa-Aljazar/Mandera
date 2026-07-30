@@ -249,6 +249,7 @@ export default function PropertyDetailView({ propertyId }: Props) {
   const isRent = property.listing_type === "Rent";
   const title = primary(property.title, property.title_ar);
   const description = primary(property.description, property.description_ar);
+  const note = primary(property.note_en, property.note_ar);
   const amenities = property.amenities ?? [];
   const videoUrls = (property.video_urls ?? []).filter(Boolean);
   const floorPlanUrls = (property.floor_plan_urls ?? []).filter(Boolean);
@@ -560,6 +561,30 @@ export default function PropertyDetailView({ propertyId }: Props) {
                   dir={language === "ar" ? "rtl" : "ltr"}
                 >
                   {description
+                    .trim()
+                    .split(/\n\s*\n/)
+                    .map((block) => block.replace(/\n+/g, " ").trim())
+                    .filter(Boolean)
+                    .map((paragraph, index) => (
+                      <p
+                        key={index}
+                        className="text-[15px] leading-[1.85] text-foreground/80 text-justify [text-align-last:start]"
+                      >
+                        {paragraph}
+                      </p>
+                    ))}
+                </div>
+              </Section>
+            ) : null}
+
+            {/* Internal notes — current app language only */}
+            {note ? (
+              <Section title={t("Internal notes")}>
+                <div
+                  className="space-y-3.5 text-start"
+                  dir={language === "ar" ? "rtl" : "ltr"}
+                >
+                  {note
                     .trim()
                     .split(/\n\s*\n/)
                     .map((block) => block.replace(/\n+/g, " ").trim())

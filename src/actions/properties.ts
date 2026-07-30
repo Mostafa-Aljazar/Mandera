@@ -411,6 +411,8 @@ export interface CreatePropertyInput extends PropertyPortalFields {
   employee_id: string;
   title: string;
   description?: string | null;
+  note_en?: string | null;
+  note_ar?: string | null;
   status?: string | null;
   advertising_permit_number?: string | null;
   images?: File[];
@@ -449,6 +451,8 @@ export async function createProperty(
         employee_id: input.employee_id,
         title: input.title,
         description: input.description || "",
+        note_en: input.note_en || "",
+        note_ar: input.note_ar || "",
         images: imageUrls,
         floor_plan_urls: floorPlanUrls,
         status: input.status || "Available",
@@ -491,6 +495,8 @@ export interface UpdatePropertyInput extends PropertyPortalFields {
   employee_id: string;
   title: string;
   description?: string | null;
+  note_en?: string | null;
+  note_ar?: string | null;
   status?: string | null;
   advertising_permit_number?: string | null;
   images?: File[];
@@ -534,6 +540,8 @@ export async function updateProperty(
         employee_id: input.employee_id,
         title: input.title,
         description: input.description || "",
+        note_en: input.note_en || "",
+        note_ar: input.note_ar || "",
         images,
         floor_plan_urls: floorPlanUrls,
         status: input.status || "Available",

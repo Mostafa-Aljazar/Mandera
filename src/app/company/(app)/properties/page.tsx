@@ -217,11 +217,13 @@ const PropertiesPage = () => {
   const filterProperties = (listType: string) =>
     properties.filter((p) => {
       if (p.listing_type !== listType) return false;
-      if (
-        searchQuery &&
-        !p.code?.toLowerCase().includes(searchQuery.toLowerCase())
-      ) {
-        return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matches =
+          p.code?.toLowerCase().includes(q) ||
+          p.note_en?.toLowerCase().includes(q) ||
+          p.note_ar?.toLowerCase().includes(q);
+        if (!matches) return false;
       }
       const propPrice = Number(p.price) || 0;
       const minP = Number(priceFilters.minPrice);
@@ -496,7 +498,7 @@ const PropertiesPage = () => {
                 <div className="relative flex-1 min-w-0">
                   <Search className="top-1/2 start-3 absolute w-4 h-4 text-muted-foreground -translate-y-1/2 pointer-events-none" />
                   <Input
-                    placeholder={t("Search by property code...")}
+                    placeholder={t("Search by code or note...")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="bg-background ps-9 h-11 rounded-xl"

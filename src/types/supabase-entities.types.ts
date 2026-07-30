@@ -116,6 +116,9 @@ export interface Property {
   employee_id: string;
   title: string;
   description: string | null;
+  /** Internal bilingual notes for company employees — not portal-published. */
+  note_en: string | null;
+  note_ar: string | null;
   images: string[] | null;
   listing_type: string;
   company_id: string;
