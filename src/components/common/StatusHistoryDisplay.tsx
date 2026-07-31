@@ -11,6 +11,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
+import { canEditActivityHistory } from '@/lib/permissions';
 import { useTranslation } from 'react-i18next';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { bilingualLabel } from '@/lib/bilingualLabel';
@@ -38,6 +39,7 @@ interface StatusHistoryDisplayProps {
   entityType: HistoryEntityType;
   entityId?: string;
   refreshTrigger?: number;
+  hideStatus?: boolean;
 }
 
 function formatRelativeDate(
@@ -59,7 +61,7 @@ const STATUS_COLORS: Record<string, string> = {
   'Deal Completed': 'bg-slate-500/10 text-slate-700 border-slate-200',
 };
 
-export default function StatusHistoryDisplay({ entityType, entityId, refreshTrigger }: StatusHistoryDisplayProps) {
+export default function StatusHistoryDisplay({ entityType, entityId, refreshTrigger, hideStatus = false }: StatusHistoryDisplayProps) {
   const { currentUser, company } = useCompanyAuth();
   const { t } = useTranslation();
   const { language } = useLanguage();
@@ -84,11 +86,16 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
     created_by_name_en: h.created_by_name_en ?? null,
     created_by_name_ar: h.created_by_name_ar ?? null,
     note: h.note ?? undefined,
-    status:
-      bilingualLabel(
-        { name_en: h.status_name_en, name_ar: h.status_name_ar, name: h.status_name ?? h.status },
-        language,
-      ) || undefined,
+    status: hideStatus
+      ? undefined
+      : bilingualLabel(
+          {
+            name_en: h.status_name_en,
+            name_ar: h.status_name_ar,
+            name: h.status_name ?? h.status,
+          },
+          language,
+        ) || undefined,
     follow_up_date: h.follow_up_date ?? undefined,
   }));
 
@@ -102,8 +109,10 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
       language,
     ) || h.created_by_name || t('Unknown');
 
-  const handleDelete = async (recordId: string, creatorId: string) => {
-    if (currentUser?.role !== 'company_super_admin' && currentUser?.id !== creatorId) {
+  const canDeleteHistory = canEditActivityHistory(currentUser?.role);
+
+  const handleDelete = async (recordId: string) => {
+    if (!canDeleteHistory || !company?.id) {
       toast.error(t('You do not have permission to delete this record.'));
       return;
     }
@@ -111,7 +120,11 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
     if (!window.confirm(t('Are you sure you want to delete this status history record?'))) return;
 
     try {
-      const result = await deleteRecord.mutateAsync({ entityType, recordId });
+      const result = await deleteRecord.mutateAsync({
+        entityType,
+        recordId,
+        companyId: company.id,
+      });
       if (result.error) throw new Error(result.error);
       toast.success(t('Record deleted successfully'));
     } catch {
@@ -183,9 +196,7 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
         ) : (
           <div className="relative">
             {history.map((h, index) => {
-              const canModify =
-                currentUser?.role === 'company_super_admin' ||
-                currentUser?.id === h.created_by;
+              const canModify = canDeleteHistory;
               const isLast = index === history.length - 1;
               const createdDate = new Date(h.created);
 
@@ -232,7 +243,7 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
                             variant="ghost"
                             size="icon"
                             className="hover:bg-destructive/10 -me-1 w-7 h-7 text-destructive sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                            onClick={() => handleDelete(h.id, h.created_by)}
+                            onClick={() => handleDelete(h.id)}
                             title={t('Delete Record')}
                           >
                             <Trash2 className="w-3.5 h-3.5" />

@@ -8,6 +8,7 @@ import {
   createClient,
   updateClient,
   updateClientFollowUp,
+  convertOwnerToClient,
   bulkAssignClients,
   bulkDeleteClients,
   bulkCreateClients,
@@ -140,6 +141,29 @@ export function useUpdateClientFollowUp() {
     }) => updateClientFollowUp(id, followUpDate, followUpTime),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
+export function useConvertOwnerToClient() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      ownerId: string;
+      companyId: string;
+      interest_type?: "Sale" | "Rent";
+    }) => {
+      const result = await convertOwnerToClient(input);
+      if (result.error) throw new Error(result.error);
+      return result.data!;
+    },
+    onSuccess: (client, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: ["clients", variables.companyId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["clients", "detail", client.id],
+      });
     },
   });
 }

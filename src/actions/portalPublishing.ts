@@ -1,6 +1,8 @@
 "use server";
 
 import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
+import { assertCompanyMember } from "@/actions/_access";
+import { canPublishToPortals } from "@/lib/permissions";
 import {
   createListing,
   publishListing,
@@ -125,7 +127,7 @@ export interface UpsertPortalCredentialsInput {
 export async function upsertPortalCredentials(
   input: UpsertPortalCredentialsInput,
 ): Promise<ActionResult<PortalCredentials>> {
-  // RLS on company_portal_credentials restricts writes to company_super_admin
+  // RLS on company_portal_credentials restricts writes to manager
   // (or master_admin) for this company_id.
   const supabase = await getServerSupabase();
 
@@ -270,6 +272,29 @@ export async function setPortalPublication(
 ): Promise<ActionResult<PropertyPublication>> {
   const property = await fetchPropertyWithRelations(propertyId);
   if (!property) return { error: "Property not found" };
+
+  const access = await assertCompanyMember(property.company_id);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (!canPublishToPortals(access.data.role)) {
+    return { error: "Only administrators and managers can publish to portals." };
+  }
+
+  // Draft / pending / rejected listings must not go to portals.
+  if (enabled && property.approval_status !== "approved") {
+    return {
+      error:
+        "Only approved properties can be published to portals. Complete the approval workflow first.",
+    };
+  }
+
+  if (enabled && property.paused_at) {
+    return {
+      error:
+        "This property is paused and cannot be published. Unpause it first.",
+    };
+  }
 
   // This company's own account for this portal (secrets stay server-side).
   const cred = await loadCredential(property.company_id, credentialPlatformFor(portal));

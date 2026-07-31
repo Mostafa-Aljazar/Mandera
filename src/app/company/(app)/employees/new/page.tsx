@@ -27,6 +27,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { canManageEmployees, roleFromJobTitle } from "@/lib/permissions";
 import { useEmployeeCount } from "@/hooks/useEmployeeCount";
 import { useCreateEmployee } from "@/hooks/queries/useEmployees";
 import { cn } from "@/lib/utils";
@@ -91,8 +92,9 @@ function FormSection({
 const EmployeeFormPage = () => {
   const { t } = useTranslation();
   const router = useRouter();
-  const { company } = useCompanyAuth();
-  const { count: currentCount } = useEmployeeCount(company?.id);
+  const { company, currentUser } = useCompanyAuth();
+  const canManage = canManageEmployees(currentUser?.role);
+  const { count: currentCount } = useEmployeeCount(canManage ? company?.id : undefined);
   const [loading, setLoading] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -102,6 +104,12 @@ const EmployeeFormPage = () => {
 
   const seatLimit = company?.max_employee_count ?? Infinity;
   const atLimit = currentCount >= seatLimit;
+
+  useEffect(() => {
+    if (!canManage) {
+      router.replace("/company/dashboard");
+    }
+  }, [canManage, router]);
 
   const form = useForm<TNewEmployeeSchema>({
     resolver: zodResolver(NewEmployeeSchema(t)),
@@ -183,7 +191,7 @@ const EmployeeFormPage = () => {
         email: formData.email,
         phone: formData.phone,
         job_title: formData.job_title,
-        role: "company_employee",
+        role: roleFromJobTitle(formData.job_title),
         password: formData.password,
         avatar: avatarFile,
       });
@@ -230,6 +238,10 @@ const EmployeeFormPage = () => {
   const initials =
     `${firstNameEn?.[0] || firstNameAr?.[0] || ""}${lastNameEn?.[0] || lastNameAr?.[0] || ""}`.toUpperCase() ||
     "?";
+
+  if (!canManage) {
+    return null;
+  }
 
   return (
     <>

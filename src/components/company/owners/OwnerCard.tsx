@@ -27,9 +27,11 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { countryLabel } from "@/lib/countries";
 import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
+import { canDeleteClientOrOwner, canViewOwnerStatus } from "@/lib/permissions";
 import { useOwnerStatusBadge } from "@/hooks/useOwnerStatusBadge";
 import { useOwnerPropertyCount, useDeleteOwner } from "@/hooks/queries/useOwners";
 import DeleteOwnersDialog from "./DeleteOwnersDialog";
+import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import type { Owner, CompanyEmployee } from "@/types/supabase-entities.types";
 
 interface OwnerCardProps {
@@ -49,6 +51,9 @@ export default function OwnerCard({
 }: OwnerCardProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
+  const { currentUser } = useCompanyAuth();
+  const canDelete = canDeleteClientOrOwner(currentUser?.role);
+  const showOwnerStatus = canViewOwnerStatus(currentUser?.role);
   const isRtl = language === "ar";
   const deleteOwnerMutation = useDeleteOwner();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -56,6 +61,7 @@ export default function OwnerCard({
   const dateLocale = isRtl ? ar : enUS;
 
   const badge = useOwnerStatusBadge(owner.id, companyId, owner.created_at);
+
   const { data: propertyCountData } = useOwnerPropertyCount(owner.id);
   const propertyCount = propertyCountData ?? 0;
 
@@ -126,23 +132,25 @@ export default function OwnerCard({
           )}
 
           {/* Delete button — top-end */}
-          <div
-            className="absolute top-3 end-3 z-10"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={t("Delete")}
-              onClick={() => setIsDeleteDialogOpen(true)}
-              className="w-7 h-7 rounded-lg bg-destructive/10 hover:bg-destructive/20 border border-destructive/30 hover:border-destructive/50 text-destructive transition-all"
+          {canDelete ? (
+            <div
+              className="absolute top-3 end-3 z-10"
+              onClick={(e) => e.stopPropagation()}
             >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
-          </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("Delete")}
+                onClick={() => setIsDeleteDialogOpen(true)}
+                className="w-7 h-7 rounded-lg bg-destructive/10 hover:bg-destructive/20 border border-destructive/30 hover:border-destructive/50 text-destructive transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          ) : null}
 
           {/* Avatar + name — padded so they never touch the absolute controls */}
-          <div className={cn("flex items-start gap-3", onSelect ? "ps-6" : "ps-0", "pe-8")}>
+          <div className={cn("flex items-start gap-3", onSelect ? "ps-6" : "ps-0", canDelete ? "pe-8" : "pe-0")}>
             {/* Avatar */}
             <div className="relative shrink-0">
               <div className="flex justify-center items-center w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400/20 to-primary/20 ring-2 ring-amber-400/30 font-outfit font-bold text-amber-700 dark:text-amber-400 text-lg overflow-hidden shadow-sm">
@@ -153,18 +161,21 @@ export default function OwnerCard({
                 )}
               </div>
               {/* Status dot */}
-              <span
-                className={cn(
-                  "absolute -bottom-0.5 -end-0.5 w-3.5 h-3.5 rounded-full border-2 border-card",
-                  badge.dot,
-                )}
-                title={badge.text}
-              />
+              {showOwnerStatus ? (
+                <span
+                  className={cn(
+                    "absolute -bottom-0.5 -end-0.5 w-3.5 h-3.5 rounded-full border-2 border-card",
+                    badge.dot,
+                  )}
+                  title={badge.text}
+                />
+              ) : null}
             </div>
 
             {/* Name + employee */}
             <div className="flex-1 min-w-0 pt-0.5">
               {/* Status badge */}
+              {showOwnerStatus ? (
               <Badge
                 variant="outline"
                 className={cn(
@@ -181,6 +192,7 @@ export default function OwnerCard({
                 )}
                 {badge.text}
               </Badge>
+              ) : null}
 
               <Link
                 href={href}

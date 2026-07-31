@@ -68,12 +68,19 @@ import {
   CalendarDays,
   Clock3,
   ClipboardList,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { format, isBefore } from "date-fns";
 import { ar, enUS } from "date-fns/locale";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import {
+  canAssignRecords,
+  canEditIdentityFields,
+  canLockRecords,
+} from "@/lib/permissions";
 import StatusUpdateModal from "@/components/common/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
 import LinkedPropertyCard, {
@@ -99,6 +106,8 @@ import {
 import { useLanguage } from "@/contexts/LanguageContext";
 import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
 import { countryLabel, normalizeCountryValue } from "@/lib/countries";
+import { useRecordLockMutations } from "@/hooks/queries/usePropertyApprovals";
+import ClientAppointmentsPanel from "@/components/company/clients/ClientAppointmentsPanel";
 
 export type ClientFormData = TClientSchema;
 
@@ -193,6 +202,10 @@ export default function ClientDetailView({
   const searchParams = useSearchParams();
   const { company, currentUser } = useCompanyAuth();
   const isNew = !clientId;
+  const identityLocked =
+    !isNew && !canEditIdentityFields(currentUser?.role);
+  const canAssign = canAssignRecords(currentUser?.role);
+  const canLock = canLockRecords(currentUser?.role);
 
   const tabFromUrl = resolveClientTab(searchParams.get("tab"), isNew);
   const [activeTab, setActiveTab] = useState<ClientTab>(tabFromUrl);
@@ -221,6 +234,8 @@ export default function ClientDetailView({
 
   const createClientMutation = useCreateClient();
   const updateClientMutation = useUpdateClient();
+  const recordLocks = useRecordLockMutations(company?.id);
+  const saveLocked = Boolean(client?.editing_locked && !canLock);
 
   const form = useForm<TClientSchema, unknown, TClientSchemaOutput>({
     resolver: zodResolver(ClientSchema(t)),
@@ -232,8 +247,14 @@ export default function ClientDetailView({
       interest_type: "Sale",
       interested_properties: [],
       employee_id:
-        currentUser?.role === "company_employee" ? currentUser.id : "",
+        !canAssignRecords(currentUser?.role) && currentUser?.id
+          ? currentUser.id
+          : "",
       marketing_channel: "",
+      campaign: "",
+      budget: "",
+      preferred_area: "",
+      investment_unit: "",
     },
   });
 
@@ -250,6 +271,13 @@ export default function ClientDetailView({
         interested_properties: client.interested_properties || [],
         employee_id: client.employee_id || "",
         marketing_channel: client.marketing_channel || "",
+        campaign: client.campaign || "",
+        budget:
+          client.budget != null && client.budget !== undefined
+            ? String(client.budget)
+            : "",
+        preferred_area: client.preferred_area || "",
+        investment_unit: client.investment_unit || "",
       });
       setPropertySearchOpen(false);
     } else if (isNew) {
@@ -261,8 +289,14 @@ export default function ClientDetailView({
         interest_type: "Sale",
         interested_properties: [],
         employee_id:
-          currentUser?.role === "company_employee" ? currentUser.id : "",
+          !canAssignRecords(currentUser?.role) && currentUser?.id
+            ? currentUser.id
+            : "",
         marketing_channel: "",
+        campaign: "",
+        budget: "",
+        preferred_area: "",
+        investment_unit: "",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -395,17 +429,38 @@ export default function ClientDetailView({
     setIsSubmitting(true);
     try {
       const payload = {
-        name_en: formData.name_en,
-        name_ar: formData.name_ar,
-        phone: formData.phone,
-        country_code: formData.country_code,
+        name_en:
+          identityLocked && client
+            ? (client.name_en ?? formData.name_en)
+            : formData.name_en,
+        name_ar:
+          identityLocked && client
+            ? (client.name_ar ?? formData.name_ar)
+            : formData.name_ar,
+        phone:
+          identityLocked && client
+            ? (client.phone ?? formData.phone)
+            : formData.phone,
+        country_code:
+          identityLocked && client
+            ? (client.country_code ?? formData.country_code)
+            : formData.country_code,
         interest_type: formData.interest_type,
         interested_properties: formData.interested_properties,
         employee_id:
-          isNew && currentUser?.role === "company_employee"
-            ? currentUser.id
+          isNew && !canAssignRecords(currentUser?.role)
+            ? (currentUser?.id ?? formData.employee_id)
             : formData.employee_id,
         marketing_channel: formData.marketing_channel,
+        campaign: formData.campaign?.trim() || "",
+        budget: (() => {
+          const raw = formData.budget?.trim();
+          if (!raw) return null;
+          const n = Number(raw);
+          return Number.isFinite(n) ? n : null;
+        })(),
+        preferred_area: formData.preferred_area?.trim() || "",
+        investment_unit: formData.investment_unit?.trim() || "",
         avatar: avatarFile,
         removeAvatar: removeAvatar && !avatarFile,
       };
@@ -450,6 +505,22 @@ export default function ClientDetailView({
   const handleStatusSuccess = () => {
     setHistoryRefreshTrigger((prev) => prev + 1);
     refetchClient();
+  };
+
+  const toggleRecordLock = async () => {
+    if (!client) return;
+    try {
+      if (client.editing_locked) {
+        await recordLocks.unlockClient.mutateAsync(client.id);
+        toast.success(t("Record unlocked"));
+      } else {
+        await recordLocks.lockClient.mutateAsync(client.id);
+        toast.success(t("Record locked"));
+      }
+      await refetchClient();
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
   };
 
   const cleanPhone = (form.watch("phone") || "").replace(/\D/g, "");
@@ -642,6 +713,25 @@ export default function ClientDetailView({
             </Button>
           </div>
         ) : null}
+        {client && canLock ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={
+              recordLocks.lockClient.isPending ||
+              recordLocks.unlockClient.isPending
+            }
+            onClick={toggleRecordLock}
+          >
+            {client.editing_locked ? (
+              <Unlock className="w-4 h-4" />
+            ) : (
+              <Lock className="w-4 h-4" />
+            )}
+            {client.editing_locked ? t("Unlock") : t("Lock Record")}
+          </Button>
+        ) : null}
       </div>
 
       <div className="bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-2xl overflow-hidden">
@@ -728,6 +818,12 @@ export default function ClientDetailView({
                   >
                     <CalendarClock className="w-3 h-3 me-1" />
                     {followUp.isOverdue ? t("Overdue") : t("Upcoming")}
+                  </Badge>
+                ) : null}
+                {client?.editing_locked ? (
+                  <Badge variant="destructive" className="text-[11px] h-5">
+                    <Lock className="w-3 h-3 me-1" />
+                    {t("Record locked")}
                   </Badge>
                 ) : null}
               </div>
@@ -954,6 +1050,11 @@ export default function ClientDetailView({
                     </SectionCard>
 
                     <SectionCard title={t("Contact Information")} icon={User}>
+                      {identityLocked ? (
+                        <p className="mb-3 text-muted-foreground text-xs leading-relaxed">
+                          {t("Identity fields are locked after create")}
+                        </p>
+                      ) : null}
                       <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
                         <FormField
                           control={form.control}
@@ -969,6 +1070,7 @@ export default function ClientDetailView({
                                   dir="ltr"
                                   placeholder="e.g. John Doe"
                                   className="bg-background h-10"
+                                  disabled={identityLocked}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -989,6 +1091,7 @@ export default function ClientDetailView({
                                   dir="rtl"
                                   placeholder="مثال: محمد أحمد"
                                   className="bg-background h-10"
+                                  disabled={identityLocked}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -1004,7 +1107,11 @@ export default function ClientDetailView({
                                 {t("Phone Number")} *
                               </FormLabel>
                               <FormControl>
-                                <PhoneInput {...field} className="flex-1" />
+                                <PhoneInput
+                                  {...field}
+                                  className="flex-1"
+                                  disabled={identityLocked}
+                                />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -1023,6 +1130,7 @@ export default function ClientDetailView({
                                   value={field.value}
                                   onChange={field.onChange}
                                   placeholder={t("Select Country")}
+                                  disabled={identityLocked}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -1069,6 +1177,25 @@ export default function ClientDetailView({
                           />
                           <FormField
                             control={form.control}
+                            name="campaign"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs">
+                                  {t("Campaign")}
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className="bg-background h-10"
+                                    placeholder={t("Optional campaign name")}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
                             name="employee_id"
                             render={({ field }) => (
                               <FormItem>
@@ -1079,6 +1206,7 @@ export default function ClientDetailView({
                                   key={`employee-${language}`}
                                   value={field.value}
                                   onValueChange={field.onChange}
+                                  disabled={!canAssign}
                                 >
                                   <FormControl>
                                     <SelectTrigger className="bg-background h-10">
@@ -1190,8 +1318,85 @@ export default function ClientDetailView({
                             </FormItem>
                           )}
                         />
+
+                        <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
+                          <FormField
+                            control={form.control}
+                            name="budget"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs">
+                                  {t("Budget")}
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    type="number"
+                                    inputMode="decimal"
+                                    min={0}
+                                    step="any"
+                                    dir="ltr"
+                                    placeholder="0"
+                                    className="bg-background h-10"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="preferred_area"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs">
+                                  {t("Preferred area")}
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder={t("Preferred area")}
+                                    className="bg-background h-10"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="investment_unit"
+                            render={({ field }) => (
+                              <FormItem className="sm:col-span-2">
+                                <FormLabel className="text-xs">
+                                  {t("Investment unit")}
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder={t("Investment unit")}
+                                    className="bg-background h-10"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
                       </div>
                     </SectionCard>
+
+                    {!isNew && client?.id && company?.id ? (
+                      <ClientAppointmentsPanel
+                        companyId={company.id}
+                        clientId={client.id}
+                        interestedPropertyIds={
+                          form.watch("interested_properties") || []
+                        }
+                        properties={properties}
+                        disabled={saveLocked}
+                      />
+                    ) : null}
                   </TabsContent>
 
                   <TabsContent
@@ -1477,7 +1682,7 @@ export default function ClientDetailView({
                 </p>
                 <Button
                   onClick={handleSave}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || saveLocked}
                   className="gap-2 sm:min-w-[140px] w-full sm:w-auto h-10"
                 >
                   {isSubmitting ? (

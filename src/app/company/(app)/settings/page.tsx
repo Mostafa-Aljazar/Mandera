@@ -6,12 +6,29 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import {
+  canManageEmployees,
+  canViewCompanySettings,
+  isAdministratorOrAbove,
+  isManager,
+  isAdministrator,
+} from "@/lib/permissions";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import GeneralSettingsTab from "@/components/company/settings/GeneralSettingsTab";
 import OwnerStatusesTab from "@/components/company/settings/OwnerStatusesTab";
 import AreasDistrictsTab from "@/components/company/settings/AreasDistrictsTab";
 import MarketingChannelsTab from "@/components/company/settings/MarketingChannelsTab";
 import PortalIntegrationsTab from "@/components/company/settings/PortalIntegrationsTab";
+import DistributionRulesTab from "@/components/company/settings/DistributionRulesTab";
+import TeamsTab from "@/components/company/settings/TeamsTab";
+import BranchesTab from "@/components/company/settings/BranchesTab";
+import MessageTemplatesTab from "@/components/company/settings/MessageTemplatesTab";
+import WhatsAppSettingsTab from "@/components/company/settings/WhatsAppSettingsTab";
+import NotificationSettingsTab from "@/components/company/settings/NotificationSettingsTab";
+import PublishSettingsTab from "@/components/company/settings/PublishSettingsTab";
+import PropertyStatusesTab from "@/components/company/settings/PropertyStatusesTab";
+import RolePermissionsTab from "@/components/company/settings/RolePermissionsTab";
+import ClientSettingsTab from "@/components/company/settings/ClientSettingsTab";
 import EmployeeDeletionDialog from "@/components/company/employees/EmployeeDeletionDialog";
 import SettingsSection from "@/components/company/settings/SettingsSection";
 import SettingsTableShell from "@/components/company/settings/SettingsTableShell";
@@ -65,6 +82,13 @@ import {
   Eye,
   Globe,
   Settings2,
+  Shuffle,
+  UsersRound,
+  Building,
+  MessageSquareText,
+  MessageCircle,
+  Bell,
+  Send,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -99,11 +123,21 @@ const SETTINGS_TABS = [
   "general",
   "employees",
   "property-types",
+  "property-statuses",
+  "client-settings",
   "client-statuses",
   "owner-statuses",
   "areas-districts",
   "marketing-channels",
   "portal-integrations",
+  "distribution-rules",
+  "teams",
+  "branches",
+  "message-templates",
+  "whatsapp-settings",
+  "notification-settings",
+  "publish-settings",
+  "user-permissions",
 ] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
@@ -123,11 +157,18 @@ const SettingsPage = () => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const isSuperAdmin = currentUser?.role === "company_super_admin";
+  const canManage = canManageEmployees(currentUser?.role);
+  const canViewSettings = canViewCompanySettings(currentUser?.role);
   const companyId = currentUser?.company_id || company?.id;
 
   const tabFromUrl = resolveSettingsTab(searchParams.get("tab"));
   const [activeTab, setActiveTab] = useState<SettingsTab>(tabFromUrl);
+
+  useEffect(() => {
+    if (!canViewSettings) {
+      router.replace("/company/dashboard");
+    }
+  }, [canViewSettings, router]);
 
   useEffect(() => {
     setActiveTab(tabFromUrl);
@@ -149,11 +190,21 @@ const SettingsPage = () => {
     { value: "general", label: t("General"), icon: Settings2 },
     { value: "employees", label: t("Employees"), icon: Users },
     { value: "property-types", label: t("Property Types"), icon: Building2 },
+    { value: "property-statuses", label: t("Property Statuses"), icon: ListChecks },
+    { value: "client-settings", label: t("Client settings"), icon: Settings2 },
     { value: "client-statuses", label: t("Client Status"), icon: ListChecks },
     { value: "owner-statuses", label: t("Owner Status"), icon: UserRound },
     { value: "areas-districts", label: t("Areas"), icon: MapPin },
     { value: "marketing-channels", label: t("Marketing"), icon: Megaphone },
     { value: "portal-integrations", label: t("Portals"), icon: Globe },
+    { value: "distribution-rules", label: t("Distribution"), icon: Shuffle },
+    { value: "teams", label: t("Teams"), icon: UsersRound },
+    { value: "branches", label: t("Branches"), icon: Building },
+    { value: "message-templates", label: t("Message Templates"), icon: MessageSquareText },
+    { value: "whatsapp-settings", label: t("WhatsApp Settings"), icon: MessageCircle },
+    { value: "notification-settings", label: t("Notification Settings"), icon: Bell },
+    { value: "publish-settings", label: t("Publish Settings"), icon: Send },
+    { value: "user-permissions", label: t("User permissions"), icon: Eye },
   ];
 
   const { data: propertyTypesData } = usePropertyTypes(companyId);
@@ -536,6 +587,10 @@ const SettingsPage = () => {
   const activeLabel =
     navItems.find((item) => item.value === activeTab)?.label ?? t("Settings");
 
+  if (!canViewSettings) {
+    return null;
+  }
+
   return (
     <>
       <DocumentHead title={`${t("Settings")} | MANDERA CRM`} />
@@ -729,14 +784,16 @@ const SettingsPage = () => {
                                   variant="outline"
                                   className={cn(
                                     "text-[10px] h-5 font-medium",
-                                    emp.role === "company_super_admin"
+                                    isAdministratorOrAbove(emp.role)
                                       ? "bg-primary/10 text-primary border-primary/25"
                                       : "bg-sky-500/10 text-sky-700 border-sky-500/25",
                                   )}
                                 >
-                                  {emp.role === "company_super_admin"
-                                    ? t("Admin")
-                                    : t("Employee")}
+                                  {isManager(emp.role)
+                                    ? t("Manager")
+                                    : isAdministrator(emp.role)
+                                      ? t("Administrator")
+                                      : t("Sales Agent")}
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-end">
@@ -754,7 +811,7 @@ const SettingsPage = () => {
                                       <Eye className="w-4 h-4" />
                                     </Link>
                                   </Button>
-                                  {isSuperAdmin &&
+                                  {canManage &&
                                     emp.id !== currentUser?.id && (
                                       <Button
                                         variant="ghost"
@@ -990,12 +1047,24 @@ const SettingsPage = () => {
               )}
 
               {activeTab === "general" && <GeneralSettingsTab />}
+              {activeTab === "property-statuses" && <PropertyStatusesTab />}
+              {activeTab === "client-settings" && <ClientSettingsTab />}
               {activeTab === "owner-statuses" && <OwnerStatusesTab />}
               {activeTab === "areas-districts" && <AreasDistrictsTab />}
               {activeTab === "marketing-channels" && <MarketingChannelsTab />}
               {activeTab === "portal-integrations" && (
                 <PortalIntegrationsTab />
               )}
+              {activeTab === "distribution-rules" && <DistributionRulesTab />}
+              {activeTab === "teams" && <TeamsTab />}
+              {activeTab === "branches" && <BranchesTab />}
+              {activeTab === "message-templates" && <MessageTemplatesTab />}
+              {activeTab === "whatsapp-settings" && <WhatsAppSettingsTab />}
+              {activeTab === "notification-settings" && (
+                <NotificationSettingsTab />
+              )}
+              {activeTab === "publish-settings" && <PublishSettingsTab />}
+              {activeTab === "user-permissions" && <RolePermissionsTab />}
             </div>
           </div>
         </div>

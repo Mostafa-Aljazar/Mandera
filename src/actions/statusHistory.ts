@@ -2,6 +2,11 @@
 
 import { getServerSupabase } from "@/lib/supabase/server";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
+import { assertCompanyMember } from "@/actions/_access";
+import {
+  canEditActivityHistory,
+  isSalesAgent,
+} from "@/lib/permissions";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
@@ -72,6 +77,11 @@ export async function getStatusHistory(
   entityId: string,
   companyId: string,
 ): Promise<ActionResult<HistoryRecord[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+
   const supabase = await getServerSupabase();
   const table = `${entityType}_status_history`;
   const entityIdField =
@@ -84,13 +94,20 @@ export async function getStatusHistory(
         ? "*, status_ref:client_statuses(name_en, name_ar)"
         : "*";
 
-  const { data, error } = await supabase
+  let query = supabase
     .from(table)
     .select(select)
     .eq("company_id", companyId)
     .eq(entityIdField, entityId)
     .order("created_at", { ascending: false })
     .limit(50);
+
+  // PDF: Sales Agent cannot view notes/follow-ups added by other employees.
+  if (isSalesAgent(access.data.role)) {
+    query = query.eq("created_by", access.data.userId);
+  }
+
+  const { data, error } = await query;
 
   if (error) return { error: error.message };
 
@@ -138,10 +155,26 @@ export async function getStatusHistory(
 export async function deleteStatusHistoryRecord(
   entityType: HistoryEntityType,
   recordId: string,
+  companyId: string,
 ): Promise<ActionResult<null>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (!canEditActivityHistory(access.data.role)) {
+    return {
+      error:
+        "Historical activity records cannot be edited or deleted by company roles.",
+    };
+  }
+
   const supabase = await getServerSupabase();
   const table = `${entityType}_status_history`;
-  const { error } = await supabase.from(table).delete().eq("id", recordId);
+  const { error } = await supabase
+    .from(table)
+    .delete()
+    .eq("id", recordId)
+    .eq("company_id", companyId);
   if (error) return { error: error.message };
   return { data: null };
 }
@@ -243,6 +276,120 @@ export async function getEmployeeActivity(
   );
 
   const merged = [...fromOwners, ...fromClients, ...fromProperties].sort(
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+
+  return { data: merged.slice(0, 60) };
+}
+
+/** Company-wide activity feed for Manager/Admin insights. */
+export async function getCompanyActivityLog(
+  companyId: string,
+): Promise<ActionResult<EmployeeActivityRecord[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (
+    access.data.role !== "manager" &&
+    access.data.role !== "administrator" &&
+    access.data.role !== "master_admin"
+  ) {
+    return { error: "Access denied" };
+  }
+
+  const supabase = await getServerSupabase();
+  const [ownersRes, clientsRes, propertiesRes] = await Promise.all([
+    supabase
+      .from("owner_status_history")
+      .select("*, status_ref:owner_statuses(name_en, name_ar), owner:owners(id, name_en, name_ar, name)")
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("client_status_history")
+      .select("*, status_ref:client_statuses(name_en, name_ar), client:clients(id, name_en, name_ar, name)")
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("property_status_history")
+      .select("*, property:properties(id, code, title)")
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false })
+      .limit(30),
+  ]);
+
+  if (ownersRes.error) return { error: ownersRes.error.message };
+  if (clientsRes.error) return { error: clientsRes.error.message };
+  if (propertiesRes.error) return { error: propertiesRes.error.message };
+
+  const creatorIds = [
+    ...new Set(
+      [...(ownersRes.data ?? []), ...(clientsRes.data ?? []), ...(propertiesRes.data ?? [])]
+        .map((row: { created_by?: string | null }) => row.created_by)
+        .filter(Boolean) as string[],
+    ),
+  ];
+  const creators = await loadCreatorNames(supabase, creatorIds);
+
+  const mapRow = (
+    h: any,
+    entityType: "owner" | "client" | "property",
+    entityId: string | null,
+    entityLabel: string | null,
+  ): EmployeeActivityRecord => {
+    const creator = h.created_by ? creators.get(h.created_by) : undefined;
+    return {
+      id: h.id,
+      created_at: h.created_at,
+      created_by: h.created_by,
+      created_by_name: h.created_by_name,
+      created_by_name_en: creator?.name_en || h.created_by_name || null,
+      created_by_name_ar: creator?.name_ar || h.created_by_name || null,
+      note: h.note,
+      status: h.status,
+      status_name:
+        entityType === "property"
+          ? (h.status ?? null)
+          : (h.status_ref?.name_en ?? h.status_ref?.name_ar ?? null),
+      status_name_en:
+        entityType === "property" ? null : (h.status_ref?.name_en ?? null),
+      status_name_ar:
+        entityType === "property" ? null : (h.status_ref?.name_ar ?? null),
+      entity_type: entityType,
+      entity_id: entityId,
+      entity_label: entityLabel,
+    };
+  };
+
+  const merged: EmployeeActivityRecord[] = [
+    ...(ownersRes.data ?? []).map((h: any) =>
+      mapRow(
+        h,
+        "owner",
+        h.owner_id ?? h.owner?.id ?? null,
+        h.owner?.name_en || h.owner?.name_ar || h.owner?.name || null,
+      ),
+    ),
+    ...(clientsRes.data ?? []).map((h: any) =>
+      mapRow(
+        h,
+        "client",
+        h.client_id ?? h.client?.id ?? null,
+        h.client?.name_en || h.client?.name_ar || h.client?.name || null,
+      ),
+    ),
+    ...(propertiesRes.data ?? []).map((h: any) =>
+      mapRow(
+        h,
+        "property",
+        h.property_id ?? h.property?.id ?? null,
+        h.property?.title || h.property?.code || null,
+      ),
+    ),
+  ].sort(
     (a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );

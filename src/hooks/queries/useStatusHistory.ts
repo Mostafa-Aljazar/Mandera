@@ -42,10 +42,12 @@ export function useDeleteStatusHistoryRecord() {
     mutationFn: ({
       entityType,
       recordId,
+      companyId,
     }: {
       entityType: HistoryEntityType;
       recordId: string;
-    }) => deleteStatusHistoryRecord(entityType, recordId),
+      companyId: string;
+    }) => deleteStatusHistoryRecord(entityType, recordId, companyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["status_history"] });
     },

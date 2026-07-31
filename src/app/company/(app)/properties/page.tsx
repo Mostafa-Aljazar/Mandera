@@ -5,12 +5,15 @@ import { useRouter } from "next/navigation";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { canViewAllClients, isSalesAgent } from "@/lib/permissions";
 import {
   useProperties,
   useAreasDistrictsLookup,
 } from "@/hooks/queries/useProperties";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import PropertyCard from "@/components/company/properties/PropertyCard";
+import PendingApprovalsPanel from "@/components/company/properties/PendingApprovalsPanel";
+import DuplicatesReviewPanel from "@/components/company/duplicates/DuplicatesReviewPanel";
 import FilterPanel from "@/components/common/FilterPanel";
 import FilterChips from "@/components/common/FilterChips";
 import { Button } from "@/components/ui/button";
@@ -33,7 +36,20 @@ import { cn } from "@/lib/utils";
 import type { PropertyWithRelations as Property } from "@/types/supabase-entities.types";
 
 const PAGE_SIZE = 9;
-const STATUS_OPTIONS = ["Available", "Sold", "Rented", "Hold", "Deal Completed"];
+const STATUS_OPTIONS = [
+  "Available",
+  "Viewing Scheduled",
+  "Under Offer",
+  "Reserved",
+  "Follow-up Required",
+  "Sold",
+  "Rented",
+  "Unavailable",
+  "Archived",
+  "Cancelled",
+  "Hold",
+  "Deal Completed",
+];
 
 interface PropertyFilterState {
   statusId: string | null;
@@ -170,8 +186,8 @@ const PropertiesPage = () => {
   };
 
   const propertyFilters = {
-    employeeId:
-      currentUser?.role === "company_employee" ? currentUser.id : undefined,
+    // Agents see company inventory (masked); assignment scoping is for clients/owners only.
+    employeeId: undefined as string | undefined,
     status: statusFilter && statusFilter !== "All" ? statusFilter : undefined,
     areaDistrictIds:
       filterState.areas.length > 0 ? filterState.areas : undefined,
@@ -191,15 +207,28 @@ const PropertiesPage = () => {
   const allAreasDistricts = useMemo(() => allAreasData ?? [], [allAreasData]);
 
   const stats = useMemo(() => {
-    const rent = properties.filter((p) => p.listing_type === "Rent");
-    const sale = properties.filter((p) => p.listing_type === "Sale");
+    const active = properties.filter(
+      (p) => !p.approval_status || p.approval_status === "approved",
+    );
+    const rent = active.filter((p) => p.listing_type === "Rent");
+    const sale = active.filter((p) => p.listing_type === "Sale");
     return {
-      total: properties.length,
+      total: active.length,
       rent: rent.length,
       sale: sale.length,
-      available: properties.filter((p) => p.status === "Available").length,
+      available: active.filter((p) => p.status === "Available").length,
     };
   }, [properties]);
+
+  const myDrafts = useMemo(() => {
+    if (!isSalesAgent(currentUser?.role)) return [];
+    return properties.filter(
+      (p) =>
+        p.employee_id === currentUser?.id &&
+        p.approval_status &&
+        p.approval_status !== "approved",
+    );
+  }, [properties, currentUser?.id, currentUser?.role]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -216,6 +245,8 @@ const PropertiesPage = () => {
 
   const filterProperties = (listType: string) =>
     properties.filter((p) => {
+      // PDF: Draft / pending / rejected stay out of active inventory lists.
+      if (p.approval_status && p.approval_status !== "approved") return false;
       if (p.listing_type !== listType) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -486,6 +517,38 @@ const PropertiesPage = () => {
               tone="amber"
             />
           </section>
+
+          <PendingApprovalsPanel />
+
+          {myDrafts.length > 0 ? (
+            <section className="relative bg-card shadow-[var(--shadow-subtle)] border border-amber-500/25 rounded-2xl overflow-hidden">
+              <div className="p-3.5 sm:p-5 space-y-3">
+                <div>
+                  <h2 className="font-outfit font-semibold text-foreground text-base sm:text-lg tracking-tight">
+                    {t("My drafts & reviews")}
+                  </h2>
+                  <p className="mt-1 text-muted-foreground text-sm">
+                    {t(
+                      "Draft and pending listings stay out of the active inventory until approved.",
+                    )}
+                  </p>
+                </div>
+                <div className="gap-3 sm:gap-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+                  {myDrafts.map((property) => (
+                    <PropertyCard
+                      key={property.id}
+                      property={property}
+                      onView={goToProperty}
+                    />
+                  ))}
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {canViewAllClients(currentUser?.role) && company?.id ? (
+            <DuplicatesReviewPanel companyId={company.id} initialTab="properties" />
+          ) : null}
 
           <section className="relative bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-2xl overflow-hidden">
             <div

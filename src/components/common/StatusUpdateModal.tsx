@@ -41,8 +41,7 @@ import { bilingualLabel, employeeDisplayName, type BilingualName } from '@/lib/b
 import { useStatusUpdate } from '@/hooks/useStatusUpdate';
 import { useCompanyEmployeesLookup } from '@/hooks/queries/useProperties';
 import { StatusUpdateSchema, type TStatusUpdateSchema } from '@/validations/status-update.schema';
-
-const PROPERTY_STATUS_OPTIONS = ['Available', 'Sold', 'Rented', 'Hold', 'Deal Completed'];
+import { PROPERTY_STATUS_OPTIONS, isFinalPropertyStatus, isSalesAgent } from '@/lib/permissions';
 
 type EntityType = 'client' | 'owner' | 'property';
 
@@ -57,14 +56,22 @@ interface StatusUpdateModalProps {
   entityData: StatusUpdateEntity;
   statuses?: Array<{ id: string } & BilingualName>;
   onSuccess?: () => void;
+  /** PDF: Sales Agent may add owner notes/follow-ups but not change owner status. */
+  notesOnly?: boolean;
 }
 
-export default function StatusUpdateModal({ entityType, entityData, statuses = [], onSuccess }: StatusUpdateModalProps) {
+export default function StatusUpdateModal({
+  entityType,
+  entityData,
+  statuses = [],
+  onSuccess,
+  notesOnly = false,
+}: StatusUpdateModalProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
   const { currentUser, company } = useCompanyAuth();
   const { canUpdate, updateStatus, isLoading } = useStatusUpdate();
-  const dateLocale = language === 'ar' ? ar : enUS;
+  const dateLocale = language === "ar" ? ar : enUS;
   const [noteExpanded, setNoteExpanded] = useState(false);
   const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
   const currentEmployee = employeesData?.find((e) => e.id === currentUser?.id);
@@ -73,16 +80,18 @@ export default function StatusUpdateModal({ entityType, entityData, statuses = [
       currentEmployee,
       language,
       currentUser?.name || currentUser?.email,
-    ) || currentUser?.name || currentUser?.email;
+    ) ||
+    currentUser?.name ||
+    currentUser?.email;
 
   const form = useForm<TStatusUpdateSchema>({
-    resolver: zodResolver(StatusUpdateSchema(t, entityType)),
+    resolver: zodResolver(StatusUpdateSchema(t, entityType, { notesOnly })),
     defaultValues: {
-      status_id: '',
-      status_name: '',
-      note: '',
+      status_id: "",
+      status_name: "",
+      note: "",
       follow_up_date: null,
-      follow_up_time: ''
+      follow_up_time: "",
     },
   });
 
@@ -120,7 +129,16 @@ export default function StatusUpdateModal({ entityType, entityData, statuses = [
 
       await updateStatus(entityType, entityData, updatePayload);
 
-      toast.success(t('Status updated successfully'));
+      if (
+        entityType === 'property' &&
+        statusName &&
+        isFinalPropertyStatus(statusName) &&
+        isSalesAgent(currentUser?.role)
+      ) {
+        toast.success(t('Final status change submitted for approval'));
+      } else {
+        toast.success(t('Status updated successfully'));
+      }
       form.reset({ status_id: '', status_name: '', note: '', follow_up_date: null, follow_up_time: '' });
       if (onSuccess) onSuccess();
     } catch (err) {
@@ -158,6 +176,7 @@ export default function StatusUpdateModal({ entityType, entityData, statuses = [
 
       <Form {...form}>
         <div className="flex flex-col flex-1 gap-4 p-4 sm:p-5">
+          {!notesOnly ? (
           <div className="space-y-1.5">
             <Label className="flex items-center gap-1.5 font-medium text-muted-foreground text-xs">
               <Tag className="w-3 h-3 shrink-0" />
@@ -222,8 +241,9 @@ export default function StatusUpdateModal({ entityType, entityData, statuses = [
               />
             )}
           </div>
+          ) : null}
 
-          {entityType === 'client' && (
+          {(entityType === 'client' || notesOnly) && (
             <div className="bg-muted/30 p-3 sm:p-3.5 border border-border/40 rounded-xl space-y-3">
               <p className="flex items-center gap-1.5 font-medium text-muted-foreground text-[11px] uppercase tracking-wide">
                 <CalendarIcon className="w-3 h-3 shrink-0" />

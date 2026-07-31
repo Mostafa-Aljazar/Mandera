@@ -1,12 +1,132 @@
 "use server";
 
 import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
+import {
+  companyRolesFilter,
+  canEditApprovedPropertyDirectly,
+  canViewRevenue,
+  isAdministratorOrAbove,
+  isFinalPropertyStatus,
+  isOperationalPropertyStatus,
+  isSalesAgent,
+} from "@/lib/permissions";
+import {
+  assertCompanyMember,
+} from "@/actions/_access";
+import {
+  maskOwnerName,
+  maskPhone,
+} from "@/lib/identity";
+import { notifyCompanyAdministrators } from "@/actions/notifications";
 import type {
   Property,
   PropertyWithRelations,
 } from "@/types/supabase-entities.types";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
+
+function formatNotificationDate(date = new Date()): string {
+  return date.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function isInvestmentUnitProperty(
+  property: Pick<PropertyWithRelations, "property_type">,
+): boolean {
+  const en = (property.property_type?.name_en || "").toLowerCase();
+  const ar = property.property_type?.name_ar || "";
+  return (
+    en.includes("investment") ||
+    ar.includes("استثمار") ||
+    en.includes("invest")
+  );
+}
+
+/**
+ * PDF: detailed map/address fields only for Investment Units (agents).
+ * Admin/Manager keep full address. Assigned agent's own listings also keep full address.
+ */
+function maskDetailedAddressForAgent(
+  property: PropertyWithRelations,
+  callerId: string,
+): PropertyWithRelations {
+  if (property.employee_id === callerId) return property;
+  if (isInvestmentUnitProperty(property)) return property;
+  return {
+    ...property,
+    city: null,
+    locality: null,
+    sub_locality: null,
+    tower_name: null,
+    pf_location_id: null,
+  };
+}
+
+function maskPropertyOwner(
+  property: PropertyWithRelations,
+  callerId: string,
+): PropertyWithRelations {
+  let next = property;
+  if (property.employee_id !== callerId) {
+    const owner = property.owner;
+    next = {
+      ...property,
+      owner_masked: true,
+      note_en: null,
+      note_ar: null,
+      // PDF: hide owner docs/files for unassigned agents.
+      document_urls: [],
+      owner: owner
+        ? {
+            id: owner.id,
+            name: maskOwnerName(owner.name),
+            name_en: owner.name_en ? maskOwnerName(owner.name_en) : owner.name_en,
+            name_ar: owner.name_ar ? maskOwnerName(owner.name_ar) : owner.name_ar,
+            phone: maskPhone(owner.phone),
+            email: undefined,
+          }
+        : owner,
+    };
+  } else {
+    next = { ...property, owner_masked: false };
+  }
+
+  return maskDetailedAddressForAgent(next, callerId);
+}
+
+function stripCommissionIfNeeded<T extends { commission_percentage?: number | null }>(
+  property: T,
+  role: string | null | undefined,
+): T {
+  if (canViewRevenue(role)) return property;
+  return { ...property, commission_percentage: null };
+}
+
+function resolveWritablePropertyStatus(
+  requested: string | null | undefined,
+  role: string | null | undefined,
+): string {
+  const status = requested || "Available";
+  if (!isSalesAgent(role)) return status;
+  // Agents may only set operational statuses directly; finals go via status requests.
+  if (isFinalPropertyStatus(status)) return "Available";
+  if (isOperationalPropertyStatus(status)) return status;
+  return "Available";
+}
+
+function canSalesAgentViewApproval(
+  property: Pick<Property, "approval_status" | "employee_id">,
+  callerId: string,
+): boolean {
+  if (property.approval_status === "approved") return true;
+  return property.employee_id === callerId;
+}
 
 export interface PropertyFilters {
   employeeId?: string;
@@ -21,7 +141,7 @@ export interface PropertyFilters {
 const PROPERTIES_SELECT = `
   *,
   property_type:property_types(id, name_en, name_ar),
-  owner:owners(id, name, name_en, name_ar, phone),
+  owner:owners(id, name, name_en, name_ar, phone, email),
   area_district_ref:areas_districts(id, name),
   employee:profiles!properties_employee_id_fkey(
     id,
@@ -60,6 +180,9 @@ export async function getProperties(
   companyId: string,
   filters: PropertyFilters = {},
 ): Promise<ActionResult<PropertyWithRelations[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
 
   let query = supabase
@@ -79,9 +202,22 @@ export async function getProperties(
   if (filters.updatedTo) query = query.lte("updated_at", filters.updatedTo);
 
   const { data, error } = await query;
-
   if (error) return { error: error.message };
-  return { data: (data ?? []) as PropertyWithRelations[] };
+
+  let properties = (data ?? []) as PropertyWithRelations[];
+
+  if (isSalesAgent(access.data.role)) {
+    const callerId = access.data.userId;
+    properties = properties
+      .filter((p) => canSalesAgentViewApproval(p, callerId))
+      .map((p) => maskPropertyOwner(p, callerId));
+  }
+
+  properties = properties.map((p) =>
+    stripCommissionIfNeeded(p, access.data!.role),
+  );
+
+  return { data: properties };
 }
 
 export async function getProperty(
@@ -96,7 +232,25 @@ export async function getProperty(
     .single();
 
   if (error) return { error: error.message };
-  return { data: data as PropertyWithRelations };
+
+  const property = data as PropertyWithRelations;
+  const access = await assertCompanyMember(property.company_id);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
+  if (isSalesAgent(access.data.role)) {
+    const callerId = access.data.userId;
+    if (!canSalesAgentViewApproval(property, callerId)) {
+      return { error: "Access denied" };
+    }
+    return {
+      data: stripCommissionIfNeeded(
+        maskPropertyOwner(property, callerId),
+        access.data.role,
+      ),
+    };
+  }
+
+  return { data: stripCommissionIfNeeded(property, access.data.role) };
 }
 
 export async function getPropertiesForOwner(
@@ -108,7 +262,26 @@ export async function getPropertiesForOwner(
     .select("*")
     .eq("owner_id", ownerId);
   if (error) return { error: error.message };
-  return { data: data ?? [] };
+
+  const rows = (data ?? []) as Property[];
+  if (rows.length === 0) return { data: [] };
+
+  const companyId = rows[0].company_id;
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
+  if (isSalesAgent(access.data.role)) {
+    const callerId = access.data.userId;
+    return {
+      data: rows
+        .filter((p) => canSalesAgentViewApproval(p, callerId))
+        .map((p) => stripCommissionIfNeeded(p, access.data!.role)),
+    };
+  }
+
+  return {
+    data: rows.map((p) => stripCommissionIfNeeded(p, access.data!.role)),
+  };
 }
 
 // --- Read-only lookups the Properties page's form dropdowns need. Full CRUD
@@ -127,11 +300,23 @@ export async function getPropertyTypesForCompany(companyId: string) {
 }
 
 export async function getOwnersForCompany(companyId: string) {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
-  const { data, error } = await supabase
+  let query = supabase
     .from("owners")
-    .select("id, name, phone, country, company_id, marketing_channel, assigned_employee_id, created_at, updated_at")
+    .select(
+      "id, name, name_en, name_ar, phone, country, company_id, marketing_channel, assigned_employee_id, created_at, updated_at",
+    )
     .eq("company_id", companyId);
+
+  // Agents only pick from owners assigned to them (Phase 3/4).
+  if (isSalesAgent(access.data.role)) {
+    query = query.eq("assigned_employee_id", access.data.userId);
+  }
+
+  const { data, error } = await query.order("name_en", { ascending: true });
   if (error) return { error: error.message };
   return { data: data ?? [] };
 }
@@ -162,7 +347,7 @@ export async function getCompanyEmployeesForCompany(companyId: string) {
       "id, role, company_id, employee_id, name, employee:employees!profiles_employee_id_fkey(avatar_url, first_name_en, first_name_ar, last_name_en, last_name_ar)",
     )
     .eq("company_id", companyId)
-    .in("role", ["company_super_admin", "company_employee"]);
+    .in("role", companyRolesFilter());
   if (error) return { error: error.message };
 
   type EmpJoin = {
@@ -241,7 +426,7 @@ export async function getCompanyOperationsStats(
       .from("profiles")
       .select("id", { count: "exact", head: true })
       .eq("company_id", companyId)
-      .in("role", ["company_super_admin", "company_employee"]),
+      .in("role", companyRolesFilter()),
   ]);
 
   const firstError =
@@ -415,6 +600,8 @@ export interface CreatePropertyInput extends PropertyPortalFields {
   note_ar?: string | null;
   status?: string | null;
   advertising_permit_number?: string | null;
+  /** Agents may only create as draft (PDF matrix). Submit for review is a separate action. */
+  approval_status?: "draft" | "pending_review" | "approved" | "rejected";
   images?: File[];
   floor_plans?: File[];
 }
@@ -422,7 +609,25 @@ export interface CreatePropertyInput extends PropertyPortalFields {
 export async function createProperty(
   input: CreatePropertyInput,
 ): Promise<ActionResult<Property>> {
+  const access = await assertCompanyMember(input.companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
+  const isAgent = isSalesAgent(access.data.role);
+  const requested = input.approval_status;
+  // PDF final matrix: Sales Agent "إضافة عقار" = Draft only.
+  const approvalStatus = isAgent
+    ? "draft"
+    : requested === "draft" ||
+        requested === "pending_review" ||
+        requested === "approved"
+      ? requested
+      : "approved";
+  const employeeId = isAgent ? access.data.userId : input.employee_id;
+  const propertyStatus = resolveWritablePropertyStatus(
+    input.status,
+    access.data.role,
+  );
 
   try {
     const code = await generatePropertyCode(
@@ -447,16 +652,19 @@ export async function createProperty(
         area: input.area || "",
         owner_id: input.owner_id,
         price: input.price,
-        commission_percentage: input.commission_percentage ?? null,
-        employee_id: input.employee_id,
+        commission_percentage: canViewRevenue(access.data.role)
+          ? (input.commission_percentage ?? null)
+          : null,
+        employee_id: employeeId,
         title: input.title,
         description: input.description || "",
         note_en: input.note_en || "",
         note_ar: input.note_ar || "",
         images: imageUrls,
         floor_plan_urls: floorPlanUrls,
-        status: input.status || "Available",
+        status: propertyStatus,
         advertising_permit_number: input.advertising_permit_number || "",
+        approval_status: approvalStatus,
         ...portalColumns(input),
       })
       .select()
@@ -466,12 +674,24 @@ export async function createProperty(
 
     await supabase.from("property_status_history").insert({
       property_id: data.id,
-      status: input.status || "Available",
+      status: propertyStatus,
       note: "Initial property creation",
       created_by: input.createdByUserId,
       created_by_name: input.createdByName,
       company_id: input.companyId,
     });
+
+    if (isAgent) {
+      await notifyCompanyAdministrators({
+        companyId: input.companyId,
+        type: "property_created",
+        title: "New Property Added",
+        body: `Property: ${data.code} — ${data.title}\nAgent: ${input.createdByName}\nStatus: Draft\nDate: ${formatNotificationDate()}`,
+        link: `/company/properties/${data.id}`,
+        entityType: "property",
+        entityId: data.id,
+      });
+    }
 
     return { data: data as Property };
   } catch (err) {
@@ -506,16 +726,50 @@ export interface UpdatePropertyInput extends PropertyPortalFields {
 export async function updateProperty(
   input: UpdatePropertyInput,
 ): Promise<ActionResult<Property>> {
+  const access = await assertCompanyMember(input.companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
 
   try {
     const { data: existing, error: fetchError } = await supabase
       .from("properties")
-      .select("employee_id, images, floor_plan_urls")
+      .select("employee_id, images, floor_plan_urls, approval_status, is_locked, company_id, commission_percentage")
       .eq("id", input.id)
+      .eq("company_id", input.companyId)
       .single();
 
     if (fetchError) return { error: fetchError.message };
+
+    if (existing.is_locked && !canEditApprovedPropertyDirectly(access.data.role)) {
+      return { error: "This property is locked and cannot be edited." };
+    }
+
+    if (isSalesAgent(access.data.role)) {
+      if (existing.employee_id !== access.data.userId) {
+        return { error: "Access denied" };
+      }
+      if (existing.approval_status === "approved") {
+        return {
+          error:
+            "Approved properties cannot be edited directly. Submit a change request instead (createPropertyChangeRequest).",
+        };
+      }
+      if (existing.approval_status === "pending_review") {
+        return {
+          error:
+            "This property is pending review and cannot be edited until a decision is made.",
+        };
+      }
+      if (
+        existing.approval_status !== "draft" &&
+        existing.approval_status !== "rejected"
+      ) {
+        return { error: "Access denied" };
+      }
+    } else if (!canEditApprovedPropertyDirectly(access.data.role)) {
+      return { error: "Access denied" };
+    }
 
     const newImageUrls = await uploadPropertyImages(input.companyId, input.images ?? []);
     const images = newImageUrls.length > 0 ? newImageUrls : existing.images;
@@ -523,6 +777,15 @@ export async function updateProperty(
     const newFloorPlanUrls = await uploadPropertyFloorPlans(input.companyId, input.floor_plans ?? []);
     const floorPlanUrls =
       newFloorPlanUrls.length > 0 ? newFloorPlanUrls : existing.floor_plan_urls;
+
+    const employeeId = isSalesAgent(access.data.role)
+      ? existing.employee_id
+      : input.employee_id;
+
+    const propertyStatus = resolveWritablePropertyStatus(
+      input.status,
+      access.data.role,
+    );
 
     const { data, error } = await supabase
       .from("properties")
@@ -536,15 +799,17 @@ export async function updateProperty(
         area: input.area || "",
         owner_id: input.owner_id,
         price: input.price,
-        commission_percentage: input.commission_percentage ?? null,
-        employee_id: input.employee_id,
+        commission_percentage: canViewRevenue(access.data.role)
+          ? (input.commission_percentage ?? null)
+          : existing.commission_percentage,
+        employee_id: employeeId,
         title: input.title,
         description: input.description || "",
         note_en: input.note_en || "",
         note_ar: input.note_ar || "",
         images,
         floor_plan_urls: floorPlanUrls,
-        status: input.status || "Available",
+        status: propertyStatus,
         advertising_permit_number: input.advertising_permit_number || "",
         ...portalColumns(input),
       })
@@ -556,8 +821,37 @@ export async function updateProperty(
 
     // TODO: send assignment-change notification email if employee_id changed
     // (deferred per user decision — see project_supabase_migration memory).
-    if (existing.employee_id !== input.employee_id) {
+    if (existing.employee_id !== employeeId) {
       // Intentionally not implemented yet.
+    }
+
+    // Administrator notifications: Agent edits property data / adds photos (PDF items 2–3).
+    if (isSalesAgent(access.data.role)) {
+      const propLine = `Property: ${(data as Property).code} — ${(data as Property).title}`;
+      const dateLine = `Date: ${formatNotificationDate()}`;
+      const link = `/company/properties/${input.id}`;
+
+      await notifyCompanyAdministrators({
+        companyId: input.companyId,
+        type: "property_change_request",
+        title: "Property Data Edited",
+        body: `${propLine}\nStatus: ${existing.approval_status}\n${dateLine}`,
+        link,
+        entityType: "property",
+        entityId: input.id,
+      });
+
+      if (newImageUrls.length > 0) {
+        await notifyCompanyAdministrators({
+          companyId: input.companyId,
+          type: "property_images_added",
+          title: "Property Images Added",
+          body: `${propLine}\nImages added: ${newImageUrls.length}\n${dateLine}`,
+          link,
+          entityType: "property",
+          entityId: input.id,
+        });
+      }
     }
 
     return { data: data as Property };
@@ -568,6 +862,20 @@ export async function updateProperty(
 
 export async function deleteProperty(id: string): Promise<ActionResult<null>> {
   const supabase = await getServerSupabase();
+  const { data: existing, error: fetchError } = await supabase
+    .from("properties")
+    .select("id, company_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) return { error: fetchError.message };
+  if (!existing) return { error: "Property not found" };
+
+  const access = await assertCompanyMember(existing.company_id);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!isAdministratorOrAbove(access.data.role) && access.data.role !== "master_admin") {
+    return { error: "Only administrators or managers can delete properties." };
+  }
+
   const { error } = await supabase.from("properties").delete().eq("id", id);
   if (error) return { error: error.message };
   return { data: null };
@@ -581,7 +889,63 @@ export async function updatePropertyStatus(
   createdByName: string,
   note = "Quick status update from list view",
 ): Promise<ActionResult<Property>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("properties")
+    .select("*")
+    .eq("id", propertyId)
+    .eq("company_id", companyId)
+    .single();
+
+  if (fetchError) return { error: fetchError.message };
+  if (!existing) return { error: "Property not found" };
+
+  const previousStatus = existing.status || "Available";
+  const isAgent = isSalesAgent(access.data.role);
+  const isAdminPlus =
+    isAdministratorOrAbove(access.data.role) || access.data.role === "master_admin";
+
+  if (isAgent && existing.employee_id !== access.data.userId) {
+    return { error: "Access denied" };
+  }
+
+  // Final statuses: sales agents must create a change request; admin+ apply directly.
+  if (isFinalPropertyStatus(newStatus) && isAgent) {
+    const { data: request, error: reqError } = await supabase
+      .from("property_status_change_requests")
+      .insert({
+        company_id: companyId,
+        property_id: propertyId,
+        requested_by: access.data.userId,
+        previous_status: previousStatus,
+        new_status: newStatus,
+        status: "pending",
+      })
+      .select()
+      .single();
+
+    if (reqError) return { error: reqError.message };
+
+    await notifyCompanyAdministrators({
+      companyId,
+      type: "property_status_change_request",
+      title: "Property Status Change Requested",
+      body: `Property: ${existing.code}\nTitle: ${existing.title || "—"}\nAgent: ${createdByName}\nPrevious Status: ${previousStatus}\nNew Status: ${newStatus}\nDate: ${formatNotificationDate()}`,
+      link: `/company/properties/${propertyId}`,
+      entityType: "property_status_change_request",
+      entityId: request.id,
+    });
+
+    return { data: existing as Property };
+  }
+
+  if (!isAdminPlus && !isOperationalPropertyStatus(newStatus) && !isFinalPropertyStatus(newStatus)) {
+    return { error: `Unknown property status: ${newStatus}` };
+  }
 
   const { data, error } = await supabase
     .from("properties")
@@ -600,6 +964,19 @@ export async function updatePropertyStatus(
     created_by_name: createdByName,
     company_id: companyId,
   });
+
+  // Agent operational status changes notify administrators (PDF format).
+  if (isAgent) {
+    await notifyCompanyAdministrators({
+      companyId,
+      type: "property_status_changed",
+      title: "Property Status Changed",
+      body: `Property: ${data.code}\nTitle: ${data.title || "—"}\nAgent: ${createdByName}\nPrevious Status: ${previousStatus}\nNew Status: ${newStatus}\nDate: ${formatNotificationDate()}`,
+      link: `/company/properties/${propertyId}`,
+      entityType: "property",
+      entityId: propertyId,
+    });
+  }
 
   return { data: data as Property };
 }

@@ -8,6 +8,8 @@ import {
   usePortalPublicConfig,
   useSetPortalPublication,
 } from "@/hooks/queries/usePortalPublishing";
+import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { canPublishToPortals } from "@/lib/permissions";
 import { validatePropertyForPortal } from "@/lib/portals/validate";
 import type {
   Portal,
@@ -56,6 +58,8 @@ interface Props {
 
 export default function PublishToPortalsModal({ property, isOpen, onClose }: Props) {
   const { t } = useTranslation();
+  const { currentUser } = useCompanyAuth();
+  const canPublish = canPublishToPortals(currentUser?.role);
   const { data: pubs } = usePropertyPublications(property?.id);
   const { data: configs } = usePortalPublicConfig(property?.company_id);
   const setPublication = useSetPortalPublication();
@@ -63,6 +67,8 @@ export default function PublishToPortalsModal({ property, isOpen, onClose }: Pro
   const [pendingPortal, setPendingPortal] = React.useState<Portal | null>(null);
 
   if (!property) return null;
+
+  const isPaused = Boolean(property.paused_at);
 
   const pubByPortal = (portal: Portal): PropertyPublication | undefined =>
     (pubs ?? []).find((p) => p.platform === portal);
@@ -73,6 +79,18 @@ export default function PublishToPortalsModal({ property, isOpen, onClose }: Pro
   };
 
   const handleToggle = async (portal: Portal, enabled: boolean) => {
+    if (!canPublish) {
+      toast.error(t("Only administrators and managers can publish to portals."));
+      return;
+    }
+    if (enabled && property.approval_status !== "approved") {
+      toast.error(t("Approve before publishing"));
+      return;
+    }
+    if (enabled && isPaused) {
+      toast.error(t("Unpause the property before publishing."));
+      return;
+    }
     setPendingPortal(portal);
     try {
       const result = await setPublication.mutateAsync({
@@ -108,7 +126,12 @@ export default function PublishToPortalsModal({ property, isOpen, onClose }: Pro
               ? validatePropertyForPortal(property, key, config)
               : [];
             const busy = pendingPortal === key;
-            const blocked = !configured || (!enabled && missing.length > 0);
+            const notApproved = property.approval_status !== "approved";
+            const blocked =
+              !canPublish ||
+              !configured ||
+              notApproved ||
+              (!enabled && (missing.length > 0 || isPaused));
 
             return (
               <div
@@ -137,6 +160,20 @@ export default function PublishToPortalsModal({ property, isOpen, onClose }: Pro
                     />
                   )}
                 </div>
+
+                {!canPublish && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    {t("Only administrators and managers can publish to portals.")}
+                  </p>
+                )}
+
+                {canPublish && isPaused && !enabled && (
+                  <p className="flex items-center gap-1.5 text-xs text-amber-700">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    {t("Unpause the property before publishing.")}
+                  </p>
+                )}
 
                 {!configured && (
                   <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

@@ -24,6 +24,8 @@ import {
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { canViewRevenue } from "@/lib/permissions";
 import StatusUpdateModal from "@/components/common/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
 import type { PropertyWithRelations } from "@/types/supabase-entities.types";
@@ -45,6 +47,8 @@ export default function PropertyDetailModal({
 }: PropertyDetailModalProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
+  const { currentUser } = useCompanyAuth();
+  const canSeeCommission = canViewRevenue(currentUser?.role);
   const [activeTab, setActiveTab] = useState("details");
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
 
@@ -197,17 +201,19 @@ export default function PropertyDetailModal({
                             : t("N/A")}
                         </p>
                       </div>
-                      <div className="bg-muted/50 p-4 border border-border/50 hover:border-border rounded-xl transition-colors">
-                        <p className="mb-1 text-muted-foreground text-sm">
-                          {t("Commission")}
-                        </p>
-                        <p className="flex items-center gap-2 font-semibold">
-                          <Briefcase className="w-4 h-4 text-muted-foreground" />
-                          {property.commission_percentage
-                            ? `${property.commission_percentage}%`
-                            : t("N/A")}
-                        </p>
-                      </div>
+                      {canSeeCommission ? (
+                        <div className="bg-muted/50 p-4 border border-border/50 hover:border-border rounded-xl transition-colors">
+                          <p className="mb-1 text-muted-foreground text-sm">
+                            {t("Commission")}
+                          </p>
+                          <p className="flex items-center gap-2 font-semibold">
+                            <Briefcase className="w-4 h-4 text-muted-foreground" />
+                            {property.commission_percentage
+                              ? `${property.commission_percentage}%`
+                              : t("N/A")}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   </section>
 

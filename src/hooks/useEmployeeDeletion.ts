@@ -22,7 +22,11 @@ export const useEmployeeDeletion = () => {
   const [deletionError, setDeletionError] = useState('');
   const deleteWorkflowMutation = useDeleteEmployeeWorkflow();
 
-  const deleteEmployeeWorkflow = async (employeeToDelete: EmployeeToDelete, targets: ReassignmentTargets) => {
+  const deleteEmployeeWorkflow = async (
+    employeeToDelete: EmployeeToDelete,
+    targets: ReassignmentTargets,
+    companyId: string,
+  ) => {
     setIsDeleting(true);
     setDeletionProgress(t('Deleting employee...'));
     setDeletionError('');
@@ -35,6 +39,7 @@ export const useEmployeeDeletion = () => {
           isBaseOnly: employeeToDelete._isBase,
         },
         targets,
+        companyId,
       });
 
       if (result.error) throw new Error(result.error);

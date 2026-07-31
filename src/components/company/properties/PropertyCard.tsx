@@ -25,9 +25,23 @@ const FALLBACK_IMAGE =
 const STATUS_STYLES: Record<string, string> = {
   Available:
     "bg-emerald-500/15 text-emerald-800 border-emerald-500/30 dark:text-emerald-200",
+  "Viewing Scheduled":
+    "bg-cyan-500/15 text-cyan-800 border-cyan-500/30 dark:text-cyan-200",
+  "Under Offer":
+    "bg-indigo-500/15 text-indigo-800 border-indigo-500/30 dark:text-indigo-200",
+  Reserved:
+    "bg-violet-500/15 text-violet-800 border-violet-500/30 dark:text-violet-200",
+  "Follow-up Required":
+    "bg-amber-500/15 text-amber-800 border-amber-500/30 dark:text-amber-200",
   Sold: "bg-sky-500/15 text-sky-800 border-sky-500/30 dark:text-sky-200",
   Rented:
-    "bg-violet-500/15 text-violet-800 border-violet-500/30 dark:text-violet-200",
+    "bg-teal-500/15 text-teal-800 border-teal-500/30 dark:text-teal-200",
+  Unavailable:
+    "bg-slate-500/15 text-slate-800 border-slate-500/30 dark:text-slate-200",
+  Archived:
+    "bg-stone-500/15 text-stone-800 border-stone-500/30 dark:text-stone-200",
+  Cancelled:
+    "bg-rose-500/15 text-rose-800 border-rose-500/30 dark:text-rose-200",
   Hold: "bg-amber-500/15 text-amber-800 border-amber-500/30 dark:text-amber-200",
   "Deal Completed":
     "bg-slate-500/15 text-slate-800 border-slate-500/30 dark:text-slate-200",
@@ -159,6 +173,26 @@ export default function PropertyCard({ property, onView }: PropertyCardProps) {
           >
             {t(currentStatus)}
           </Badge>
+          {property.approval_status &&
+          property.approval_status !== "approved" ? (
+            <Badge
+              variant="outline"
+              className={cn(
+                "shadow-sm backdrop-blur-md bg-background/95 font-medium text-[11px]",
+                property.approval_status === "pending_review"
+                  ? "border-amber-500/40 text-amber-800"
+                  : property.approval_status === "rejected"
+                    ? "border-red-500/40 text-red-700"
+                    : "border-slate-500/40 text-slate-700",
+              )}
+            >
+              {property.approval_status === "pending_review"
+                ? t("Pending Review")
+                : property.approval_status === "rejected"
+                  ? t("Rejected")
+                  : t("Draft")}
+            </Badge>
+          ) : null}
         </div>
 
         {property.code ? (

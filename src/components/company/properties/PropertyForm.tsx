@@ -7,6 +7,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import {
+  canAssignRecords,
+  canApproveProperties,
+  canEditApprovedPropertyDirectly,
+  canViewRevenue,
+  changeRequestStatusLabel,
+  isSalesAgent,
+  OPERATIONAL_PROPERTY_STATUSES,
+} from "@/lib/permissions";
+import type { PropertyApprovalStatus } from "@/types/supabase-entities.types";
+import {
   usePropertyTypes,
   useOwnersLookup,
   useCompanyEmployeesLookup,
@@ -14,6 +24,10 @@ import {
   useCreateProperty,
   useUpdateProperty,
 } from "@/hooks/queries/useProperties";
+import {
+  usePropertyApprovalMutations,
+  usePendingChangeRequestForProperty,
+} from "@/hooks/queries/usePropertyApprovals";
 import { PropertySchema, type TPropertySchema } from "@/validations/property.schema";
 import { PF_AMENITIES, amenityI18nKey } from "@/lib/portals/amenities";
 import PfLocationPicker from "./PfLocationPicker";
@@ -66,7 +80,19 @@ const EMIRATES = [
   "Fujairah",
   "Umm Al Quwain",
 ];
-const STATUS_OPTIONS = ["Available", "Sold", "Rented", "Hold", "Deal Completed"];
+const STATUS_OPTIONS = [
+  "Available",
+  "Viewing Scheduled",
+  "Under Offer",
+  "Reserved",
+  "Follow-up Required",
+  "Sold",
+  "Rented",
+  "Unavailable",
+  "Archived",
+  "Cancelled",
+];
+const AGENT_STATUS_OPTIONS = [...OPERATIONAL_PROPERTY_STATUSES];
 const FURNISHING_OPTIONS = ["furnished", "semi-furnished", "unfurnished"];
 const RENT_FREQUENCIES = ["yearly", "monthly", "weekly", "daily"];
 const PERMIT_TYPES = ["rera", "dtcm", "adrec"];
@@ -476,7 +502,32 @@ export default function PropertyForm({
   const { t } = useTranslation();
   const { language } = useLanguage();
   const { company, currentUser } = useCompanyAuth();
-  const isEmployee = currentUser?.role === "company_employee";
+  const isEmployee = !canAssignRecords(currentUser?.role);
+  const isAgent = isSalesAgent(currentUser?.role);
+  const canSetApproved = canApproveProperties(currentUser?.role);
+  const canEditCommission = canViewRevenue(currentUser?.role);
+  const agentEditingApproved =
+    mode === "edit" &&
+    isAgent &&
+    property?.approval_status === "approved" &&
+    !canEditApprovedPropertyDirectly(currentUser?.role);
+
+  const { data: pendingChangeRequest } = usePendingChangeRequestForProperty(
+    property?.id,
+    company?.id,
+  );
+  const hasPendingChangeRequest = !!pendingChangeRequest;
+  const canCancelPendingChangeRequest =
+    !!pendingChangeRequest &&
+    (pendingChangeRequest.requested_by === currentUser?.id ||
+      canSetApproved);
+
+  const [approvalStatus, setApprovalStatus] = useState<PropertyApprovalStatus>(
+    () => {
+      if (property?.approval_status) return property.approval_status;
+      return isAgent ? "draft" : "approved";
+    },
+  );
 
   const typeLabel = (pt: { name_en: string; name_ar: string }) =>
     language === "ar" ? pt.name_ar || pt.name_en : pt.name_en || pt.name_ar;
@@ -550,6 +601,7 @@ export default function PropertyForm({
 
   const createMutation = useCreateProperty();
   const updateMutation = useUpdateProperty();
+  const approvalMutations = usePropertyApprovalMutations(company?.id);
 
   const imageCount = existingImageUrls.length + imagesFiles.length;
   const isRent = formData.listing_type === "Rent";
@@ -686,9 +738,11 @@ export default function PropertyForm({
         area: values.area || "",
         owner_id: values.owner_id,
         price: Number(values.price),
-        commission_percentage: values.commission_percentage
+        commission_percentage: canEditCommission && values.commission_percentage
           ? Number(values.commission_percentage)
-          : null,
+          : canEditCommission
+            ? null
+            : undefined,
         employee_id: finalEmployeeId,
         title: values.title,
         description: values.description || "",
@@ -702,6 +756,74 @@ export default function PropertyForm({
       };
 
       if (mode === "edit" && property) {
+        if (agentEditingApproved) {
+          if (hasPendingChangeRequest) {
+            toast.error(
+              t(
+                "A Pending change request already exists for this property. Cancel it or wait for a decision before submitting a new one.",
+              ),
+            );
+            return;
+          }
+          const proposedData: Record<string, unknown> = {
+            ...portalPayload,
+            listing_type: values.listing_type,
+            type: values.type,
+            land_area: values.land_area ? Number(values.land_area) : null,
+            building_area: values.building_area ? Number(values.building_area) : null,
+            emirate: values.emirate,
+            area_district: values.area_district || null,
+            area: values.area || "",
+            owner_id: values.owner_id,
+            price: Number(values.price),
+            ...(canEditCommission
+              ? {
+                  commission_percentage: values.commission_percentage
+                    ? Number(values.commission_percentage)
+                    : null,
+                }
+              : {}),
+            employee_id: finalEmployeeId,
+            title: values.title,
+            description: values.description || "",
+            note_en: values.note_en || "",
+            note_ar: values.note_ar || "",
+            status: values.status || "Available",
+            advertising_permit_number: values.advertising_permit_number || "",
+          };
+          const changedFields = Object.keys(proposedData).filter((field) => {
+            const prev = (property as unknown as Record<string, unknown>)[field];
+            return JSON.stringify(prev ?? null) !== JSON.stringify(proposedData[field] ?? null);
+          });
+          const imagesRemoved = ((property.images ?? []) as string[]).filter(
+            (url) => !existingImageUrls.includes(url),
+          );
+          if (
+            changedFields.length === 0 &&
+            imagesFiles.length === 0 &&
+            imagesRemoved.length === 0
+          ) {
+            toast.error(t("No changes to submit"));
+            return;
+          }
+          await approvalMutations.createChangeRequest.mutateAsync({
+            companyId: company.id,
+            propertyId: property.id,
+            proposedData,
+            changedFields:
+              changedFields.length > 0
+                ? changedFields
+                : imagesFiles.length || imagesRemoved.length
+                  ? ["images"]
+                  : changedFields,
+            imageFiles: imagesFiles,
+            imagesRemoved,
+          });
+          toast.success(t("Change request submitted for review"));
+          onSaved?.(property.id);
+          return;
+        }
+
         const result = await updateMutation.mutateAsync({
           id: property.id,
           companyId: company.id,
@@ -716,10 +838,15 @@ export default function PropertyForm({
           companyCode: company.company_code,
           createdByUserId: currentUser.id,
           createdByName: currentUser.name || currentUser.email || "Unknown User",
+          approval_status: isAgent ? "draft" : approvalStatus,
           ...basePayload,
         });
         if (result.error) throw new Error(result.error);
-        toast.success(t("Property added successfully"));
+        toast.success(
+          isAgent
+            ? t("Property saved as Draft. Submit for review when ready.")
+            : t("Property added successfully"),
+        );
         if (result.data) onSaved?.(result.data.id);
       }
     } catch (err) {
@@ -900,13 +1027,140 @@ export default function PropertyForm({
                     <Select value={formData.status} onValueChange={(v) => form.setValue("status", v)}>
                       <SelectTrigger className={FIELD}><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {STATUS_OPTIONS.map((s) => (
+                        {(isAgent ? AGENT_STATUS_OPTIONS : STATUS_OPTIONS).map((s) => (
                           <SelectItem key={s} value={s}>{t(s)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {isAgent ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t(
+                          "Final statuses (Sold/Rented/…) require admin approval via status update.",
+                        )}
+                      </p>
+                    ) : null}
                   </FieldBlock>
+
+                  {mode === "create" ? (
+                    isAgent ? (
+                      <FieldBlock label={t("Approval Status")}>
+                        <div className="flex flex-col justify-center gap-1 h-auto min-h-9 px-3 py-2 rounded-md border border-input bg-muted/40 text-sm">
+                          <span className="font-medium">{t("Draft")}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {t(
+                              "Sales Agents can only create Draft listings. Submit for review from the property page when ready.",
+                            )}
+                          </span>
+                        </div>
+                      </FieldBlock>
+                    ) : (
+                      <FieldBlock label={t("Approval Status")}>
+                        <Select
+                          value={approvalStatus}
+                          onValueChange={(v) =>
+                            setApprovalStatus(v as PropertyApprovalStatus)
+                          }
+                        >
+                          <SelectTrigger className={FIELD}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="draft">{t("Draft")}</SelectItem>
+                            <SelectItem value="pending_review">
+                              {t("Pending Review")}
+                            </SelectItem>
+                            {canSetApproved ? (
+                              <SelectItem value="approved">
+                                {t("Approved")}
+                              </SelectItem>
+                            ) : null}
+                          </SelectContent>
+                        </Select>
+                      </FieldBlock>
+                    )
+                  ) : property?.approval_status ? (
+                    <FieldBlock label={t("Approval Status")}>
+                      <div className="flex items-center h-9 px-3 rounded-md border border-input bg-muted/40 text-sm">
+                        {property.approval_status === "draft"
+                          ? t("Draft")
+                          : property.approval_status === "pending_review"
+                            ? t("Pending Review")
+                            : property.approval_status === "approved"
+                              ? t("Approved")
+                              : t("Rejected")}
+                      </div>
+                    </FieldBlock>
+                  ) : null}
                 </div>
+
+                {agentEditingApproved ? (
+                  <div className="space-y-2">
+                    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3.5 py-3 text-start">
+                      <p className="flex items-start gap-2 text-xs text-amber-900 leading-relaxed">
+                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-600" />
+                        <span>
+                          {t(
+                            "Your edits will be sent as a change request for admin review. The approved listing stays live until approved.",
+                          )}
+                        </span>
+                      </p>
+                      <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+                        {t("Review request statuses")}:{" "}
+                        {[
+                          t("Pending"),
+                          t("Approved"),
+                          t("Rejected"),
+                          t("Changes Requested"),
+                          t("Cancelled"),
+                        ].join(" · ")}
+                      </p>
+                    </div>
+                    {hasPendingChangeRequest ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3.5 py-2.5">
+                        <p className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+                          <span className="font-semibold">
+                            {t("Review request status")}:{" "}
+                            {t(
+                              changeRequestStatusLabel(
+                                pendingChangeRequest?.status,
+                              ),
+                            )}
+                          </span>
+                          {" — "}
+                          {t(
+                            "A Pending change request already exists for this property. Cancel it or wait for a decision before submitting a new one.",
+                          )}
+                        </p>
+                        {canCancelPendingChangeRequest ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              approvalMutations.cancelChangeRequest.isPending
+                            }
+                            onClick={async () => {
+                              try {
+                                await approvalMutations.cancelChangeRequest.mutateAsync(
+                                  pendingChangeRequest!.id,
+                                );
+                                toast.success(t("Change request cancelled"));
+                              } catch (e) {
+                                toast.error(
+                                  e instanceof Error
+                                    ? e.message
+                                    : t("Something went wrong"),
+                                );
+                              }
+                            }}
+                          >
+                            {t("Cancel request")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {/* Bilingual title + description — required by Bayut & PropertyFinder */}
                 <div className="rounded-lg border border-border/50 bg-muted/15 p-3.5 space-y-4">
@@ -1094,16 +1348,18 @@ export default function PropertyForm({
                     </FieldBlock>
                   )}
 
-                  <FieldBlock label={t("Commission %")}>
-                    <Input
-                      type="number"
-                      dir="ltr"
-                      step="0.01"
-                      className={FIELD}
-                      value={formData.commission_percentage as string | number}
-                      onChange={(e) => form.setValue("commission_percentage", e.target.value)}
-                    />
-                  </FieldBlock>
+                  {canEditCommission ? (
+                    <FieldBlock label={t("Commission %")}>
+                      <Input
+                        type="number"
+                        dir="ltr"
+                        step="0.01"
+                        className={FIELD}
+                        value={formData.commission_percentage as string | number}
+                        onChange={(e) => form.setValue("commission_percentage", e.target.value)}
+                      />
+                    </FieldBlock>
+                  ) : null}
                 </div>
               </FormCard>
             </TabsContent>
@@ -1666,7 +1922,7 @@ export default function PropertyForm({
             )}
             <Button
               onClick={submit}
-              disabled={isSubmitting}
+              disabled={isSubmitting || (agentEditingApproved && hasPendingChangeRequest)}
               size="lg"
               className="px-6 rounded-md h-9 w-full sm:w-auto"
             >
@@ -1674,6 +1930,10 @@ export default function PropertyForm({
                 <>
                   <Loader2 className="me-2 w-4 h-4 animate-spin" /> {t("Saving...")}
                 </>
+              ) : agentEditingApproved ? (
+                t("Submit Change Request")
+              ) : mode === "edit" ? (
+                t("Save Changes")
               ) : (
                 t("Save Property")
               )}

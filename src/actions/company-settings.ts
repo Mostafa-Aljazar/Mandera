@@ -1,6 +1,7 @@
 "use server";
 
 import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
+import { canViewCompanySettings } from "@/lib/permissions";
 import type { Company } from "@/types/supabase-entities.types";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
@@ -100,7 +101,7 @@ export async function updateCompanyGeneralSettings(
 ): Promise<ActionResult<Company>> {
   const access = await assertCompanyAccess(input.companyId);
   if (access.ok !== true) return { error: access.error };
-  if (access.role !== "company_super_admin" && access.role !== "master_admin") {
+  if (!canViewCompanySettings(access.role)) {
     return { error: "Unauthorized" };
   }
 

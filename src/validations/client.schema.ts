@@ -22,6 +22,10 @@ export const ClientSchema = (t: TFunction) =>
       .max(4, t("Maximum 4 properties can be selected.")),
     employee_id: z.string().min(1, t("Assigned agent is required")),
     marketing_channel: z.string().min(1, t("Marketing channel is required")),
+    campaign: z.string().optional().or(z.literal("")),
+    budget: z.string().optional().or(z.literal("")),
+    preferred_area: z.string().optional().or(z.literal("")),
+    investment_unit: z.string().optional().or(z.literal("")),
   });
 
 export type TClientSchema = z.input<ReturnType<typeof ClientSchema>>;

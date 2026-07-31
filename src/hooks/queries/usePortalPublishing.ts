@@ -26,7 +26,7 @@ export function usePropertyPublications(propertyId?: string) {
 }
 
 /** Full credentials incl. secrets, for this company's Settings screen
- *  (RLS-enforced: same company, any role can read; company_super_admin can write). */
+ *  (RLS-enforced: same company, any role can read; manager can write). */
 export function usePortalCredentials(companyId?: string) {
   return useQuery({
     queryKey: ["portal_credentials", companyId],

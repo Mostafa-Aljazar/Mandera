@@ -12,6 +12,7 @@ import {
   updateEmployeeDisabled,
   updateBaseEmployee,
   deleteEmployeeWorkflow,
+  resetEmployeePassword,
   type CreateEmployeeInput,
   type UpdateEmployeeInput,
   type EmployeeToDelete,
@@ -104,12 +105,38 @@ export function useUpdateEmployee() {
 export function useUpdateEmployeeDisabled() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ employeeId, disabled }: { employeeId: string; disabled: boolean }) =>
-      updateEmployeeDisabled(employeeId, disabled),
+    mutationFn: ({
+      employeeId,
+      disabled,
+      companyId,
+      targets,
+    }: {
+      employeeId: string;
+      disabled: boolean;
+      companyId?: string;
+      targets?: ReassignmentTargets;
+    }) => updateEmployeeDisabled(employeeId, disabled, companyId, targets),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["base_employees"] });
       queryClient.invalidateQueries({ queryKey: ["company_employees"] });
+      queryClient.invalidateQueries({ queryKey: ["owners"] });
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
     },
+  });
+}
+
+export function useResetEmployeePassword() {
+  return useMutation({
+    mutationFn: ({
+      profileId,
+      companyId,
+      newPassword,
+    }: {
+      profileId: string;
+      companyId: string;
+      newPassword: string;
+    }) => resetEmployeePassword(profileId, companyId, newPassword),
   });
 }
 
@@ -142,10 +169,12 @@ export function useDeleteEmployeeWorkflow() {
     mutationFn: ({
       employeeToDelete,
       targets,
+      companyId,
     }: {
       employeeToDelete: EmployeeToDelete;
       targets: ReassignmentTargets;
-    }) => deleteEmployeeWorkflow(employeeToDelete, targets),
+      companyId: string;
+    }) => deleteEmployeeWorkflow(employeeToDelete, targets, companyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["company_employees"] });
       queryClient.invalidateQueries({ queryKey: ["base_employees"] });

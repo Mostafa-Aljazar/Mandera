@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
@@ -10,12 +11,17 @@ import EmployeeLeaderboard from "@/components/company/dashboard/EmployeeLeaderbo
 import FollowUpCalendarWidget from "@/components/company/dashboard/FollowUpCalendarWidget";
 import ClientPipelineWidget from "@/components/company/dashboard/ClientPipelineWidget";
 import ClientsBySourceWidget from "@/components/company/dashboard/ClientsBySourceWidget";
+import ResponseRatesWidget from "@/components/company/dashboard/ResponseRatesWidget";
+import RecentStatusChangesWidget from "@/components/company/dashboard/RecentStatusChangesWidget";
+import CompanyActivityLogWidget from "@/components/company/dashboard/CompanyActivityLogWidget";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCompanyOperationsStats } from "@/hooks/queries/useProperties";
 import { useBaseEmployee } from "@/hooks/queries/useEmployees";
 import { cn } from "@/lib/utils";
-import { companyDisplayName } from "@/lib/bilingualLabel";
+import { companyDisplayName, titleCaseName } from "@/lib/bilingualLabel";
+import { canViewInsights, isAdministratorOrAbove, canAccessManagerModules } from "@/lib/permissions";
+import { usePendingApprovalsCount, useStaleDraftNotificationCheck } from "@/hooks/queries/useNotifications";
 import {
   Building2,
   Home,
@@ -23,6 +29,7 @@ import {
   Users,
   Briefcase,
   ArrowRight,
+  ClipboardCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -191,7 +198,26 @@ export default function CompanyDashboardPage() {
   const { t } = useTranslation();
   const { language } = useLanguage();
 
-  const isSuperAdmin = currentUser?.role === "company_super_admin";
+  useEffect(() => {
+    const hash = window.location.hash?.replace("#", "");
+    if (!hash) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(hash)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const showInsights = canViewInsights(currentUser?.role);
+  const showPendingApprovals = isAdministratorOrAbove(currentUser?.role);
+  const showManagerModules = canAccessManagerModules(currentUser?.role);
+  const { data: pendingApprovals, isLoading: pendingLoading } =
+    usePendingApprovalsCount(company?.id, showPendingApprovals);
+  const pendingApprovalsCount = pendingApprovals?.total ?? 0;
+
+  useStaleDraftNotificationCheck(company?.id, showPendingApprovals);
 
   const { data: statsData, isLoading: loading } = useCompanyOperationsStats(
     company?.id,
@@ -204,18 +230,32 @@ export default function CompanyDashboardPage() {
     employees: 0,
   };
 
-  const { data: employeeRecord, isLoading: employeeLoading } = useBaseEmployee(
-    !isSuperAdmin ? (currentUser?.employee_id ?? undefined) : undefined,
+  const roleLoading = !currentUser;
+  const canViewAdvancedStats = showInsights;
+
+  const { data: employeeRecord } = useBaseEmployee(
+    currentUser?.employee_id ?? undefined,
   );
 
-  const roleLoading = !currentUser || (!isSuperAdmin && employeeLoading);
-  const canViewAdvancedStats =
-    isSuperAdmin ||
-    employeeRecord?.job_title === "manager" ||
-    employeeRecord?.job_title === "admin";
+  const greetingName = (() => {
+    if (employeeRecord) {
+      const first =
+        language === "ar"
+          ? employeeRecord.first_name_ar || employeeRecord.first_name_en
+          : employeeRecord.first_name_en || employeeRecord.first_name_ar;
+      if (first?.trim()) return titleCaseName(first);
+    }
+    return currentUser?.name?.split(" ")[0] || "";
+  })();
 
-  const greetingName =
-    currentUser?.name?.split(" ")[0] || companyDisplayName(company, language) || "";
+  const roleLabel =
+    currentUser?.role === "manager"
+      ? t("Manager")
+      : currentUser?.role === "administrator"
+        ? t("Administrator")
+        : currentUser?.role === "sales_agent"
+          ? t("Sales Agent")
+          : "";
 
   return (
     <>
@@ -244,6 +284,11 @@ export default function CompanyDashboardPage() {
                     <span className="text-primary">, {greetingName}</span>
                   ) : null}
                 </h1>
+                {roleLabel ? (
+                  <p className="mt-1.5 text-sm sm:text-base font-medium text-primary/80">
+                    {roleLabel}
+                  </p>
+                ) : null}
                 <p className="mt-2 max-w-xl text-muted-foreground text-sm sm:text-base leading-relaxed">
                   {t("Here's a summary of operations at")}{" "}
                   <span className="font-semibold text-foreground/85">
@@ -265,7 +310,7 @@ export default function CompanyDashboardPage() {
             <h2 className="mb-4 sm:mb-5 font-outfit font-semibold text-foreground text-lg tracking-tight">
               {t("Operations overview")}
             </h2>
-            <div className="gap-3 sm:gap-4 grid grid-cols-2 lg:grid-cols-5">
+            <div className={`gap-3 sm:gap-4 grid grid-cols-2 ${showManagerModules ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
               <StatCard
                 label={t("Rental Properties")}
                 value={stats.propertiesRent}
@@ -294,13 +339,15 @@ export default function CompanyDashboardPage() {
                 loading={loading}
                 tone="amber"
               />
-              <StatCard
-                label={t("Employees")}
-                value={stats.employees}
-                icon={Building2}
-                loading={loading}
-                tone="slate"
-              />
+              {showManagerModules ? (
+                <StatCard
+                  label={t("Employees")}
+                  value={stats.employees}
+                  icon={Building2}
+                  loading={loading}
+                  tone="slate"
+                />
+              ) : null}
             </div>
           </section>
 
@@ -349,15 +396,17 @@ export default function CompanyDashboardPage() {
                     loading={loading}
                     tone="amber"
                   />
-                  <ActionCard
-                    href="/company/employees"
-                    title={t("Manage Employees")}
-                    description={t("company_action_employees_desc")}
-                    icon={Building2}
-                    count={stats.employees}
-                    loading={loading}
-                    tone="sky"
-                  />
+                  {showManagerModules ? (
+                    <ActionCard
+                      href="/company/employees"
+                      title={t("Manage Employees")}
+                      description={t("company_action_employees_desc")}
+                      icon={Building2}
+                      count={stats.employees}
+                      loading={loading}
+                      tone="sky"
+                    />
+                  ) : null}
                 </div>
               </div>
 
@@ -366,6 +415,92 @@ export default function CompanyDashboardPage() {
               </div>
             </div>
           </section>
+
+          {showPendingApprovals ? (
+            <section>
+              <div className="mb-4">
+                <h2 className="font-outfit font-semibold text-foreground text-lg sm:text-xl tracking-tight">
+                  {t("Pending Approvals")}
+                </h2>
+                <p className="mt-1 text-muted-foreground text-sm leading-relaxed">
+                  {t("Review new listings, change requests, and status changes.")}
+                </p>
+              </div>
+              <div className="gap-3 sm:gap-4 grid sm:grid-cols-3">
+                <Link
+                  href="/company/properties"
+                  className="group relative flex flex-col gap-3 bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] p-4 sm:p-5 border border-border/60 rounded-2xl overflow-hidden transition-shadow"
+                >
+                  <div
+                    className="top-0 absolute inset-x-0 bg-gradient-to-b from-amber-500/10 to-transparent h-14 pointer-events-none"
+                    aria-hidden
+                  />
+                  <div className="relative flex items-center gap-3">
+                    <span className="flex justify-center items-center bg-amber-500/10 border border-amber-500/15 rounded-xl w-10 h-10 text-amber-600 shrink-0">
+                      <ClipboardCheck className="w-5 h-5" />
+                    </span>
+                    <p className="font-outfit font-semibold text-foreground text-sm sm:text-base tracking-tight">
+                      {t("New listings pending")}
+                    </p>
+                  </div>
+                  <p className="relative font-outfit font-bold text-amber-700 text-2xl tabular-nums">
+                    {pendingLoading ? "—" : (pendingApprovals?.newListings ?? 0)}
+                  </p>
+                </Link>
+                <Link
+                  href="/company/properties"
+                  className="group relative flex flex-col gap-3 bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] p-4 sm:p-5 border border-border/60 rounded-2xl overflow-hidden transition-shadow"
+                >
+                  <div
+                    className="top-0 absolute inset-x-0 bg-gradient-to-b from-sky-500/10 to-transparent h-14 pointer-events-none"
+                    aria-hidden
+                  />
+                  <div className="relative flex items-center gap-3">
+                    <span className="flex justify-center items-center bg-sky-500/10 border border-sky-500/15 rounded-xl w-10 h-10 text-sky-600 shrink-0">
+                      <ClipboardCheck className="w-5 h-5" />
+                    </span>
+                    <p className="font-outfit font-semibold text-foreground text-sm sm:text-base tracking-tight">
+                      {t("Change requests pending")}
+                    </p>
+                  </div>
+                  <p className="relative font-outfit font-bold text-sky-700 text-2xl tabular-nums">
+                    {pendingLoading
+                      ? "—"
+                      : (pendingApprovals?.changeRequests ?? 0)}
+                  </p>
+                </Link>
+                <Link
+                  href="/company/properties"
+                  className="group relative flex flex-col gap-3 bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] p-4 sm:p-5 border border-border/60 rounded-2xl overflow-hidden transition-shadow"
+                >
+                  <div
+                    className="top-0 absolute inset-x-0 bg-gradient-to-b from-emerald-500/10 to-transparent h-14 pointer-events-none"
+                    aria-hidden
+                  />
+                  <div className="relative flex items-center gap-3">
+                    <span className="flex justify-center items-center bg-emerald-500/10 border border-emerald-500/15 rounded-xl w-10 h-10 text-emerald-600 shrink-0">
+                      <ClipboardCheck className="w-5 h-5" />
+                    </span>
+                    <p className="font-outfit font-semibold text-foreground text-sm sm:text-base tracking-tight">
+                      {t("Status changes pending")}
+                    </p>
+                  </div>
+                  <p className="relative font-outfit font-bold text-emerald-700 text-2xl tabular-nums">
+                    {pendingLoading
+                      ? "—"
+                      : (pendingApprovals?.statusChanges ?? 0)}
+                  </p>
+                </Link>
+              </div>
+              {pendingApprovalsCount > 0 ? (
+                <p className="mt-3 text-muted-foreground text-sm">
+                  {t("{{count}} items awaiting review", {
+                    count: pendingApprovalsCount,
+                  })}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
 
           {roleLoading ? (
             <div className="space-y-6">
@@ -389,8 +524,29 @@ export default function CompanyDashboardPage() {
               </div>
 
               <div className="relative space-y-5 sm:space-y-6">
-                <EmployeeLeaderboard companyId={company.id} />
-                <ClientsBySourceWidget companyId={company.id} />
+                <div id="team-leaderboard">
+                  <EmployeeLeaderboard companyId={company.id} />
+                </div>
+                <div id="clients-by-source">
+                  <ClientsBySourceWidget companyId={company.id} />
+                </div>
+                <div id="clients-by-employee">
+                  <ClientsBySourceWidget
+                    companyId={company.id}
+                    fixedGroupBy="employee"
+                    title={t("Clients by Employee")}
+                    description={t(
+                      "Distribution of acquired clients across assigned employees.",
+                    )}
+                  />
+                </div>
+                <RecentStatusChangesWidget companyId={company.id} />
+                {showManagerModules ? (
+                  <CompanyActivityLogWidget companyId={company.id} />
+                ) : null}
+                <div id="employee-response-rates">
+                  <ResponseRatesWidget companyId={company.id} />
+                </div>
               </div>
             </section>
           ) : null}

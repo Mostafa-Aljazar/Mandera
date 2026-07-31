@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Dialog,
@@ -11,8 +11,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, UserCheck, UserX } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { employeeDisplayName } from "@/lib/bilingualLabel";
+import type { CompanyEmployeeWithDetails } from "@/types/supabase-entities.types";
+import type { ReassignmentTargets } from "@/actions/employees";
 
 interface EmployeeStatusDialogProps {
   open: boolean;
@@ -22,7 +34,9 @@ interface EmployeeStatusDialogProps {
   avatarUrl?: string | null;
   isDisabled: boolean;
   isSubmitting?: boolean;
-  onConfirm: () => void;
+  employeeProfileId?: string;
+  employees?: CompanyEmployeeWithDetails[];
+  onConfirm: (targets?: ReassignmentTargets) => void;
 }
 
 export default function EmployeeStatusDialog({
@@ -33,10 +47,33 @@ export default function EmployeeStatusDialog({
   avatarUrl,
   isDisabled,
   isSubmitting = false,
+  employeeProfileId,
+  employees = [],
   onConfirm,
 }: EmployeeStatusDialogProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const enabling = isDisabled;
+  const [ownersTarget, setOwnersTarget] = useState("");
+  const [clientsTarget, setClientsTarget] = useState("");
+  const [propertiesTarget, setPropertiesTarget] = useState("");
+  const availableEmployees = employees.filter(
+    (employee) => employee.id !== employeeProfileId && !employee.employee?.disabled,
+  );
+  const hasSomeTarget = Boolean(
+    ownersTarget || clientsTarget || propertiesTarget,
+  );
+  const hasAllTargets = Boolean(
+    ownersTarget && clientsTarget && propertiesTarget,
+  );
+
+  useEffect(() => {
+    if (!open) {
+      setOwnersTarget("");
+      setClientsTarget("");
+      setPropertiesTarget("");
+    }
+  }, [open]);
 
   return (
     <Dialog
@@ -121,6 +158,45 @@ export default function EmployeeStatusDialog({
           </div>
         </div>
 
+          {!enabling ? (
+            <div className="relative space-y-3 px-6 pb-5">
+              <p className="text-muted-foreground text-xs">
+                {t(
+                  "If this employee has assigned records, choose where to transfer them before disabling.",
+                )}
+              </p>
+              {[
+                [t("Transfer Owners to:"), ownersTarget, setOwnersTarget],
+                [t("Transfer Clients to:"), clientsTarget, setClientsTarget],
+                [t("Transfer Properties to:"), propertiesTarget, setPropertiesTarget],
+              ].map(([label, value, setter]) => (
+                <div key={label as string} className="space-y-1.5">
+                  <Label className="text-xs">{label as string}</Label>
+                  <Select
+                    value={value as string}
+                    onValueChange={setter as (value: string) => void}
+                    disabled={isSubmitting}
+                  >
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder={t("Select employee")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableEmployees.map((employee) => (
+                        <SelectItem key={employee.id} value={employee.id}>
+                          {employeeDisplayName(
+                            employee.employee,
+                            language,
+                            employee.name,
+                          ) || employee.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
         <DialogFooter className="bg-muted/30 px-6 py-4 border-border/60 border-t sm:justify-between">
           <Button
             type="button"
@@ -133,8 +209,18 @@ export default function EmployeeStatusDialog({
           </Button>
           <Button
             type="button"
-            disabled={isSubmitting}
-            onClick={onConfirm}
+            onClick={() =>
+              onConfirm(
+                hasAllTargets
+                  ? {
+                      reassignOwnersTo: ownersTarget,
+                      reassignClientsTo: clientsTarget,
+                      reassignPropertiesTo: propertiesTarget,
+                    }
+                  : undefined,
+              )
+            }
+            disabled={isSubmitting || (hasSomeTarget && !hasAllTargets)}
             className={cn(
               "rounded-xl h-10 gap-2",
               enabling

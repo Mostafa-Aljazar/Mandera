@@ -26,10 +26,23 @@ import {
   Settings,
   Menu,
   ChevronRight,
+  ChartColumn,
+  Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { companyDisplayName } from "@/lib/bilingualLabel";
+import {
+  canAccessManagerModules,
+  canViewInsights,
+  isAdministratorOrAbove,
+} from "@/lib/permissions";
 import type { LucideIcon } from "lucide-react";
+import NotificationBell from "@/components/company/NotificationBell";
+import {
+  usePendingApprovalsCount,
+  useStaleDraftNotificationCheck,
+} from "@/hooks/queries/useNotifications";
+import { Badge } from "@/components/ui/badge";
 
 const LOGO_URL =
   "https://horizons-cdn.hostinger.com/6149b89f-35de-4601-ab2a-f81b6d19b0ae/61673acd93c0f988a7668a1bcdc561f5.png";
@@ -39,7 +52,8 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   match: (path: string) => boolean;
-  superAdminOnly?: boolean;
+  managerOnly?: boolean;
+  insightsOnly?: boolean;
 }
 
 export default function CompanyAdminHeader() {
@@ -56,7 +70,15 @@ export default function CompanyAdminHeader() {
     router.push("/company/login");
   };
 
-  const isSuperAdmin = currentUser?.role === "company_super_admin";
+  const showManagerModules = canAccessManagerModules(currentUser?.role);
+  const showInsights = canViewInsights(currentUser?.role);
+  const showPendingApprovals = isAdministratorOrAbove(currentUser?.role);
+  const { data: pendingApprovals } = usePendingApprovalsCount(
+    company?.id,
+    showPendingApprovals,
+  );
+  const pendingApprovalsCount = pendingApprovals?.total ?? 0;
+  useStaleDraftNotificationCheck(company?.id, showPendingApprovals);
 
   const navItems: NavItem[] = [
     {
@@ -85,27 +107,45 @@ export default function CompanyAdminHeader() {
       match: (path: string) => path.startsWith("/company/owners"),
     },
     {
+      href: "/company/dashboard#clients-by-source",
+      label: t("Clients by Source"),
+      icon: ChartColumn,
+      match: () => false,
+      insightsOnly: true,
+    },
+    {
+      href: "/company/dashboard#team-leaderboard",
+      label: t("Team Leaderboard"),
+      icon: Trophy,
+      match: () => false,
+      insightsOnly: true,
+    },
+    {
       href: "/company/employees",
       label: t("Employees"),
       icon: Building2,
       match: (path: string) => path.startsWith("/company/employees"),
-      superAdminOnly: true,
+      managerOnly: true,
     },
     {
       href: "/company/revenue",
       label: t("Revenue"),
       icon: Banknote,
       match: (path: string) => path.startsWith("/company/revenue"),
-      superAdminOnly: true,
+      managerOnly: true,
     },
     {
       href: "/company/settings",
       label: t("Company Settings"),
       icon: Settings,
       match: (path: string) => path.startsWith("/company/settings"),
-      superAdminOnly: true,
+      managerOnly: true,
     },
-  ].filter((item) => !item.superAdminOnly || isSuperAdmin);
+  ].filter(
+    (item) =>
+      (!item.managerOnly || showManagerModules) &&
+      (!item.insightsOnly || showInsights),
+  );
 
   useEffect(() => {
     setNavOpen(false);
@@ -149,7 +189,7 @@ export default function CompanyAdminHeader() {
                       className="rounded-md w-7 h-7 object-cover shrink-0"
                     />
                   ) : null}
-                  <p className="font-medium text-foreground/80 text-sm truncate max-w-[12rem] lg:max-w-[16rem]">
+                  <p className="max-w-[12rem] lg:max-w-[16rem] font-medium text-foreground/80 text-sm truncate">
                     {companyDisplayName(company, language)}
                   </p>
                 </div>
@@ -159,24 +199,38 @@ export default function CompanyAdminHeader() {
             <nav className="hidden lg:flex items-center gap-0.5 bg-muted/50 shadow-[var(--shadow-subtle)] p-1 border border-border/60 rounded-full">
               {navItems.map(({ href, label, match }) => {
                 const active = match(pathname);
+                const isProperties = href === "/company/properties";
                 return (
                   <Link
                     key={href}
                     href={href}
                     className={cn(
-                      "inline-flex items-center px-3 py-2 rounded-full font-medium text-sm whitespace-nowrap transition-colors",
+                      "inline-flex items-center gap-1.5 px-3 py-2 rounded-full font-medium text-sm whitespace-nowrap transition-colors",
                       active
                         ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   >
                     {label}
+                    {isProperties &&
+                    showPendingApprovals &&
+                    pendingApprovalsCount > 0 ? (
+                      <Badge
+                        variant="secondary"
+                        className="bg-amber-500/15 hover:bg-amber-500/15 px-1.5 py-0 border-amber-500/20 h-5 font-semibold tabular-nums text-[10px] text-amber-700"
+                      >
+                        {pendingApprovalsCount > 99
+                          ? "99+"
+                          : pendingApprovalsCount}
+                      </Badge>
+                    ) : null}
                   </Link>
                 );
               })}
             </nav>
 
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <NotificationBell />
               <Button
                 variant="ghost"
                 size="sm"
@@ -249,7 +303,9 @@ export default function CompanyAdminHeader() {
                         className="rounded w-4 h-4 object-cover shrink-0"
                       />
                     ) : null}
-                    <span className="truncate">{companyDisplayName(company, language)}</span>
+                    <span className="truncate">
+                      {companyDisplayName(company, language)}
+                    </span>
                   </p>
                 ) : null}
                 {currentUser?.name ? (
@@ -262,12 +318,13 @@ export default function CompanyAdminHeader() {
           </div>
 
           <nav className="flex-1 px-3 py-4 overflow-y-auto">
-            <p className="px-3 mb-2 font-medium text-muted-foreground text-[11px] uppercase tracking-wider">
+            <p className="mb-2 px-3 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
               {t("Navigation")}
             </p>
             <ul className="space-y-1">
               {navItems.map(({ href, label, icon: Icon, match }) => {
                 const active = match(pathname);
+                const isProperties = href === "/company/properties";
                 return (
                   <li key={href}>
                     <Link
@@ -282,7 +339,7 @@ export default function CompanyAdminHeader() {
                     >
                       <span
                         className={cn(
-                          "flex justify-center items-center border rounded-lg w-9 h-9 shrink-0 transition-colors",
+                          "flex justify-center items-center border rounded-lg w-9 h-9 transition-colors shrink-0",
                           active
                             ? "bg-primary/15 border-primary/20 text-primary"
                             : "bg-muted/50 border-border/60 text-muted-foreground group-hover:text-foreground",
@@ -291,7 +348,20 @@ export default function CompanyAdminHeader() {
                         <Icon className="w-4 h-4" />
                       </span>
                       <span className="flex-1 truncate">{label}</span>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground/60 rtl:rotate-180 shrink-0" />
+                      {isProperties &&
+                      showPendingApprovals &&
+                      pendingApprovalsCount > 0 ? (
+                        <Badge
+                          variant="secondary"
+                          className="bg-amber-500/15 hover:bg-amber-500/15 px-1.5 py-0 border-amber-500/20 h-5 font-semibold tabular-nums text-[10px] text-amber-700"
+                        >
+                          {pendingApprovalsCount > 99
+                            ? "99+"
+                            : pendingApprovalsCount}
+                        </Badge>
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-muted-foreground/60 rtl:rotate-180 shrink-0" />
+                      )}
                     </Link>
                   </li>
                 );

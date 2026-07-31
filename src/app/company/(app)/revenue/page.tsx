@@ -4,10 +4,13 @@ import React, { useMemo, useState } from "react";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { canViewRevenue } from "@/lib/permissions";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import RevenueCard from "@/components/company/revenue/RevenueCard";
+import RevenueChangeLogPanel from "@/components/company/revenue/RevenueChangeLogPanel";
+import DealCompletedModal from "@/components/common/DealCompletedModal";
 import { useRevenues } from "@/hooks/queries/useRevenues";
-import { useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
+import { useCompanyEmployeesLookup, useProperties } from "@/hooks/queries/useProperties";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +22,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -36,7 +46,9 @@ import {
   ShieldAlert,
   Wallet,
   FilterX,
+  Plus,
 } from "lucide-react";
+import type { PropertyWithRelations } from "@/types/supabase-entities.types";
 
 function StatCard({
   label,
@@ -93,11 +105,15 @@ const RevenuePage = () => {
   const [selectedEmployee, setSelectedEmployee] = useState("all");
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
+  const [pickPropertyOpen, setPickPropertyOpen] = useState(false);
+  const [selectedPropertyId, setSelectedPropertyId] = useState("");
+  const [dealProperty, setDealProperty] =
+    useState<PropertyWithRelations | null>(null);
 
-  const isSuperAdmin = currentUser?.role === "company_super_admin";
+  const canAccessRevenue = canViewRevenue(currentUser?.role);
 
-  const { data: revenuesData, isLoading: loading } = useRevenues(
-    isSuperAdmin ? company?.id : undefined,
+  const { data: revenuesData, isLoading: loading, refetch } = useRevenues(
+    canAccessRevenue ? company?.id : undefined,
     {
       employeeId: selectedEmployee !== "all" ? selectedEmployee : undefined,
       dateFrom: dateFrom
@@ -109,9 +125,24 @@ const RevenuePage = () => {
   const revenues = useMemo(() => revenuesData ?? [], [revenuesData]);
 
   const { data: employeesData } = useCompanyEmployeesLookup(
-    isSuperAdmin ? company?.id : undefined,
+    canAccessRevenue ? company?.id : undefined,
   );
   const employees = useMemo(() => employeesData ?? [], [employeesData]);
+
+  const { data: propertiesData } = useProperties(
+    pickPropertyOpen && canAccessRevenue ? company?.id : undefined,
+  );
+  const dealableProperties = useMemo(
+    () =>
+      (propertiesData ?? []).filter(
+        (p) =>
+          p.approval_status === "approved" &&
+          p.status !== "Sold" &&
+          p.status !== "Rented" &&
+          p.status !== "Archived",
+      ),
+    [propertiesData],
+  );
 
   const filteredRevenues = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -133,16 +164,22 @@ const RevenuePage = () => {
   }, [revenues, searchQuery]);
 
   const stats = useMemo(() => {
-    const total = filteredRevenues.reduce(
+    const approved = filteredRevenues.filter(
+      (r) => (r.approval_status || "approved") === "approved",
+    );
+    const total = approved.reduce(
       (sum, r) => sum + (Number(r.commission_value) || 0),
       0,
     );
+    const paid = approved
+      .filter((r) => r.commission_paid)
+      .reduce((sum, r) => sum + (Number(r.commission_value) || 0), 0);
     const deals = filteredRevenues.length;
-    const avg = deals > 0 ? total / deals : 0;
+    const avg = approved.length > 0 ? total / approved.length : 0;
     const agents = new Set(
       filteredRevenues.map((r) => r.employee_id).filter(Boolean),
     ).size;
-    return { total, deals, avg, agents };
+    return { total, paid, profits: total, deals, avg, agents };
   }, [filteredRevenues]);
 
   const hasActiveFilters =
@@ -205,7 +242,7 @@ const RevenuePage = () => {
     toast.success(t("Export downloaded successfully."));
   };
 
-  if (!isSuperAdmin) {
+  if (!canAccessRevenue) {
     return (
       <>
         <DocumentHead title={`${t("Access Denied")} | MANDERA CRM`} />
@@ -218,7 +255,7 @@ const RevenuePage = () => {
             </h2>
             <p className="text-muted-foreground text-sm leading-relaxed">
               {t(
-                "You do not have permission to view the revenue page. This area is restricted to company administrators.",
+                "You do not have permission to view the revenue page. This area is restricted to company managers.",
               )}
             </p>
           </div>
@@ -256,6 +293,17 @@ const RevenuePage = () => {
 
               <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
                 <Button
+                  size="sm"
+                  onClick={() => {
+                    setSelectedPropertyId("");
+                    setPickPropertyOpen(true);
+                  }}
+                  className="gap-2 rounded-lg h-9"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">{t("Add Deal")}</span>
+                </Button>
+                <Button
                   variant="outline"
                   size="sm"
                   onClick={exportCSV}
@@ -270,24 +318,30 @@ const RevenuePage = () => {
         </section>
 
         <div className="mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8 container max-w-6xl">
-          <section className="gap-3 sm:gap-4 grid grid-cols-2 lg:grid-cols-4">
+          <section className="gap-3 sm:gap-4 grid grid-cols-2 lg:grid-cols-5">
             <StatCard
               label={t("Total Revenue")}
               value={stats.total}
               tone="emerald"
               isCurrency
             />
-            <StatCard label={t("Deals")} value={stats.deals} />
             <StatCard
-              label={t("Avg Commission")}
-              value={Math.round(stats.avg)}
+              label={t("Profits & commissions")}
+              value={stats.profits}
               tone="sky"
               isCurrency
             />
             <StatCard
+              label={t("Commissions paid")}
+              value={stats.paid}
+              tone="amber"
+              isCurrency
+            />
+            <StatCard label={t("Deals")} value={stats.deals} />
+            <StatCard
               label={t("Agents")}
               value={stats.agents}
-              tone="amber"
+              tone="primary"
             />
           </section>
 
@@ -489,12 +543,78 @@ const RevenuePage = () => {
           ) : (
             <div className="gap-4 sm:gap-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
               {filteredRevenues.map((revenue) => (
-                <RevenueCard key={revenue.id} revenue={revenue} />
+                <RevenueCard
+                  key={revenue.id}
+                  revenue={revenue}
+                  companyId={company!.id}
+                  canManage={canAccessRevenue}
+                />
               ))}
             </div>
           )}
+
+          {company?.id ? (
+            <RevenueChangeLogPanel companyId={company.id} />
+          ) : null}
         </div>
       </main>
+
+      <Dialog open={pickPropertyOpen} onOpenChange={setPickPropertyOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("Add Deal")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label>{t("Select property")}</Label>
+            <Select
+              value={selectedPropertyId}
+              onValueChange={setSelectedPropertyId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("Select property")} />
+              </SelectTrigger>
+              <SelectContent>
+                {dealableProperties.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.code} — {p.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPickPropertyOpen(false)}
+            >
+              {t("Cancel")}
+            </Button>
+            <Button
+              disabled={!selectedPropertyId}
+              onClick={() => {
+                const property =
+                  dealableProperties.find((p) => p.id === selectedPropertyId) ??
+                  null;
+                if (!property) return;
+                setDealProperty(property);
+                setPickPropertyOpen(false);
+              }}
+            >
+              {t("Continue")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <DealCompletedModal
+        isOpen={!!dealProperty}
+        property={dealProperty}
+        onClose={() => setDealProperty(null)}
+        onSuccess={() => {
+          setDealProperty(null);
+          void refetch();
+        }}
+      />
     </>
   );
 };

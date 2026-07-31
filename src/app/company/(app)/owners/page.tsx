@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import {
+  canViewAllOwners,
+  canImportClientsOrOwners,
+  canExportClientsOrOwners,
+  canDeleteClientOrOwner,
+  canAssignRecords,
+} from "@/lib/permissions";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
 import {
@@ -25,6 +32,7 @@ import EmployeeReassignmentModal from "@/components/company/employees/EmployeeRe
 import ImportOwnersDialog from "@/components/company/owners/ImportOwnersDialog";
 import ExportOwnersDialog from "@/components/company/owners/ExportOwnersDialog";
 import DeleteOwnersDialog from "@/components/company/owners/DeleteOwnersDialog";
+import DuplicatesReviewPanel from "@/components/company/duplicates/DuplicatesReviewPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -163,6 +171,12 @@ function StatCard({
 
 const OwnersPage = () => {
   const { company, currentUser } = useCompanyAuth();
+  const role = currentUser?.role;
+  const canExport = canExportClientsOrOwners(role);
+  const canImport = canImportClientsOrOwners(role);
+  const canDelete = canDeleteClientOrOwner(role);
+  const canAssign = canAssignRecords(role);
+  const canViewAll = canViewAllOwners(role);
   const { language } = useLanguage();
   const { t } = useTranslation();
   const router = useRouter();
@@ -191,8 +205,8 @@ const OwnersPage = () => {
 
   const ownerFilters = {
     assignedEmployeeId:
-      currentUser?.role === "company_employee"
-        ? currentUser.id
+      !canViewAll
+        ? currentUser?.id
         : filterState.employeeId || undefined,
     statusId: filterState.statusId || undefined,
     marketingChannel: filterState.marketingChannel || undefined,
@@ -291,18 +305,20 @@ const OwnersPage = () => {
     if (filterState.createdToDate) count += 1;
     if (filterState.updatedFromDate) count += 1;
     if (filterState.updatedToDate) count += 1;
-    if (filterState.employeeId && currentUser?.role === "company_super_admin") {
+    if (filterState.employeeId && canViewAll) {
       count += 1;
     }
     return count;
-  }, [filterState, currentUser?.role]);
+  }, [filterState, canViewAll]);
 
   const handleBulkReassign = async (targetEmployeeId: string) => {
+    if (!company?.id) return;
     setIsReassigning(true);
     try {
       const result = await bulkReassignMutation.mutateAsync({
         ownerIds: selectedOwners,
         targetEmployeeId,
+        companyId: company.id,
       });
       if (result.error) throw new Error(result.error);
       toast.success(t("Owners reassigned successfully."));
@@ -399,42 +415,48 @@ const OwnersPage = () => {
               <div className="hidden sm:flex flex-wrap items-center gap-2 shrink-0">
                 {selectedOwners.length > 0 && (
                   <>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setIsReassignModalOpen(true)}
-                      className="gap-2 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-xl h-10 text-primary"
-                    >
-                      <Users className="w-4 h-4" />
-                      {t("Reassign Selected")}
-                      <span className="bg-primary/15 px-1.5 rounded-md tabular-nums text-[11px]">
-                        {selectedOwners.length}
-                      </span>
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setIsDeleteDialogOpen(true)}
-                      className="gap-2 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 rounded-xl h-10 text-destructive"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {t("Delete Selected")}
-                      <span className="bg-destructive/15 px-1.5 rounded-md tabular-nums text-[11px]">
-                        {selectedOwners.length}
-                      </span>
-                    </Button>
+                    {canAssign ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setIsReassignModalOpen(true)}
+                        className="gap-2 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-xl h-10 text-primary"
+                      >
+                        <Users className="w-4 h-4" />
+                        {t("Reassign Selected")}
+                        <span className="bg-primary/15 px-1.5 rounded-md tabular-nums text-[11px]">
+                          {selectedOwners.length}
+                        </span>
+                      </Button>
+                    ) : null}
+                    {canDelete ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setIsDeleteDialogOpen(true)}
+                        className="gap-2 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 rounded-xl h-10 text-destructive"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {t("Delete Selected")}
+                        <span className="bg-destructive/15 px-1.5 rounded-md tabular-nums text-[11px]">
+                          {selectedOwners.length}
+                        </span>
+                      </Button>
+                    ) : null}
                   </>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsExportDialogOpen(true)}
-                  className="gap-2 rounded-xl h-10"
-                >
-                  <Upload className="w-4 h-4" />
-                  {t("Export")}
-                </Button>
-                {currentUser?.role === "company_super_admin" && (
+                {canExport ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsExportDialogOpen(true)}
+                    className="gap-2 rounded-xl h-10"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {t("Export")}
+                  </Button>
+                ) : null}
+                {canImport && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -485,6 +507,10 @@ const OwnersPage = () => {
             />
           </section>
 
+          {canViewAll && company?.id ? (
+            <DuplicatesReviewPanel companyId={company.id} initialTab="owners" />
+          ) : null}
+
           <section className="relative bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-2xl overflow-hidden">
             <div
               className="top-0 absolute inset-x-0 bg-gradient-to-b from-primary/[0.05] to-transparent h-16 pointer-events-none"
@@ -504,7 +530,7 @@ const OwnersPage = () => {
                 </div>
 
                 <div className="flex sm:flex-row flex-col gap-2 w-full lg:w-auto">
-                  {currentUser?.role === "company_super_admin" && (
+                  {canViewAll && (
                     <Select
                       key={`employee-filter-${language}`}
                       value={filterState.employeeId || "all"}
@@ -554,15 +580,17 @@ const OwnersPage = () => {
                     ) : null}
                   </Button>
 
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsExportDialogOpen(true)}
-                    className="sm:hidden rounded-xl h-11"
-                  >
-                    <Upload className="w-4 h-4" />
-                    {t("Export")}
-                  </Button>
-                  {currentUser?.role === "company_super_admin" && (
+                  {canExport ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsExportDialogOpen(true)}
+                      className="sm:hidden rounded-xl h-11"
+                    >
+                      <Upload className="w-4 h-4" />
+                      {t("Export")}
+                    </Button>
+                  ) : null}
+                  {canImport && (
                     <Button
                       variant="outline"
                       onClick={() => setIsImportDialogOpen(true)}
@@ -658,24 +686,28 @@ const OwnersPage = () => {
                     onClear={() => setSelectedOwners([])}
                     clearLabel={t("Clear selection")}
                   />
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setIsReassignModalOpen(true)}
-                    className="sm:hidden gap-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-lg h-8 text-primary"
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    {t("Reassign Selected")}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setIsDeleteDialogOpen(true)}
-                    className="sm:hidden gap-1.5 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 rounded-lg h-8 text-destructive"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    {t("Delete")}
-                  </Button>
+                  {canAssign ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsReassignModalOpen(true)}
+                      className="sm:hidden gap-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-lg h-8 text-primary"
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      {t("Reassign Selected")}
+                    </Button>
+                  ) : null}
+                  {canDelete ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsDeleteDialogOpen(true)}
+                      className="sm:hidden gap-1.5 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 rounded-lg h-8 text-destructive"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      {t("Delete")}
+                    </Button>
+                  ) : null}
                 </>
               )}
             </div>
@@ -825,7 +857,7 @@ const OwnersPage = () => {
             isDeleting={isDeleting}
           />
 
-          {company?.id && (
+          {company?.id && canImport ? (
             <ImportOwnersDialog
               isOpen={isImportDialogOpen}
               onClose={() => setIsImportDialogOpen(false)}
@@ -834,9 +866,9 @@ const OwnersPage = () => {
               marketingChannels={marketingChannels.map((c) => c.name)}
               language={language}
             />
-          )}
+          ) : null}
 
-          {company?.id && (
+          {company?.id && canExport ? (
             <ExportOwnersDialog
               isOpen={isExportDialogOpen}
               onClose={() => setIsExportDialogOpen(false)}
@@ -850,7 +882,7 @@ const OwnersPage = () => {
               companyId={company.id}
               language={language}
             />
-          )}
+          ) : null}
         </div>
 
         {/* Mobile sticky CTA */}

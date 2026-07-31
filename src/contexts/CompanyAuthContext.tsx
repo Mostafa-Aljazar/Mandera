@@ -90,8 +90,9 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (
         profile &&
-        (profile.role === "company_super_admin" ||
-          profile.role === "company_employee")
+        (profile.role === "sales_agent" ||
+          profile.role === "administrator" ||
+          profile.role === "manager")
       ) {
         const { companies, ...profileFields } = profile as ProfileWithCompany;
         const user = { ...profileFields, email: session.user.email } as AuthUser;
@@ -133,8 +134,9 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
       if (
         profileError ||
         !profile ||
-        (profile.role !== "company_super_admin" &&
-          profile.role !== "company_employee")
+        (profile.role !== "sales_agent" &&
+          profile.role !== "administrator" &&
+          profile.role !== "manager")
       ) {
         throw new Error(
           "Invalid email or password. Please verify your credentials.",

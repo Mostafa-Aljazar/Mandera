@@ -6,6 +6,23 @@ import type {
   ClientWithRelations,
   ClientStatus,
 } from "@/types/supabase-entities.types";
+import {
+  assertCompanyMember,
+} from "@/actions/_access";
+import {
+  CLIENT_IDENTITY_FIELDS,
+  stripIdentityFields,
+} from "@/lib/identity";
+import {
+  canAssignRecords,
+  canDeleteClientOrOwner,
+  canImportClientsOrOwners,
+  canViewInsights,
+  isManager,
+  isMasterAdmin,
+  isSalesAgent,
+} from "@/lib/permissions";
+import { pickEmployeeByDistributionRules } from "@/actions/distributionRules";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
@@ -59,6 +76,9 @@ export async function getClient(
   clientId: string,
   companyId: string,
 ): Promise<ActionResult<ClientWithRelations>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("clients")
@@ -69,13 +89,30 @@ export async function getClient(
 
   if (error) return { error: error.message };
   if (!data) return { error: "Client not found" };
-  return { data: data as unknown as ClientWithRelations };
+
+  const client = data as unknown as ClientWithRelations;
+  if (
+    isSalesAgent(access.data.role) &&
+    client.employee_id !== access.data.userId
+  ) {
+    return { error: "Access denied" };
+  }
+
+  return { data: client };
 }
 
 export async function getClients(
   companyId: string,
   filters: ClientFilters = {},
 ): Promise<ActionResult<ClientWithRelations[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
+  const effectiveFilters = { ...filters };
+  if (isSalesAgent(access.data.role)) {
+    effectiveFilters.employeeId = access.data.userId;
+  }
+
   const supabase = await getServerSupabase();
 
   let query = supabase
@@ -84,18 +121,30 @@ export async function getClients(
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
 
-  if (filters.employeeId) query = query.eq("employee_id", filters.employeeId);
-  if (filters.marketingChannel) query = query.eq("marketing_channel", filters.marketingChannel);
-  if (filters.createdFrom) query = query.gte("created_at", filters.createdFrom);
-  if (filters.createdTo) query = query.lte("created_at", filters.createdTo);
-  if (filters.updatedFrom) query = query.gte("updated_at", filters.updatedFrom);
-  if (filters.updatedTo) query = query.lte("updated_at", filters.updatedTo);
+  if (effectiveFilters.employeeId) {
+    query = query.eq("employee_id", effectiveFilters.employeeId);
+  }
+  if (effectiveFilters.marketingChannel) {
+    query = query.eq("marketing_channel", effectiveFilters.marketingChannel);
+  }
+  if (effectiveFilters.createdFrom) {
+    query = query.gte("created_at", effectiveFilters.createdFrom);
+  }
+  if (effectiveFilters.createdTo) {
+    query = query.lte("created_at", effectiveFilters.createdTo);
+  }
+  if (effectiveFilters.updatedFrom) {
+    query = query.gte("updated_at", effectiveFilters.updatedFrom);
+  }
+  if (effectiveFilters.updatedTo) {
+    query = query.lte("updated_at", effectiveFilters.updatedTo);
+  }
 
   const { data, error } = await query;
   if (error) return { error: error.message };
   let clients = (data ?? []) as unknown as ClientWithRelations[];
 
-  if (filters.statusId) {
+  if (effectiveFilters.statusId) {
     // Prefer the synced clients.status_id column; fall back to latest
     // history entry for legacy rows where status_id was never set.
     const { data: histMatches, error: histError } = await supabase
@@ -117,7 +166,7 @@ export async function getClients(
 
     clients = clients.filter((c) => {
       const currentStatus = c.status_id ?? latestFromHistory.get(c.id) ?? null;
-      return currentStatus === filters.statusId;
+      return currentStatus === effectiveFilters.statusId;
     });
   }
 
@@ -145,17 +194,35 @@ export interface CreateClientInput {
   country_code: string;
   interest_type: string;
   interested_properties?: string[];
-  employee_id: string;
+  employee_id?: string;
   marketing_channel?: string | null;
+  campaign?: string | null;
   avatar?: File | null;
+  budget?: number | null;
+  preferred_area?: string | null;
+  investment_unit?: string | null;
 }
 
 export async function createClient(
   input: CreateClientInput,
 ): Promise<ActionResult<Client>> {
+  const access = await assertCompanyMember(input.companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
   const nameEn = input.name_en.trim();
   const nameAr = input.name_ar.trim();
+
+  // Sales agents may only create clients assigned to themselves.
+  let employeeId = isSalesAgent(access.data.role)
+    ? access.data.userId
+    : input.employee_id;
+  if (!employeeId && canAssignRecords(access.data.role)) {
+    const assignment = await pickEmployeeByDistributionRules(input.companyId);
+    if (assignment.error) return { error: assignment.error };
+    employeeId = assignment.data ?? undefined;
+  }
+  if (!employeeId) return { error: "Assigned agent is required" };
 
   let avatarUrl: string | null = null;
   if (input.avatar) {
@@ -174,10 +241,96 @@ export async function createClient(
       country_code: input.country_code,
       interest_type: input.interest_type,
       interested_properties: input.interested_properties ?? [],
-      employee_id: input.employee_id,
+      employee_id: employeeId,
       marketing_channel: input.marketing_channel || null,
+      campaign: input.campaign?.trim() || null,
       company_id: input.companyId,
       avatar_url: avatarUrl,
+      is_locked: true,
+      budget: input.budget ?? null,
+      preferred_area: input.preferred_area?.trim() || null,
+      investment_unit: input.investment_unit?.trim() || null,
+    })
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+  return { data: data as Client };
+}
+
+/**
+ * PDF: Sales Agent may convert an assigned owner into a client when they
+ * express buying interest. Copies identity + channel; keeps both records.
+ */
+export async function convertOwnerToClient(input: {
+  ownerId: string;
+  companyId: string;
+  interest_type?: "Sale" | "Rent";
+}): Promise<ActionResult<Client>> {
+  const access = await assertCompanyMember(input.companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
+  const supabase = await getServerSupabase();
+  const { data: owner, error: ownerError } = await supabase
+    .from("owners")
+    .select(
+      "id, company_id, name, name_en, name_ar, phone, country, marketing_channel, assigned_employee_id, email",
+    )
+    .eq("id", input.ownerId)
+    .eq("company_id", input.companyId)
+    .maybeSingle();
+
+  if (ownerError) return { error: ownerError.message };
+  if (!owner) return { error: "Owner not found" };
+
+  if (
+    isSalesAgent(access.data.role) &&
+    owner.assigned_employee_id !== access.data.userId
+  ) {
+    return { error: "Access denied" };
+  }
+
+  const { data: existingClient } = await supabase
+    .from("clients")
+    .select("id")
+    .eq("company_id", input.companyId)
+    .eq("phone", owner.phone)
+    .maybeSingle();
+
+  if (existingClient) {
+    return {
+      error:
+        "A client with this phone number already exists. Open that client instead.",
+    };
+  }
+
+  const employeeId = isSalesAgent(access.data.role)
+    ? access.data.userId
+    : owner.assigned_employee_id || access.data.userId;
+
+  const nameEn = (owner.name_en || owner.name || "").trim();
+  const nameAr = (owner.name_ar || owner.name || nameEn).trim();
+  if (!nameEn || !nameAr) {
+    return { error: "Owner name is incomplete and cannot be converted." };
+  }
+
+  const { data, error } = await supabase
+    .from("clients")
+    .insert({
+      name: nameEn,
+      name_en: nameEn,
+      name_ar: nameAr,
+      phone: owner.phone,
+      country_code: owner.country || "United Arab Emirates",
+      interest_type: input.interest_type || "Sale",
+      interested_properties: [],
+      employee_id: employeeId,
+      marketing_channel: owner.marketing_channel || null,
+      company_id: input.companyId,
+      is_locked: true,
+      preferred_area: null,
+      budget: null,
+      investment_unit: null,
     })
     .select()
     .single();
@@ -197,28 +350,90 @@ export interface UpdateClientInput {
   interested_properties?: string[];
   employee_id: string;
   marketing_channel?: string | null;
+  campaign?: string | null;
   avatar?: File | null;
   removeAvatar?: boolean;
+  budget?: number | null;
+  preferred_area?: string | null;
+  investment_unit?: string | null;
 }
 
 export async function updateClient(
   input: UpdateClientInput,
 ): Promise<ActionResult<Client>> {
+  const companyId = input.companyId;
+  if (!companyId) return { error: "Company is required" };
+
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("clients")
+    .select(
+      "id, employee_id, company_id, editing_locked, name, name_en, name_ar, phone, country_code",
+    )
+    .eq("id", input.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (fetchError) return { error: fetchError.message };
+  if (!existing) return { error: "Client not found" };
+  if (
+    isSalesAgent(access.data.role) &&
+    existing.employee_id !== access.data.userId
+  ) {
+    return { error: "Access denied" };
+  }
+  if (
+    existing.editing_locked &&
+    !isManager(access.data.role) &&
+    !isMasterAdmin(access.data.role)
+  ) {
+    return { error: "This record is locked and cannot be edited." };
+  }
+
   const nameEn = input.name_en.trim();
   const nameAr = input.name_ar.trim();
 
-  const patch: Record<string, unknown> = {
-    name: nameEn,
-    name_en: nameEn,
-    name_ar: nameAr,
-    phone: input.phone,
-    country_code: input.country_code,
+  // PDF: identity locked after create. Never write name/phone/country via this
+  // action. Reject only when the caller sends values that differ from DB
+  // (DevTools / forged API). Missing/unchanged values are ignored.
+  const identityMismatch =
+    ((input.name_en ?? "") !== "" &&
+      (existing.name_en ?? "") !== nameEn) ||
+    ((input.name_ar ?? "") !== "" &&
+      (existing.name_ar ?? "") !== nameAr) ||
+    ((input.phone ?? "") !== "" &&
+      (existing.phone ?? "") !== input.phone) ||
+    ((input.country_code ?? "") !== "" &&
+      (existing.country_code ?? "") !== input.country_code);
+
+  if (identityMismatch) {
+    return {
+      error:
+        "Identity fields (name, phone, country) are locked after create. Only Master Admin can apply an exceptional correction with a full audit log.",
+    };
+  }
+
+  let patch: Record<string, unknown> = {
     interest_type: input.interest_type,
     interested_properties: input.interested_properties ?? [],
     employee_id: input.employee_id,
     marketing_channel: input.marketing_channel || null,
+    campaign: input.campaign?.trim() || null,
+    budget: input.budget ?? null,
+    preferred_area: input.preferred_area?.trim() || null,
+    investment_unit: input.investment_unit?.trim() || null,
   };
+
+  // Defense in depth: never write identity via this path.
+  patch = stripIdentityFields(patch, CLIENT_IDENTITY_FIELDS);
+
+  // Sales agents cannot reassign clients.
+  if (!canAssignRecords(access.data.role)) {
+    delete patch.employee_id;
+  }
 
   if (input.avatar && input.companyId) {
     const upload = await uploadClientAvatar(input.companyId, input.avatar);
@@ -236,8 +451,6 @@ export async function updateClient(
     .single();
 
   if (error) return { error: error.message };
-  // TODO: send assignment-change notification email if employee_id changed
-  // (deferred per user decision — see project_supabase_migration memory).
   return { data: data as Client };
 }
 
@@ -245,8 +458,34 @@ export async function updateClientFollowUp(
   id: string,
   followUpDate: string | null,
   followUpTime: string | null,
+  companyId?: string,
 ): Promise<ActionResult<Client>> {
   const supabase = await getServerSupabase();
+  const { data: existing, error: fetchError } = await supabase
+    .from("clients")
+    .select("id, company_id, employee_id, editing_locked")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) return { error: fetchError.message };
+  if (!existing) return { error: "Client not found" };
+
+  const resolvedCompanyId = companyId || existing.company_id;
+  const access = await assertCompanyMember(resolvedCompanyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (
+    isSalesAgent(access.data.role) &&
+    existing.employee_id !== access.data.userId
+  ) {
+    return { error: "Access denied" };
+  }
+  if (
+    existing.editing_locked &&
+    !isManager(access.data.role) &&
+    !isMasterAdmin(access.data.role)
+  ) {
+    return { error: "This record is locked and cannot be edited." };
+  }
+
   const { data, error } = await supabase
     .from("clients")
     .update({ follow_up_date: followUpDate, follow_up_time: followUpTime })
@@ -271,6 +510,11 @@ export async function bulkDeleteClients(
   companyId: string,
 ): Promise<ActionResult<{ deleted: number }>> {
   if (clientIds.length === 0) return { error: "No clients to delete." };
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canDeleteClientOrOwner(access.data.role)) {
+    return { error: "Deleting clients is not permitted. Contact Master Admin for exceptional corrections." };
+  }
   const supabase = await getServerSupabase();
   const { error, count } = await supabase
     .from("clients")
@@ -284,6 +528,12 @@ export async function bulkDeleteClients(
 export async function bulkAssignClients(
   input: BulkAssignInput,
 ): Promise<ActionResult<null>> {
+  const access = await assertCompanyMember(input.companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canAssignRecords(access.data.role)) {
+    return { error: "Only Administrators and Managers can reassign clients." };
+  }
+
   const supabase = await getServerSupabase();
 
   const { data: clientsToAssign, error: fetchError } = await supabase
@@ -365,6 +615,12 @@ export async function bulkCreateClients(
     return { error: `Cannot import more than ${MAX_BULK_IMPORT_ROWS} rows at once.` };
   }
 
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canImportClientsOrOwners(access.data.role)) {
+    return { error: "Only Managers can import clients." };
+  }
+
   const supabase = await getServerSupabase();
   const payload = rows.map((row) => {
     const nameEn = row.name_en.trim();
@@ -380,6 +636,7 @@ export async function bulkCreateClients(
       marketing_channel: row.marketing_channel || null,
       company_id: companyId,
       avatar_url: null,
+      is_locked: true,
     };
   });
 
@@ -391,16 +648,54 @@ export async function bulkCreateClients(
 export interface ClientsBySourceFilters {
   createdFrom: string;
   createdTo: string;
+  groupBy?: "source" | "campaign" | "employee";
 }
 
 export async function getClientsBySource(
   companyId: string,
   filters: ClientsBySourceFilters,
 ): Promise<ActionResult<{ name: string; count: number }[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canViewInsights(access.data.role)) {
+    return { error: "Access denied" };
+  }
+
+  const groupBy = filters.groupBy ?? "source";
   const supabase = await getServerSupabase();
+
+  if (groupBy === "employee") {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("employee_id, employee:profiles!clients_employee_id_fkey(name)")
+      .eq("company_id", companyId)
+      .gte("created_at", filters.createdFrom)
+      .lte("created_at", filters.createdTo);
+
+    if (error) return { error: error.message };
+
+    const counts = new Map<string, number>();
+    (data ?? []).forEach((c) => {
+      const emp = Array.isArray(c.employee) ? c.employee[0] : c.employee;
+      const label =
+        (emp as { name?: string | null } | null)?.name?.trim() ||
+        c.employee_id ||
+        "Unassigned";
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    });
+
+    return {
+      data: Array.from(counts.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
+    };
+  }
+
+  const selectCols =
+    groupBy === "campaign" ? "campaign" : "marketing_channel";
   const { data, error } = await supabase
     .from("clients")
-    .select("marketing_channel")
+    .select(selectCols)
     .eq("company_id", companyId)
     .gte("created_at", filters.createdFrom)
     .lte("created_at", filters.createdTo);
@@ -409,8 +704,12 @@ export async function getClientsBySource(
 
   const counts = new Map<string, number>();
   (data ?? []).forEach((c) => {
-    const channel = c.marketing_channel || "Other";
-    counts.set(channel, (counts.get(channel) ?? 0) + 1);
+    const raw =
+      groupBy === "campaign"
+        ? (c as { campaign?: string | null }).campaign
+        : (c as { marketing_channel?: string | null }).marketing_channel;
+    const label = raw?.trim() || "Other";
+    counts.set(label, (counts.get(label) ?? 0) + 1);
   });
 
   const result = Array.from(counts.entries())

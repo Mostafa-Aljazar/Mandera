@@ -144,11 +144,24 @@ export async function middleware(request: NextRequest) {
 
   if (isCompanyRoute) {
     const isCompanyIdentity =
-      profile?.role === "company_super_admin" ||
-      profile?.role === "company_employee";
+      profile?.role === "sales_agent" ||
+      profile?.role === "administrator" ||
+      profile?.role === "manager";
 
     if (!isCompanyIdentity) {
       return NextResponse.redirect(new URL(COMPANY_LOGIN, request.url));
+    }
+
+    const isManagerOnlyPath =
+      pathname === "/company/revenue" ||
+      pathname.startsWith("/company/revenue/") ||
+      pathname === "/company/employees" ||
+      pathname.startsWith("/company/employees/") ||
+      pathname === "/company/settings" ||
+      pathname.startsWith("/company/settings/");
+
+    if (isManagerOnlyPath && profile?.role !== "manager") {
+      return NextResponse.redirect(new URL("/company/dashboard", request.url));
     }
 
     return response;

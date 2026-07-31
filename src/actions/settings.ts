@@ -1,6 +1,7 @@
 "use server";
 
 import { getServerSupabase } from "@/lib/supabase/server";
+import { companyRolesFilter } from "@/lib/permissions";
 import type {
   PropertyType,
   ClientStatus,
@@ -274,7 +275,7 @@ export async function getCompanyEmployeesWithDetails(
     .from("profiles")
     .select("id, role, company_id, employee_id, name, employee:employees!profiles_employee_id_fkey(*)")
     .eq("company_id", companyId)
-    .in("role", ["company_super_admin", "company_employee"]);
+    .in("role", companyRolesFilter());
   if (error) return { error: error.message };
   return { data: (data ?? []) as unknown as CompanyEmployeeWithDetails[] };
 }

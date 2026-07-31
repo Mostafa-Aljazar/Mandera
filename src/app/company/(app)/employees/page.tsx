@@ -6,6 +6,11 @@ import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import {
+  canManageEmployees,
+  isAdministratorOrAbove,
+  isManager,
+} from "@/lib/permissions";
+import {
   useCompanyEmployees,
   useUpdateEmployeeDisabled,
 } from "@/hooks/queries/useEmployees";
@@ -42,6 +47,7 @@ import { cn } from "@/lib/utils";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { CompanyEmployeeWithDetails } from "@/types/supabase-entities.types";
+import type { ReassignmentTargets } from "@/actions/employees";
 
 const PAGE_SIZE = 9;
 
@@ -153,9 +159,9 @@ const EmployeeListPage = () => {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "employee">(
-    "all",
-  );
+  const [roleFilter, setRoleFilter] = useState<
+    "all" | "sales_agent" | "administrator" | "manager"
+  >("all");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "active" | "disabled"
   >("all");
@@ -170,26 +176,26 @@ const EmployeeListPage = () => {
   }>({ open: false, employee: null });
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-  const isSuperAdmin = currentUser?.role === "company_super_admin";
+  const canManage = canManageEmployees(currentUser?.role);
 
   const {
     data: employeesData,
     isLoading,
     refetch,
-  } = useCompanyEmployees(isSuperAdmin ? company?.id : undefined);
+  } = useCompanyEmployees(canManage ? company?.id : undefined);
   const employees = useMemo(() => employeesData ?? [], [employeesData]);
   const updateDisabledMutation = useUpdateEmployeeDisabled();
 
   useEffect(() => {
-    if (!isSuperAdmin) {
+    if (!canManage) {
       router.replace("/company/dashboard");
     }
-  }, [isSuperAdmin, router]);
+  }, [canManage, router]);
 
   const stats = useMemo(() => {
     const total = employees.length;
-    const admins = employees.filter(
-      (e) => e.role === "company_super_admin",
+    const admins = employees.filter((e) =>
+      isAdministratorOrAbove(e.role),
     ).length;
     const active = employees.filter((e) => !e.employee?.disabled).length;
     const disabled = employees.filter((e) => e.employee?.disabled).length;
@@ -199,10 +205,7 @@ const EmployeeListPage = () => {
   const filteredEmployees = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return employees.filter((emp) => {
-      if (roleFilter === "admin" && emp.role !== "company_super_admin") {
-        return false;
-      }
-      if (roleFilter === "employee" && emp.role !== "company_employee") {
+      if (roleFilter !== "all" && emp.role !== roleFilter) {
         return false;
       }
       if (statusFilter === "active" && emp.employee?.disabled) return false;
@@ -248,10 +251,10 @@ const EmployeeListPage = () => {
     return count;
   }, [roleFilter, statusFilter]);
 
-  const handleToggleDisable = async () => {
+  const handleToggleDisable = async (targets?: ReassignmentTargets) => {
     const emp = statusDialog.employee;
     if (!emp?.employee_id || !emp.employee) return;
-    if (emp.role === "company_super_admin") {
+    if (isManager(emp.role)) {
       toast.error(t("Company managers cannot be disabled."));
       setStatusDialog({ open: false, employee: null });
       return;
@@ -262,6 +265,8 @@ const EmployeeListPage = () => {
       const result = await updateDisabledMutation.mutateAsync({
         employeeId: emp.employee_id,
         disabled: !emp.employee.disabled,
+        companyId: company?.id,
+        targets,
       });
       if (result.error) throw new Error(result.error);
       toast.success(
@@ -277,7 +282,7 @@ const EmployeeListPage = () => {
       toast.error(
         message === "Company managers cannot be disabled."
           ? t("Company managers cannot be disabled.")
-          : t("Failed to update employee status"),
+          : message,
       );
     } finally {
       setIsUpdatingStatus(false);
@@ -300,7 +305,7 @@ const EmployeeListPage = () => {
     });
   };
 
-  if (!isSuperAdmin) {
+  if (!canManage) {
     return null;
   }
 
@@ -439,7 +444,13 @@ const EmployeeListPage = () => {
                       <Select
                         value={roleFilter}
                         onValueChange={(val) =>
-                          setRoleFilter(val as "all" | "admin" | "employee")
+                          setRoleFilter(
+                            val as
+                              | "all"
+                              | "sales_agent"
+                              | "administrator"
+                              | "manager",
+                          )
                         }
                       >
                         <SelectTrigger className="bg-background h-11 rounded-xl">
@@ -447,10 +458,13 @@ const EmployeeListPage = () => {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">{t("All Roles")}</SelectItem>
-                          <SelectItem value="admin">{t("Admin")}</SelectItem>
-                          <SelectItem value="employee">
-                            {t("Employee")}
+                          <SelectItem value="sales_agent">
+                            {t("Sales Agent")}
                           </SelectItem>
+                          <SelectItem value="administrator">
+                            {t("Administrator")}
+                          </SelectItem>
+                          <SelectItem value="manager">{t("Manager")}</SelectItem>
                         </SelectContent>
                       </Select>
 
@@ -481,7 +495,11 @@ const EmployeeListPage = () => {
                           variant="secondary"
                           className="gap-1 bg-primary/10 hover:bg-primary/15 border-primary/15 text-primary pe-1"
                         >
-                          {roleFilter === "admin" ? t("Admin") : t("Employee")}
+                          {roleFilter === "sales_agent"
+                            ? t("Sales Agent")
+                            : roleFilter === "administrator"
+                              ? t("Administrator")
+                              : t("Manager")}
                           <button
                             type="button"
                             className="inline-flex justify-center items-center rounded-full hover:bg-primary/20 w-4 h-4"
@@ -692,7 +710,9 @@ const EmployeeListPage = () => {
         avatarUrl={statusDialog.employee?.employee?.avatar_url}
         isDisabled={Boolean(statusDialog.employee?.employee?.disabled)}
         isSubmitting={isUpdatingStatus}
-        onConfirm={() => void handleToggleDisable()}
+        employeeProfileId={statusDialog.employee?.id}
+        employees={employees}
+        onConfirm={(targets) => void handleToggleDisable(targets)}
       />
 
       <EmployeeDeletionDialog

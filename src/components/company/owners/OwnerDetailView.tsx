@@ -57,12 +57,22 @@ import {
   UploadCloud,
   CalendarDays,
   Clock3,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
 import { ar, enUS } from "date-fns/locale";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import {
+  canChangeOwnerAssignment,
+  canDeleteClientOrOwner,
+  canEditIdentityFields,
+  canLockRecords,
+  canViewOwnerStatus,
+  isSalesAgent,
+} from "@/lib/permissions";
 import StatusUpdateModal from "@/components/common/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
 import LinkedPropertyCard from "@/components/company/properties/LinkedPropertyCard";
@@ -81,10 +91,12 @@ import {
   useCompanyEmployeesLookup,
   useOwnerProperties,
 } from "@/hooks/queries/useProperties";
+import { useConvertOwnerToClient } from "@/hooks/queries/useClients";
 import { useOwnerStatusBadge } from "@/hooks/useOwnerStatusBadge";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { countryLabel, normalizeCountryValue } from "@/lib/countries";
 import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
+import { useRecordLockMutations } from "@/hooks/queries/usePropertyApprovals";
 
 const DEFAULT_MARKETING_CHANNELS = [
   "Google",
@@ -172,6 +184,16 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
   const searchParams = useSearchParams();
   const { company, currentUser } = useCompanyAuth();
   const isNew = !ownerId;
+  const identityLocked =
+    !isNew && !canEditIdentityFields(currentUser?.role);
+  const canChangeAssignment = canChangeOwnerAssignment(currentUser?.role);
+  const canDelete = canDeleteClientOrOwner(currentUser?.role);
+  const canLock = canLockRecords(currentUser?.role);
+  const canConvertToClient =
+    !isNew &&
+    (isSalesAgent(currentUser?.role) || canChangeAssignment);
+  const showOwnerStatus = canViewOwnerStatus(currentUser?.role);
+  const convertOwnerToClient = useConvertOwnerToClient();
 
   const tabFromUrl = resolveOwnerTab(searchParams.get("tab"), isNew);
   const [activeTab, setActiveTab] = useState<OwnerTab>(tabFromUrl);
@@ -183,6 +205,8 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
   const [isDragOver, setIsDragOver] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [followUpDate, setFollowUpDate] = useState("");
+  const [followUpTime, setFollowUpTime] = useState("");
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const {
@@ -217,6 +241,8 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
   const createOwnerMutation = useCreateOwner();
   const updateOwnerMutation = useUpdateOwner();
   const deleteOwnerMutation = useDeleteOwner();
+  const recordLocks = useRecordLockMutations(company?.id);
+  const saveLocked = Boolean(owner?.editing_locked && !canLock);
 
   const form = useForm<TOwnerSchema, unknown, TOwnerSchemaOutput>({
     resolver: zodResolver(OwnerSchema(t)),
@@ -225,9 +251,9 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
       name_ar: "",
       phone: "",
       country: "United Arab Emirates",
-      assigned_employee_id:
-        currentUser?.role === "company_employee" ? currentUser.id : "",
+      assigned_employee_id: currentUser?.id || "",
       marketing_channel: "",
+      email: "",
     },
   });
 
@@ -240,17 +266,24 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
         country: normalizeCountryValue(owner.country || "United Arab Emirates"),
         assigned_employee_id: owner.assigned_employee_id || "",
         marketing_channel: owner.marketing_channel || "",
+        email: owner.email || "",
       });
+      setFollowUpDate(
+        owner.follow_up_date ? owner.follow_up_date.split(" ")[0] : "",
+      );
+      setFollowUpTime(owner.follow_up_time || "");
     } else if (isNew) {
       form.reset({
         name_en: "",
         name_ar: "",
         phone: "",
         country: "United Arab Emirates",
-        assigned_employee_id:
-          currentUser?.role === "company_employee" ? currentUser.id : "",
+        assigned_employee_id: currentUser?.id || "",
         marketing_channel: "",
+        email: "",
       });
+      setFollowUpDate("");
+      setFollowUpTime("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner, isNew, currentUser]);
@@ -340,15 +373,25 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
     setIsSubmitting(true);
     try {
       const payload = {
-        name_en: formData.name_en,
-        name_ar: formData.name_ar,
-        phone: formData.phone,
-        country: formData.country,
+        name_en:
+          identityLocked && owner
+            ? (owner.name_en ?? formData.name_en)
+            : formData.name_en,
+        name_ar:
+          identityLocked && owner
+            ? (owner.name_ar ?? formData.name_ar)
+            : formData.name_ar,
+        phone:
+          identityLocked && owner
+            ? (owner.phone ?? formData.phone)
+            : formData.phone,
+        country:
+          identityLocked && owner
+            ? (owner.country ?? formData.country)
+            : formData.country,
         marketing_channel: formData.marketing_channel,
-        assigned_employee_id:
-          currentUser?.role === "company_employee" && isNew
-            ? currentUser.id
-            : formData.assigned_employee_id,
+        assigned_employee_id: formData.assigned_employee_id,
+        email: formData.email?.trim() || null,
         avatar: avatarFile,
         removeAvatar: removeAvatar && !avatarFile,
       };
@@ -358,6 +401,8 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
           id: owner.id,
           companyId: company.id,
           ...payload,
+          follow_up_date: followUpDate || null,
+          follow_up_time: followUpTime || null,
         });
         if (result.error) throw new Error(result.error);
         toast.success(t("Owner updated successfully."));
@@ -411,6 +456,37 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
     refetchOwner();
   };
 
+  const toggleRecordLock = async () => {
+    if (!owner) return;
+    try {
+      if (owner.editing_locked) {
+        await recordLocks.unlockOwner.mutateAsync(owner.id);
+        toast.success(t("Record unlocked"));
+      } else {
+        await recordLocks.lockOwner.mutateAsync(owner.id);
+        toast.success(t("Record locked"));
+      }
+      await refetchOwner();
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
+  const handleConvertToClient = async () => {
+    if (!owner || !company?.id) return;
+    try {
+      const client = await convertOwnerToClient.mutateAsync({
+        ownerId: owner.id,
+        companyId: company.id,
+        interest_type: "Sale",
+      });
+      toast.success(t("Owner converted to client"));
+      router.push(`/company/clients/${client.id}`);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
   if (!isNew && isLoadingOwner) {
     return (
       <div className="mx-auto px-4 sm:px-6 py-8 container max-w-6xl space-y-6">
@@ -434,7 +510,38 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
           </Button>
         </Link>
         <div className="flex items-center gap-2">
-          {owner && (
+          {owner && canConvertToClient ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 h-9"
+              disabled={convertOwnerToClient.isPending}
+              onClick={handleConvertToClient}
+            >
+              <UserPlus className="w-4 h-4" />
+              {t("Convert to Client")}
+            </Button>
+          ) : null}
+          {owner && canLock ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 h-9"
+              disabled={
+                recordLocks.lockOwner.isPending ||
+                recordLocks.unlockOwner.isPending
+              }
+              onClick={toggleRecordLock}
+            >
+              {owner.editing_locked ? (
+                <Unlock className="w-3.5 h-3.5" />
+              ) : (
+                <Lock className="w-3.5 h-3.5" />
+              )}
+              {owner.editing_locked ? t("Unlock") : t("Lock Record")}
+            </Button>
+          ) : null}
+          {owner && canDelete ? (
             <Button
               variant="outline"
               size="sm"
@@ -444,7 +551,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
               <Trash2 className="w-3.5 h-3.5" />
               <span className="sm:inline hidden">{t("Delete")}</span>
             </Button>
-          )}
+          ) : null}
           {owner && cleanPhone && (
             <div className="flex sm:hidden items-center gap-2">
               <Button asChild variant="outline" size="sm" className="h-9 gap-1.5">
@@ -514,7 +621,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                 {displayName}
               </h1>
               <div className="flex flex-wrap items-center gap-2 mt-2">
-                {!isNew && (
+                {!isNew && showOwnerStatus ? (
                   <Badge
                     variant="outline"
                     className={cn(
@@ -529,7 +636,12 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                     )}
                     {badge.text}
                   </Badge>
-                )}
+                ) : null}                {owner?.editing_locked ? (
+                  <Badge variant="destructive" className="text-[11px] h-5">
+                    <Lock className="w-3 h-3 me-1" />
+                    {t("Record locked")}
+                  </Badge>
+                ) : null}
                 {(owner?.marketing_channel ||
                   form.watch("marketing_channel")) && (
                   <Badge
@@ -663,12 +775,15 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                       {
                         value: "status" as const,
                         icon: History,
-                        label: t("Status & History"),
-                        shortLabel: t("Status"),
+                        label: showOwnerStatus
+                          ? t("Status & History")
+                          : t("Notes & Follow-ups"),
+                        shortLabel: showOwnerStatus
+                          ? t("Status")
+                          : t("Notes"),
                         disabled: isNew,
                       },
-                    ].map(
-                      ({
+                    ].map(                      ({
                         value,
                         icon: Icon,
                         label,
@@ -803,6 +918,11 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                     </SectionCard>
 
                     <SectionCard title={t("Contact Information")} icon={User}>
+                      {identityLocked ? (
+                        <p className="mb-3 text-muted-foreground text-xs leading-relaxed">
+                          {t("Identity fields are locked after create")}
+                        </p>
+                      ) : null}
                       <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
                         <FormField
                           control={form.control}
@@ -818,6 +938,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                                   dir="ltr"
                                   placeholder="e.g. John Doe"
                                   className="bg-background h-10"
+                                  disabled={identityLocked}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -838,6 +959,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                                   dir="rtl"
                                   placeholder="مثال: محمد أحمد"
                                   className="bg-background h-10"
+                                  disabled={identityLocked}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -853,7 +975,11 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                                 {t("Phone Number")} *
                               </FormLabel>
                               <FormControl>
-                                <PhoneInput {...field} className="flex-1" />
+                                <PhoneInput
+                                  {...field}
+                                  className="flex-1"
+                                  disabled={identityLocked}
+                                />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -872,6 +998,28 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                                   value={field.value}
                                   onChange={field.onChange}
                                   placeholder={t("Select Country")}
+                                  disabled={identityLocked}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="email"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                {t("Email")}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  type="email"
+                                  dir="ltr"
+                                  placeholder="name@example.com"
+                                  className="bg-background h-10"
                                 />
                               </FormControl>
                               <FormMessage />
@@ -926,9 +1074,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                               <Select
                                 value={field.value}
                                 onValueChange={field.onChange}
-                                disabled={
-                                  currentUser?.role === "company_employee"
-                                }
+                                disabled={!canChangeAssignment}
                               >
                                 <FormControl>
                                   <SelectTrigger className="bg-background h-10">
@@ -953,6 +1099,30 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                             </FormItem>
                           )}
                         />
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            {t("Follow-up Date")}
+                          </label>
+                          <Input
+                            type="date"
+                            dir="ltr"
+                            value={followUpDate}
+                            onChange={(e) => setFollowUpDate(e.target.value)}
+                            className="bg-background h-10"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            {t("Follow-up Time")}
+                          </label>
+                          <Input
+                            type="time"
+                            dir="ltr"
+                            value={followUpTime}
+                            onChange={(e) => setFollowUpTime(e.target.value)}
+                            className="bg-background h-10"
+                          />
+                        </div>
                       </div>
                     </SectionCard>
                   </TabsContent>
@@ -997,12 +1167,14 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                   >
                     <div className="mb-4 sm:mb-5 text-start">
                       <h3 className="font-outfit font-semibold text-foreground text-base sm:text-lg">
-                        {t("Status & History")}
+                        {showOwnerStatus
+                          ? t("Status & History")
+                          : t("Notes & Follow-ups")}
                       </h3>
                       <p className="mt-1 text-muted-foreground text-sm leading-relaxed max-w-2xl">
-                        {t(
-                          "Track pipeline updates and notes for this owner.",
-                        )}
+                        {showOwnerStatus
+                          ? t("Track pipeline updates and notes for this owner.")
+                          : t("Add notes and follow-ups. Owner status is hidden for sales agents.")}
                       </p>
                     </div>
                     {owner && (
@@ -1012,6 +1184,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                             entityType="owner"
                             entityData={owner}
                             statuses={statuses}
+                            notesOnly={!showOwnerStatus}
                             onSuccess={handleStatusSuccess}
                           />
                         </div>
@@ -1020,6 +1193,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                             entityType="owner"
                             entityId={owner.id}
                             refreshTrigger={historyRefreshTrigger}
+                            hideStatus={!showOwnerStatus}
                           />
                         </div>
                       </div>
@@ -1036,7 +1210,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
                 </p>
                 <Button
                   onClick={handleSave}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || saveLocked}
                   className="gap-2 sm:min-w-[140px] w-full sm:w-auto h-10"
                 >
                   {isSubmitting ? (

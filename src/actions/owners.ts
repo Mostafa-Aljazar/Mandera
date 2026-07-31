@@ -7,6 +7,22 @@ import type {
   OwnerStatusHistory,
   MarketingChannelRecord,
 } from "@/types/supabase-entities.types";
+import {
+  assertCompanyMember,
+} from "@/actions/_access";
+import {
+  OWNER_IDENTITY_FIELDS,
+  stripIdentityFields,
+} from "@/lib/identity";
+import {
+  canAssignRecords,
+  canChangeOwnerAssignment,
+  canDeleteClientOrOwner,
+  canImportClientsOrOwners,
+  isManager,
+  isMasterAdmin,
+  isSalesAgent,
+} from "@/lib/permissions";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
@@ -58,6 +74,9 @@ export async function getOwner(
   ownerId: string,
   companyId: string,
 ): Promise<ActionResult<Owner>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("owners")
@@ -68,13 +87,30 @@ export async function getOwner(
 
   if (error) return { error: error.message };
   if (!data) return { error: "Owner not found" };
-  return { data: data as Owner };
+
+  const owner = data as Owner;
+  if (
+    isSalesAgent(access.data.role) &&
+    owner.assigned_employee_id !== access.data.userId
+  ) {
+    return { error: "Access denied" };
+  }
+
+  return { data: owner };
 }
 
 export async function getOwners(
   companyId: string,
   filters: OwnerFilters = {},
 ): Promise<ActionResult<Owner[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
+  const effectiveFilters = { ...filters };
+  if (isSalesAgent(access.data.role)) {
+    effectiveFilters.assignedEmployeeId = access.data.userId;
+  }
+
   const supabase = await getServerSupabase();
 
   let query = supabase
@@ -83,21 +119,32 @@ export async function getOwners(
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
 
-  if (filters.assignedEmployeeId === "unassigned") {
+  if (effectiveFilters.assignedEmployeeId === "unassigned") {
     query = query.is("assigned_employee_id", null);
-  } else if (filters.assignedEmployeeId) {
-    query = query.eq("assigned_employee_id", filters.assignedEmployeeId);
+  } else if (effectiveFilters.assignedEmployeeId) {
+    query = query.eq(
+      "assigned_employee_id",
+      effectiveFilters.assignedEmployeeId,
+    );
   }
-  if (filters.marketingChannel) {
-    query = query.eq("marketing_channel", filters.marketingChannel);
+  if (effectiveFilters.marketingChannel) {
+    query = query.eq("marketing_channel", effectiveFilters.marketingChannel);
   }
-  if (filters.createdFrom) query = query.gte("created_at", filters.createdFrom);
-  if (filters.createdTo) query = query.lte("created_at", filters.createdTo);
-  if (filters.updatedFrom) query = query.gte("updated_at", filters.updatedFrom);
-  if (filters.updatedTo) query = query.lte("updated_at", filters.updatedTo);
+  if (effectiveFilters.createdFrom) {
+    query = query.gte("created_at", effectiveFilters.createdFrom);
+  }
+  if (effectiveFilters.createdTo) {
+    query = query.lte("created_at", effectiveFilters.createdTo);
+  }
+  if (effectiveFilters.updatedFrom) {
+    query = query.gte("updated_at", effectiveFilters.updatedFrom);
+  }
+  if (effectiveFilters.updatedTo) {
+    query = query.lte("updated_at", effectiveFilters.updatedTo);
+  }
 
   // Current status = latest owner_status_history row only (not any past status).
-  if (filters.statusId) {
+  if (effectiveFilters.statusId) {
     const { data: histMatches, error: histError } = await supabase
       .from("owner_status_history")
       .select("owner_id, status_id")
@@ -116,7 +163,7 @@ export async function getOwners(
     );
 
     const matchedOwnerIds = [...latestStatusMap.entries()]
-      .filter(([, statusId]) => statusId === filters.statusId)
+      .filter(([, statusId]) => statusId === effectiveFilters.statusId)
       .map(([ownerId]) => ownerId);
 
     if (matchedOwnerIds.length === 0) return { data: [] };
@@ -189,6 +236,7 @@ export interface CreateOwnerInput {
   country: string;
   marketing_channel?: string | null;
   assigned_employee_id?: string | null;
+  email?: string | null;
   /** Optional profile photo. */
   avatar?: File | null;
 }
@@ -196,9 +244,19 @@ export interface CreateOwnerInput {
 export async function createOwner(
   input: CreateOwnerInput,
 ): Promise<ActionResult<Owner>> {
+  const access = await assertCompanyMember(input.companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
   const nameEn = input.name_en.trim();
   const nameAr = input.name_ar.trim();
+
+  // Default new owners to the creating agent; Admin/Manager may assign freely.
+  // Agents may also choose another assignee (PDF allows owner transfer).
+  let assignedEmployeeId = input.assigned_employee_id || null;
+  if (isSalesAgent(access.data.role) && !assignedEmployeeId) {
+    assignedEmployeeId = access.data.userId;
+  }
 
   let avatarUrl: string | null = null;
   if (input.avatar) {
@@ -216,9 +274,11 @@ export async function createOwner(
       phone: input.phone,
       country: input.country,
       marketing_channel: input.marketing_channel || null,
-      assigned_employee_id: input.assigned_employee_id || null,
+      assigned_employee_id: assignedEmployeeId,
       company_id: input.companyId,
       avatar_url: avatarUrl,
+      email: input.email?.trim() || null,
+      is_locked: true,
     })
     .select()
     .single();
@@ -236,6 +296,9 @@ export interface UpdateOwnerInput {
   country: string;
   marketing_channel?: string | null;
   assigned_employee_id?: string | null;
+  email?: string | null;
+  follow_up_date?: string | null;
+  follow_up_time?: string | null;
   /** Optional new profile photo. */
   avatar?: File | null;
   /** When true and no new file is provided, clear the existing photo. */
@@ -245,19 +308,74 @@ export interface UpdateOwnerInput {
 export async function updateOwner(
   input: UpdateOwnerInput,
 ): Promise<ActionResult<Owner>> {
+  const companyId = input.companyId;
+  if (!companyId) return { error: "Company is required" };
+
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("owners")
+    .select(
+      "id, assigned_employee_id, company_id, editing_locked, name, name_en, name_ar, phone, country",
+    )
+    .eq("id", input.id)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (fetchError) return { error: fetchError.message };
+  if (!existing) return { error: "Owner not found" };
+  if (
+    isSalesAgent(access.data.role) &&
+    existing.assigned_employee_id !== access.data.userId
+  ) {
+    return { error: "Access denied" };
+  }
+  if (
+    existing.editing_locked &&
+    !isManager(access.data.role) &&
+    !isMasterAdmin(access.data.role)
+  ) {
+    return { error: "This record is locked and cannot be edited." };
+  }
+
   const nameEn = input.name_en.trim();
   const nameAr = input.name_ar.trim();
 
-  const patch: Record<string, unknown> = {
-    name: nameEn,
-    name_en: nameEn,
-    name_ar: nameAr,
-    phone: input.phone,
-    country: input.country,
+  // PDF: identity locked after create. Never write via this action; reject
+  // only when caller sends values that differ from DB.
+  const identityMismatch =
+    ((input.name_en ?? "") !== "" &&
+      (existing.name_en ?? "") !== nameEn) ||
+    ((input.name_ar ?? "") !== "" &&
+      (existing.name_ar ?? "") !== nameAr) ||
+    ((input.phone ?? "") !== "" &&
+      (existing.phone ?? "") !== input.phone) ||
+    ((input.country ?? "") !== "" &&
+      (existing.country ?? "") !== input.country);
+
+  if (identityMismatch) {
+    return {
+      error:
+        "Identity fields (name, phone, country) are locked after create. Only Master Admin can apply an exceptional correction with a full audit log.",
+    };
+  }
+
+  // Identity fields locked after create for all roles on this path.
+  // Sales agents MAY change assigned_employee_id (PDF allows transfer).
+  let patch: Record<string, unknown> = {
     marketing_channel: input.marketing_channel || null,
     assigned_employee_id: input.assigned_employee_id || null,
+    email: input.email?.trim() || null,
+    follow_up_date: input.follow_up_date || null,
+    follow_up_time: input.follow_up_time || null,
   };
+  patch = stripIdentityFields(patch, OWNER_IDENTITY_FIELDS);
+
+  if (!canChangeOwnerAssignment(access.data.role)) {
+    delete patch.assigned_employee_id;
+  }
 
   if (input.avatar && input.companyId) {
     const upload = await uploadOwnerAvatar(input.companyId, input.avatar);
@@ -282,6 +400,23 @@ export async function updateOwner(
 
 export async function deleteOwner(id: string): Promise<ActionResult<null>> {
   const supabase = await getServerSupabase();
+  const { data: existing, error: fetchError } = await supabase
+    .from("owners")
+    .select("company_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) return { error: fetchError.message };
+  if (!existing) return { error: "Owner not found" };
+
+  const access = await assertCompanyMember(existing.company_id);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canDeleteClientOrOwner(access.data.role)) {
+    return {
+      error:
+        "Deleting owners is not permitted. Contact Master Admin for exceptional corrections.",
+    };
+  }
+
   const { error } = await supabase.from("owners").delete().eq("id", id);
   if (error) return { error: error.message };
   return { data: null };
@@ -292,6 +427,15 @@ export async function bulkDeleteOwners(
   companyId: string,
 ): Promise<ActionResult<{ deleted: number }>> {
   if (ownerIds.length === 0) return { error: "No owners to delete." };
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canDeleteClientOrOwner(access.data.role)) {
+    return {
+      error:
+        "Deleting owners is not permitted. Contact Master Admin for exceptional corrections.",
+    };
+  }
+
   const supabase = await getServerSupabase();
   const { error, count } = await supabase
     .from("owners")
@@ -305,12 +449,22 @@ export async function bulkDeleteOwners(
 export async function bulkReassignOwners(
   ownerIds: string[],
   targetEmployeeId: string,
+  companyId: string,
 ): Promise<ActionResult<null>> {
+  if (ownerIds.length === 0) return { error: "No owners to reassign." };
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  // Bulk reassignment is Admin/Manager only; agents transfer one-by-one.
+  if (!canAssignRecords(access.data.role)) {
+    return { error: "Only Administrators and Managers can bulk-reassign owners." };
+  }
+
   const supabase = await getServerSupabase();
   const { error } = await supabase
     .from("owners")
     .update({ assigned_employee_id: targetEmployeeId })
-    .in("id", ownerIds);
+    .in("id", ownerIds)
+    .eq("company_id", companyId);
   if (error) return { error: error.message };
   return { data: null };
 }
@@ -353,6 +507,12 @@ export async function bulkCreateOwners(
     return { error: `Cannot import more than ${MAX_BULK_IMPORT_ROWS} rows at once.` };
   }
 
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canImportClientsOrOwners(access.data.role)) {
+    return { error: "Only Managers can import owners." };
+  }
+
   const supabase = await getServerSupabase();
   const payload = rows.map((row) => {
     const nameEn = row.name_en.trim();
@@ -366,6 +526,7 @@ export async function bulkCreateOwners(
       assigned_employee_id: row.assigned_employee_id || null,
       company_id: companyId,
       avatar_url: null,
+      is_locked: true,
     };
   });
 

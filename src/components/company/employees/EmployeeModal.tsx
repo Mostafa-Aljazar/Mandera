@@ -50,7 +50,7 @@ export default function EmployeeModal({ isOpen, onClose, onSave, employee, isSub
       email: '',
       phone: '',
       job_title: undefined,
-      role: 'company_employee',
+      role: 'sales_agent',
       password: '',
     },
   });
@@ -62,7 +62,7 @@ export default function EmployeeModal({ isOpen, onClose, onSave, employee, isSub
         email: employee.email || '',
         phone: employee.phone || '',
         job_title: (employee.job_title as TEmployeeSchema['job_title']) || undefined,
-        role: employee.role || 'company_employee',
+        role: employee.role || 'sales_agent',
         password: '',
       });
     } else if (!isOpen) {
@@ -71,7 +71,7 @@ export default function EmployeeModal({ isOpen, onClose, onSave, employee, isSub
         email: '',
         phone: '',
         job_title: undefined,
-        role: 'company_employee',
+        role: 'sales_agent',
         password: '',
       });
     }
@@ -173,8 +173,9 @@ export default function EmployeeModal({ isOpen, onClose, onSave, employee, isSub
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="company_employee">{t('Company Employee')}</SelectItem>
-                        <SelectItem value="company_super_admin">{t('Company Super Admin')}</SelectItem>
+                        <SelectItem value="sales_agent">{t('Sales Agent')}</SelectItem>
+                        <SelectItem value="administrator">{t('Administrator')}</SelectItem>
+                        <SelectItem value="manager">{t('Manager')}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />

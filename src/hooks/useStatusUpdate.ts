@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useCompanyAuth } from '@/contexts/CompanyAuthContext';
+import { isAdministratorOrAbove } from '@/lib/permissions';
 import { useTranslation } from 'react-i18next';
 import { updateEntityStatus } from '@/actions/statusUpdate';
 
@@ -27,7 +28,7 @@ export const useStatusUpdate = () => {
 
   const checkPermission = useCallback((entityType: EntityType, entity: StatusUpdateEntity) => {
     if (!currentUser) return false;
-    if (currentUser.role === 'company_super_admin') return true;
+    if (isAdministratorOrAbove(currentUser.role)) return true;
 
     // Determine which field holds the assigned employee ID
     const assignedId = entityType === 'owner' ? entity.assigned_employee_id : entity.employee_id;

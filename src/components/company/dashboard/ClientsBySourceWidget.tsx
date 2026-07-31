@@ -36,15 +36,34 @@ interface SourceDataPoint {
 
 interface ClientsBySourceWidgetProps {
   companyId?: string;
+  /** When set, hides group-by tabs and locks the breakdown mode. */
+  fixedGroupBy?: "source" | "campaign" | "employee";
+  title?: string;
+  description?: string;
 }
 
 export default function ClientsBySourceWidget({
   companyId,
+  fixedGroupBy,
+  title,
+  description,
 }: ClientsBySourceWidgetProps) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState("this_month");
+  const [groupByState, setGroupBy] = useState<"source" | "campaign" | "employee">(
+    fixedGroupBy ?? "source",
+  );
+  const groupBy = fixedGroupBy ?? groupByState;
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+
+  const GROUP_BY_OPTIONS = useMemo(
+    () => [
+      { id: "source" as const, label: t("By source") },
+      { id: "campaign" as const, label: t("By campaign") },
+    ],
+    [t],
+  );
 
   const PERIODS = useMemo(
     () => [
@@ -120,7 +139,11 @@ export default function ClientsBySourceWidget({
   const { data: sourceData, isLoading } = useClientsBySource(
     companyId,
     dateRange
-      ? { createdFrom: dateRange.startStr, createdTo: dateRange.endStr }
+      ? {
+          createdFrom: dateRange.startStr,
+          createdTo: dateRange.endStr,
+          groupBy,
+        }
       : undefined,
   );
 
@@ -191,17 +214,37 @@ export default function ClientsBySourceWidget({
           </span>
           <div className="min-w-0">
             <h3 className="font-outfit font-semibold text-foreground text-base sm:text-lg tracking-tight">
-              {t("Clients by Source")}
+              {title ?? t("Clients by Source")}
             </h3>
             <p className="mt-1 text-muted-foreground text-sm leading-relaxed">
-              {t(
-                "Distribution of acquired clients across marketing channels.",
-              )}
+              {description ??
+                t(
+                  "Client performance by marketing source, campaign, and employee.",
+                )}
             </p>
           </div>
         </div>
 
         <div className="flex flex-col items-end gap-2.5 w-full sm:w-auto shrink-0">
+          {!fixedGroupBy ? (
+            <div className="flex gap-1 bg-muted/50 p-1 border border-border/60 rounded-full w-full sm:w-auto overflow-x-auto">
+              {GROUP_BY_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setGroupBy(opt.id)}
+                  className={cn(
+                    "flex items-center gap-1 px-3 py-1.5 rounded-full font-medium text-xs whitespace-nowrap transition-colors",
+                    groupBy === opt.id
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="flex gap-1 bg-muted/50 p-1 border border-border/60 rounded-full w-full sm:w-auto overflow-x-auto">
             {PERIODS.map((p) => (
               <button

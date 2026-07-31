@@ -179,7 +179,7 @@ export async function createCompany(
 
   const { error: profileError } = await admin.from("profiles").insert({
     id: authData.user.id,
-    role: "company_super_admin",
+    role: "manager",
     company_id: companyRecord.id,
     name: input.adminName,
   });

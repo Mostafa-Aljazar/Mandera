@@ -33,8 +33,10 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
 import { countryLabel } from "@/lib/countries";
+import { canDeleteClientOrOwner } from "@/lib/permissions";
 import { useBulkDeleteClients } from "@/hooks/queries/useClients";
 import DeleteClientsDialog from "./DeleteClientsDialog";
+import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import type {
   ClientWithRelations as Client,
   CompanyEmployee,
@@ -57,6 +59,8 @@ export default function ClientCard({
 }: ClientCardProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
+  const { currentUser } = useCompanyAuth();
+  const canDelete = canDeleteClientOrOwner(currentUser?.role);
   const isRtl = language === "ar";
   const dateLocale = isRtl ? ar : enUS;
   const cleanPhone = (client.phone || "").replace(/\D/g, "");
@@ -166,7 +170,7 @@ export default function ClientCard({
           )}
 
           {/* Delete button — top-end */}
-          {companyId && (
+          {companyId && canDelete ? (
             <div
               className="absolute top-3 end-3 z-10"
               onClick={(e) => e.stopPropagation()}
@@ -181,14 +185,14 @@ export default function ClientCard({
                 <Trash2 className="w-3.5 h-3.5" />
               </Button>
             </div>
-          )}
+          ) : null}
 
           {/* Avatar + name — padded so they never touch the absolute controls */}
           <div
             className={cn(
               "flex items-start gap-3",
               onSelect ? "ps-6" : "ps-0",
-              companyId ? "pe-8" : "pe-0",
+              companyId && canDelete ? "pe-8" : "pe-0",
             )}
           >
             {/* Avatar */}

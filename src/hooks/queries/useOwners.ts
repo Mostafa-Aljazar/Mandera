@@ -171,10 +171,12 @@ export function useBulkReassignOwners() {
     mutationFn: ({
       ownerIds,
       targetEmployeeId,
+      companyId,
     }: {
       ownerIds: string[];
       targetEmployeeId: string;
-    }) => bulkReassignOwners(ownerIds, targetEmployeeId),
+      companyId: string;
+    }) => bulkReassignOwners(ownerIds, targetEmployeeId, companyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["owners"] });
     },

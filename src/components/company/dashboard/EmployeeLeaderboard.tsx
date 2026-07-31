@@ -10,9 +10,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Trophy, Users, Home, Loader2, Medal, ChevronDown } from "lucide-react";
+import {
+  Trophy,
+  Users,
+  Home,
+  Loader2,
+  Medal,
+  ChevronDown,
+  UserPlus,
+  MessageCircle,
+} from "lucide-react";
 import { useEmployeeLeaderboard } from "@/hooks/queries/useEmployeeLeaderboard";
 import { cn } from "@/lib/utils";
+import type { LeaderboardEmployee } from "@/actions/employeeLeaderboard";
 
 interface EmployeeLeaderboardProps {
   companyId?: string;
@@ -48,7 +58,7 @@ export default function EmployeeLeaderboard({
             </h3>
             <p className="mt-1 text-muted-foreground text-sm leading-relaxed">
               {t(
-                "Performance metrics for your team members sorted by active clients.",
+                "Properties added, clients added, and follow-ups per employee (last 30 days).",
               )}
             </p>
           </div>
@@ -73,20 +83,32 @@ export default function EmployeeLeaderboard({
             </p>
           </div>
         ) : (
-          <div className="border border-border/60 rounded-xl overflow-hidden">
+          <div className="border border-border/60 rounded-xl overflow-x-auto">
             <Table>
               <TableHeader className="bg-muted/40">
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="w-16 text-center">{t("Rank")}</TableHead>
                   <TableHead>{t("Employee Name")}</TableHead>
-                  <TableHead className="text-end">{t("Clients")}</TableHead>
-                  <TableHead className="text-end">{t("Properties")}</TableHead>
+                  <TableHead className="text-end whitespace-nowrap">
+                    {t("Clients added")}
+                  </TableHead>
+                  <TableHead className="text-end whitespace-nowrap">
+                    {t("Followed up")}
+                  </TableHead>
+                  <TableHead className="text-end whitespace-nowrap">
+                    {t("Properties added")}
+                  </TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {employeesData.map((emp, index) => {
-                  const isTop = index === 0 && emp.clientsCount > 0;
+                  const isTop =
+                    index === 0 &&
+                    emp.clientsAddedCount +
+                      emp.clientsFollowedUpCount +
+                      emp.propertiesAddedCount >
+                      0;
                   const isExpanded = !!expandedRows[emp.id];
 
                   return (
@@ -118,13 +140,7 @@ function FragmentRow({
   onToggle,
   t,
 }: {
-  emp: {
-    id: string;
-    name: string;
-    clientsCount: number;
-    propertiesCount: number;
-    statusCounts: Record<string, number>;
-  };
+  emp: LeaderboardEmployee;
   index: number;
   isTop: boolean;
   isExpanded: boolean;
@@ -173,13 +189,19 @@ function FragmentRow({
         </TableCell>
         <TableCell className="text-end font-medium align-middle">
           <span className="inline-flex justify-end items-center gap-1.5 tabular-nums">
-            {emp.clientsCount}
-            <Users className="opacity-50 w-3.5 h-3.5 text-muted-foreground" />
+            {emp.clientsAddedCount}
+            <UserPlus className="opacity-50 w-3.5 h-3.5 text-muted-foreground" />
           </span>
         </TableCell>
         <TableCell className="text-end font-medium align-middle">
           <span className="inline-flex justify-end items-center gap-1.5 tabular-nums">
-            {emp.propertiesCount}
+            {emp.clientsFollowedUpCount}
+            <MessageCircle className="opacity-50 w-3.5 h-3.5 text-muted-foreground" />
+          </span>
+        </TableCell>
+        <TableCell className="text-end font-medium align-middle">
+          <span className="inline-flex justify-end items-center gap-1.5 tabular-nums">
+            {emp.propertiesAddedCount}
             <Home className="opacity-50 w-3.5 h-3.5 text-muted-foreground" />
           </span>
         </TableCell>
@@ -200,33 +222,51 @@ function FragmentRow({
             isTop ? "bg-amber-500/[0.04]" : "bg-muted/10",
           )}
         >
-          <TableCell colSpan={5} className="p-0 border-b">
-            <div className="flex sm:flex-row flex-col sm:items-center gap-3 md:gap-4 px-4 md:px-10 py-4 border-border/50 border-t">
-              <span className="font-semibold text-foreground/80 text-sm shrink-0">
-                {t("Status Breakdown:")}
-              </span>
-              <div className="flex flex-wrap items-center gap-2">
-                {Object.entries(emp.statusCounts).length > 0 ? (
-                  Object.entries(emp.statusCounts).map(([status, count]) => {
-                    const displayName =
-                      status === "__NEW__" ? t("New") : status;
-                    return (
-                      <span
-                        key={status}
-                        className="inline-flex items-center gap-1.5 bg-primary/10 px-2.5 py-1 border border-primary/15 rounded-full font-medium text-primary text-xs"
-                      >
-                        {displayName}
-                        <span className="inline-flex justify-center items-center bg-primary/15 px-1.5 rounded-full min-w-5 text-[11px] tabular-nums">
-                          {count}
+          <TableCell colSpan={6} className="p-0 border-b">
+            <div className="flex sm:flex-row flex-col gap-3 md:gap-4 px-4 md:px-10 py-4 border-border/50 border-t">
+              <div className="flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
+                <span className="inline-flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5" />
+                  {t("Total clients")}:{" "}
+                  <strong className="text-foreground tabular-nums">
+                    {emp.clientsCount}
+                  </strong>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Home className="w-3.5 h-3.5" />
+                  {t("Total properties")}:{" "}
+                  <strong className="text-foreground tabular-nums">
+                    {emp.propertiesCount}
+                  </strong>
+                </span>
+              </div>
+              <div className="flex sm:flex-row flex-col sm:items-center gap-2 flex-1 min-w-0">
+                <span className="font-semibold text-foreground/80 text-sm shrink-0">
+                  {t("Status Breakdown:")}
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {Object.entries(emp.statusCounts).length > 0 ? (
+                    Object.entries(emp.statusCounts).map(([status, count]) => {
+                      const displayName =
+                        status === "__NEW__" ? t("New") : status;
+                      return (
+                        <span
+                          key={status}
+                          className="inline-flex items-center gap-1.5 bg-primary/10 px-2.5 py-1 border border-primary/15 rounded-full font-medium text-primary text-xs"
+                        >
+                          {displayName}
+                          <span className="inline-flex justify-center items-center bg-primary/15 px-1.5 rounded-full min-w-5 text-[11px] tabular-nums">
+                            {count}
+                          </span>
                         </span>
-                      </span>
-                    );
-                  })
-                ) : (
-                  <span className="bg-muted px-3 py-1 border border-border/50 rounded-full text-muted-foreground text-sm">
-                    {t("No client data")}
-                  </span>
-                )}
+                      );
+                    })
+                  ) : (
+                    <span className="bg-muted px-3 py-1 border border-border/50 rounded-full text-muted-foreground text-sm">
+                      {t("No client data")}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </TableCell>

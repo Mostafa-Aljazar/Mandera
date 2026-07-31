@@ -52,6 +52,7 @@ import {
   Camera,
   Trash2,
   UploadCloud,
+  KeyRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -63,6 +64,8 @@ import { isValidPhoneNumber } from "react-phone-number-input";
 import type { TFunction } from "i18next";
 import {
   useCompanyEmployee,
+  useCompanyEmployees,
+  useResetEmployeePassword,
   useUpdateEmployee,
 } from "@/hooks/queries/useEmployees";
 import { useOwners } from "@/hooks/queries/useOwners";
@@ -70,8 +73,17 @@ import { useClients } from "@/hooks/queries/useClients";
 import { useProperties } from "@/hooks/queries/useProperties";
 import { useRevenues } from "@/hooks/queries/useRevenues";
 import { useEmployeeActivity } from "@/hooks/queries/useStatusHistory";
+import { useCompanyTeams } from "@/hooks/queries/useCompanyExtendedSettings";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { employeeDisplayName } from "@/lib/bilingualLabel";
+import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
+import {
+  isAdministratorOrAbove,
+  isCompanyRole,
+  isManager,
+  isAdministrator,
+  canManageEmployees,
+  jobTitleForRole,
+} from "@/lib/permissions";
 
 const JOB_TITLES = ["sales_agent", "admin", "manager"] as const;
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
@@ -92,7 +104,9 @@ const EmployeeProfileSchema = (t: TFunction) =>
       email: z.string().trim().email(t("Email")),
       phone: z.string(),
       job_title: z.string(),
-      role: z.enum(["company_super_admin", "company_employee"]),
+      role: z.enum(["sales_agent", "administrator", "manager"]),
+      team_id: z.string().optional().or(z.literal("")),
+      reports_to_employee_id: z.string().optional().or(z.literal("")),
     })
     .superRefine((data, ctx) => {
       if (data.phone && data.phone !== "N/A" && !isValidPhoneNumber(data.phone)) {
@@ -203,7 +217,8 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
     refetch,
   } = useCompanyEmployee(profileId, company?.id);
 
-  const isAdmin = employee?.role === "company_super_admin";
+  const isElevated = isAdministratorOrAbove(employee?.role);
+  const isAdmin = isElevated;
   const isDisabled = Boolean(employee?.employee?.disabled);
 
   const ownerFilters = useMemo(
@@ -232,6 +247,23 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
     company?.id,
     propertyFilters,
   );
+  const { data: allEmployeesData } = useCompanyEmployees(
+    canManageEmployees(currentUser?.role) ? company?.id : undefined,
+  );
+  const { data: teamsData } = useCompanyTeams(
+    canManageEmployees(currentUser?.role) ? company?.id : undefined,
+  );
+  const teammateOptions = useMemo(
+    () =>
+      (allEmployeesData ?? []).filter(
+        (row) =>
+          row.employee_id &&
+          row.employee_id !== employee?.employee_id &&
+          !row.employee?.disabled,
+      ),
+    [allEmployeesData, employee?.employee_id],
+  );
+  const teams = teamsData ?? [];
   const { data: revenuesData, isFetching: loadingRevenues } = useRevenues(
     company?.id,
     revenueFilters,
@@ -255,6 +287,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
   );
 
   const updateEmployeeMutation = useUpdateEmployee();
+  const resetPasswordMutation = useResetEmployeePassword();
 
   const form = useForm<TEmployeeProfileSchema>({
     resolver: zodResolver(EmployeeProfileSchema(t)),
@@ -277,11 +310,15 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
               : "",
           job_title:
             employee.employee?.job_title ||
-            (employee.role === "company_super_admin" ? "admin" : "sales_agent"),
-          role:
-            employee.role === "company_super_admin"
-              ? "company_super_admin"
-              : "company_employee",
+            (isCompanyRole(employee.role)
+              ? jobTitleForRole(employee.role)
+              : "sales_agent"),
+          role: isCompanyRole(employee.role)
+            ? employee.role
+            : "sales_agent",
+          team_id: employee.employee?.team_id || "",
+          reports_to_employee_id:
+            employee.employee?.reports_to_employee_id || "",
         }
       : undefined,
     defaultValues: {
@@ -292,7 +329,9 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
       email: "",
       phone: "",
       job_title: "sales_agent",
-      role: "company_employee",
+      role: "sales_agent",
+      team_id: "",
+      reports_to_employee_id: "",
     },
   });
 
@@ -375,8 +414,8 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
       formData.job_title &&
       JOB_TITLES.includes(formData.job_title as (typeof JOB_TITLES)[number])
         ? formData.job_title
-        : isAdmin
-          ? "admin"
+        : isCompanyRole(employee?.role)
+          ? jobTitleForRole(employee.role)
           : "sales_agent";
 
     setIsSubmitting(true);
@@ -393,6 +432,8 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
         phone: formData.phone || "N/A",
         job_title: jobTitle,
         role: formData.role,
+        team_id: formData.team_id || null,
+        reports_to_employee_id: formData.reports_to_employee_id || null,
         avatar: avatarFile,
         removeAvatar: removeAvatar && !avatarFile,
       });
@@ -416,6 +457,26 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
       setIsSubmitting(false);
     }
   });
+
+  const handleResetPassword = async () => {
+    if (!company?.id || !employee) return;
+    const newPassword = window.prompt(t("Enter a new password"));
+    if (newPassword === null) return;
+    if (newPassword.length < 6) {
+      toast.error(t("Password must be at least 6 characters."));
+      return;
+    }
+    const result = await resetPasswordMutation.mutateAsync({
+      profileId: employee.id,
+      companyId: company.id,
+      newPassword,
+    });
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(t("Employee password reset successfully."));
+  };
 
   if (isLoading || !employee) {
     return (
@@ -449,6 +510,22 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
             {t("Back to employees")}
           </Button>
         </Link>
+        {canManageEmployees(currentUser?.role) ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 h-9"
+            disabled={resetPasswordMutation.isPending}
+            onClick={() => void handleResetPassword()}
+          >
+            {resetPasswordMutation.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <KeyRound className="w-3.5 h-3.5" />
+            )}
+            {t("Reset password")}
+          </Button>
+        ) : null}
         {cleanPhone && (
           <div className="flex sm:hidden items-center gap-2">
             <Button asChild variant="outline" size="sm" className="h-9 gap-1.5">
@@ -503,7 +580,11 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                   ) : (
                     <User className="w-3 h-3" />
                   )}
-                  {isAdmin ? t("Admin") : t("Employee")}
+                  {isManager(employee?.role)
+                    ? t("Manager")
+                    : isAdministrator(employee?.role)
+                      ? t("Administrator")
+                      : t("Sales Agent")}
                 </Badge>
                 <Badge
                   variant="outline"
@@ -932,19 +1013,105 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  <SelectItem value="company_employee">
-                                    {t("Employee")}
+                                  <SelectItem value="sales_agent">
+                                    {t("Sales Agent")}
                                   </SelectItem>
-                                  <SelectItem value="company_super_admin">
-                                    {t("Company Admin")}
+                                  <SelectItem value="administrator">
+                                    {t("Administrator")}
+                                  </SelectItem>
+                                  <SelectItem value="manager">
+                                    {t("Manager")}
                                   </SelectItem>
                                 </SelectContent>
                               </Select>
                               <p className="text-muted-foreground text-[11px] leading-relaxed">
                                 {t(
-                                  "Company Admin has full company access. Employee has limited access.",
+                                  "Manager has full company access. Administrator has operational oversight. Sales Agent has limited access.",
                                 )}
                               </p>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="team_id"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                {t("Team")}
+                              </FormLabel>
+                              <Select
+                                value={field.value || "__none__"}
+                                onValueChange={(value) =>
+                                  field.onChange(
+                                    value === "__none__" ? "" : value,
+                                  )
+                                }
+                              >
+                                <FormControl>
+                                  <SelectTrigger className="bg-background h-10">
+                                    <SelectValue
+                                      placeholder={t("Select team")}
+                                    />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="__none__">
+                                    {t("No team")}
+                                  </SelectItem>
+                                  {teams.map((team) => (
+                                    <SelectItem key={team.id} value={team.id}>
+                                      {bilingualLabel(team, language)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="reports_to_employee_id"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                {t("Reports to (direct manager)")}
+                              </FormLabel>
+                              <Select
+                                value={field.value || "__none__"}
+                                onValueChange={(value) =>
+                                  field.onChange(
+                                    value === "__none__" ? "" : value,
+                                  )
+                                }
+                              >
+                                <FormControl>
+                                  <SelectTrigger className="bg-background h-10">
+                                    <SelectValue
+                                      placeholder={t("Select manager")}
+                                    />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="__none__">
+                                    {t("No direct manager")}
+                                  </SelectItem>
+                                  {teammateOptions.map((row) => (
+                                    <SelectItem
+                                      key={row.employee_id!}
+                                      value={row.employee_id!}
+                                    >
+                                      {employeeDisplayName(
+                                        row.employee,
+                                        language,
+                                        row.name,
+                                      ) || row.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -1390,11 +1557,17 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                     {displayName.charAt(0).toUpperCase()}
                   </div>
                   <p className="font-semibold text-foreground text-sm">
-                    {isAdmin ? t("Admin") : t("Employee")}
+                    {isManager(employee?.role)
+                      ? t("Manager")
+                      : isAdministrator(employee?.role)
+                        ? t("Administrator")
+                        : t("Sales Agent")}
                   </p>
                   <p className="mt-0.5 text-muted-foreground text-xs">
-                    {isAdmin && !employee.employee?.job_title
-                      ? t("Company Admin")
+                    {isElevated && !employee.employee?.job_title
+                      ? isManager(employee.role)
+                        ? t("Manager")
+                        : t("Administrator")
                       : jobTitleLabel(employee.employee?.job_title, t)}
                   </p>
                 </div>

@@ -2,7 +2,26 @@
 // Filled in module-by-module as each PocketBase collection is migrated; see
 // C:\Users\2024\.claude\plans\zany-jumping-tiger.md for the full table list.
 
-export type UserRole = 'master_admin' | 'company_super_admin' | 'company_employee';
+export type UserRole =
+  | 'master_admin'
+  | 'sales_agent'
+  | 'administrator'
+  | 'manager';
+
+export type PropertyApprovalStatus =
+  | 'draft'
+  | 'pending_review'
+  | 'approved'
+  | 'rejected';
+
+export type PropertyClassification = 'A' | 'B' | 'C';
+
+export type ChangeRequestStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'changes_requested'
+  | 'cancelled';
 
 export interface Profile {
   id: string;
@@ -29,6 +48,9 @@ export interface Company {
   max_employee_count: number;
   is_active: boolean | null;
   is_frozen: boolean | null;
+  whatsapp_settings?: Record<string, unknown>;
+  notification_settings?: Record<string, unknown>;
+  publish_settings?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -72,6 +94,11 @@ export interface Owner {
   marketing_channel: string | null;
   assigned_employee_id: string | null;
   avatar_url: string | null;
+  is_locked: boolean;
+  editing_locked?: boolean;
+  email?: string | null;
+  follow_up_date?: string | null;
+  follow_up_time?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -86,7 +113,7 @@ export interface AreaDistrict {
   updated_at: string;
 }
 
-/** A `profiles` row scoped to `role IN ('company_super_admin','company_employee')`. */
+/** A `profiles` row scoped to company roles (sales_agent / administrator / manager). */
 export interface CompanyEmployee {
   id: string;
   role: UserRole;
@@ -120,6 +147,7 @@ export interface Property {
   note_en: string | null;
   note_ar: string | null;
   images: string[] | null;
+  document_urls?: string[] | null;
   listing_type: string;
   company_id: string;
   status: string | null;
@@ -153,12 +181,94 @@ export interface Property {
   // Portal extras (migration 28) — Bayut's <Videos>/<Floor_Plans> tags.
   video_urls: string[] | null;
   floor_plan_urls: string[] | null;
+  /** Internal listing approval workflow (migration 33). */
+  approval_status: PropertyApprovalStatus;
+  approval_note: string | null;
+  classification: PropertyClassification | null;
+  classification_reason: string | null;
+  is_locked: boolean;
+  paused_at: string | null;
+  pause_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PropertyChangeRequest {
+  id: string;
+  company_id: string;
+  property_id: string;
+  requested_by: string;
+  status: ChangeRequestStatus;
+  current_data: Record<string, unknown>;
+  proposed_data: Record<string, unknown>;
+  changed_fields: string[];
+  images_added: string[];
+  images_removed: string[];
+  reviewer_id: string | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PropertyStatusChangeRequest {
+  id: string;
+  company_id: string;
+  property_id: string;
+  requested_by: string;
+  previous_status: string;
+  new_status: string;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  review_note: string | null;
+  reviewer_id: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface AppNotification {
+  id: string;
+  company_id: string;
+  recipient_id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface IdentityFieldAudit {
+  id: string;
+  company_id: string | null;
+  entity_type: 'client' | 'owner';
+  entity_id: string;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  reason: string;
+  /** Free-text requester (PDF: طالب التعديل). */
+  requester_name?: string | null;
+  requested_by: string | null;
+  performed_by: string;
+  created_at: string;
+}
+
+export interface ClientDistributionRule {
+  id: string;
+  company_id: string;
+  name: string;
+  rules: Record<string, unknown>;
+  is_active: boolean;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
 
 /** `properties` joined to its relations, as returned by getProperties(). */
 export interface PropertyWithRelations extends Property {
+  owner_masked?: boolean;
   property_type?: {
     id: string;
     name_en: string;
@@ -183,6 +293,7 @@ export interface PropertyWithRelations extends Property {
     name_en?: string | null;
     name_ar?: string | null;
     phone: string;
+    email?: string | null;
   } | null;
   area_district_ref?: { id: string; name: string } | null;
 }
@@ -218,7 +329,7 @@ export type PropertyPublicationStatus =
   | 'unpublished';
 
 /** Per-company, per-platform account/keys (`company_portal_credentials`).
- *  One row per company per platform; each company_super_admin manages their
+ *  One row per company per platform; each manager manages their
  *  own company's row (RLS-scoped). */
 export interface PortalCredentials {
   id: string;
@@ -335,10 +446,16 @@ export interface Client {
   employee_id: string;
   company_id: string;
   marketing_channel: string | null;
+  campaign?: string | null;
   follow_up_date: string | null;
   follow_up_time: string | null;
   status_id: string | null;
   avatar_url: string | null;
+  is_locked: boolean;
+  editing_locked?: boolean;
+  budget?: number | null;
+  preferred_area?: string | null;
+  investment_unit?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -362,6 +479,8 @@ export interface EmployeeRecord {
   phone: string;
   job_title: EmployeeJobTitle;
   avatar_url: string | null;
+  team_id?: string | null;
+  reports_to_employee_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -405,6 +524,68 @@ export interface Revenue {
   client_name: string;
   owner_name: string;
   company_id: string;
+  approval_status?: "pending" | "approved" | "rejected";
+  commission_paid?: boolean;
+  commission_paid_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RevenueChangeLog {
+  id: string;
+  company_id: string;
+  revenue_id: string;
+  action: string;
+  old_data: Record<string, unknown> | null;
+  new_data: Record<string, unknown> | null;
+  changed_by: string | null;
+  changed_by_name: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface CompanyTeam {
+  id: string;
+  company_id: string;
+  name_en: string;
+  name_ar: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompanyBranch {
+  id: string;
+  company_id: string;
+  name_en: string;
+  name_ar: string;
+  address: string | null;
+  phone: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MessageTemplate {
+  id: string;
+  company_id: string;
+  name: string;
+  channel: string;
+  body_en: string;
+  body_ar: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientAppointment {
+  id: string;
+  company_id: string;
+  client_id: string;
+  property_id: string | null;
+  kind: "appointment" | "viewing";
+  title: string;
+  scheduled_at: string;
+  note: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }

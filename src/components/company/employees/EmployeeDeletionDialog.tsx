@@ -91,7 +91,7 @@ export default function EmployeeDeletionDialog({
     employeeToDelete?.name || employeeToDelete?.firstName || t("Unnamed");
 
   const handleConfirm = async () => {
-    if (!employeeToDelete || !isFormValid) return;
+    if (!employeeToDelete || !isFormValid || !activeCompanyId) return;
 
     const result = await deleteEmployeeWorkflow(
       {
@@ -104,6 +104,7 @@ export default function EmployeeDeletionDialog({
         reassignClientsTo,
         reassignPropertiesTo,
       },
+      activeCompanyId,
     );
 
     if (result.success) {

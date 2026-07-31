@@ -77,6 +77,8 @@ export async function GET(
     .from("properties")
     .select(PROPERTIES_SELECT)
     .eq("company_id", cred.company_id)
+    .eq("approval_status", "approved")
+    .is("paused_at", null)
     .in("id", propertyIds);
 
   if (propsError) {

@@ -23,6 +23,12 @@ export const OwnerSchema = (t: TFunction) =>
     country: z.string().trim().min(1, t("Country is required")),
     assigned_employee_id: z.string().min(1, t("Assigned employee is required")),
     marketing_channel: z.string().min(1, t("Marketing channel is required")),
+    email: z
+      .string()
+      .trim()
+      .email(t("Enter a valid email"))
+      .optional()
+      .or(z.literal("")),
   });
 
 /** Form field values (pre-transform / input). */

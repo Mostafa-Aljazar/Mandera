@@ -19,6 +19,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
+import {
+  isAdministratorOrAbove,
+  isManager,
+  isAdministrator,
+} from "@/lib/permissions";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { CompanyEmployeeWithDetails } from "@/types/supabase-entities.types";
 
@@ -53,7 +58,8 @@ export default function EmployeeCard({
 }: EmployeeCardProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
-  const isAdmin = employee.role === "company_super_admin";
+  const isAdmin = isAdministratorOrAbove(employee.role);
+  const isMgr = isManager(employee.role);
   const record = employee.employee;
   const isDisabled = Boolean(record?.disabled);
   const displayName =
@@ -64,10 +70,12 @@ export default function EmployeeCard({
   const href = `/company/employees/${employee.id}`;
   const roleLabel =
     isAdmin && !record?.job_title
-      ? t("Company Admin")
+      ? isMgr
+        ? t("Manager")
+        : t("Administrator")
       : jobTitleLabel(record?.job_title, t);
   const showActions =
-    Boolean(record?.id && onToggleDisable && !isAdmin) ||
+    Boolean(record?.id && onToggleDisable && !isMgr) ||
     Boolean(!isCurrentUser && onDelete);
 
   return (
@@ -191,7 +199,11 @@ export default function EmployeeCard({
               <User className="w-3.5 h-3.5 text-primary/70 shrink-0" />
             )}
             <span className="truncate">
-              {isAdmin ? t("Admin") : t("Employee")}
+              {isMgr
+                ? t("Manager")
+                : isAdministrator(employee.role)
+                  ? t("Administrator")
+                  : t("Sales Agent")}
             </span>
           </div>
           <div className="flex items-center gap-1.5 bg-muted/25 px-2.5 py-2 border border-border/30 rounded-lg text-muted-foreground text-xs min-w-0">
@@ -213,7 +225,7 @@ export default function EmployeeCard({
 
         {showActions ? (
           <div className="flex flex-wrap items-center gap-2 pt-0.5">
-            {record?.id && onToggleDisable && !isAdmin ? (
+            {record?.id && onToggleDisable && !isMgr ? (
               <Button
                 type="button"
                 variant="outline"

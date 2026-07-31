@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import DocumentHead from "@/components/common/DocumentHead";
 import MasterAdminHeader from "@/components/master/MasterAdminHeader";
+import IdentityCorrectionPanel from "@/components/master/IdentityCorrectionPanel";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -742,6 +743,8 @@ export default function CompanyEditPage() {
               </ul>
             )}
           </div>
+
+          <IdentityCorrectionPanel companyId={companyId} />
         </div>
       </main>
     </>

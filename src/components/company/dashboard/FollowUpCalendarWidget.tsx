@@ -21,6 +21,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { canViewAllClients } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { useUpcomingFollowUps } from "@/hooks/queries/useClients";
 import type { ClientWithRelations as Client } from "@/types/supabase-entities.types";
@@ -69,7 +70,7 @@ export default function FollowUpCalendarWidget() {
   const router = useRouter();
 
   const restrictToEmployeeId =
-    currentUser?.role !== "company_super_admin" ? currentUser?.id : undefined;
+    !canViewAllClients(currentUser?.role) ? currentUser?.id : undefined;
 
   const {
     data: followUpsData,
@@ -333,7 +334,7 @@ export default function FollowUpCalendarWidget() {
                           ) : null}
                         </span>
 
-                        {currentUser?.role === "company_super_admin" &&
+                        {canViewAllClients(currentUser?.role) &&
                         client.employee ? (
                           <span className="text-muted-foreground/80 truncate">
                             {t("Agent:")} {client.employee.name}

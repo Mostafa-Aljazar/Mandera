@@ -46,6 +46,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import {
+  canChangeOwnerAssignment,
+  canEditIdentityFields,
+} from "@/lib/permissions";
 import { normalizeCountryValue } from "@/lib/countries";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
 import {
@@ -83,6 +87,8 @@ export default function EditOwnerSheet({
   const { language } = useLanguage();
   const isRtl = language === "ar";
   const { company, currentUser } = useCompanyAuth();
+  const identityLocked = !canEditIdentityFields(currentUser?.role);
+  const canChangeAssignment = canChangeOwnerAssignment(currentUser?.role);
 
   const updateOwnerMutation = useUpdateOwner();
   const { data: owner, isLoading } = useOwner(ownerId, company?.id);
@@ -180,10 +186,16 @@ export default function EditOwnerSheet({
       const result = await updateOwnerMutation.mutateAsync({
         id: ownerId,
         companyId: company.id,
-        name_en: data.name_en,
-        name_ar: data.name_ar,
-        phone: data.phone,
-        country: data.country,
+        name_en: identityLocked
+          ? (owner.name_en ?? data.name_en)
+          : data.name_en,
+        name_ar: identityLocked
+          ? (owner.name_ar ?? data.name_ar)
+          : data.name_ar,
+        phone: identityLocked ? (owner.phone ?? data.phone) : data.phone,
+        country: identityLocked
+          ? (owner.country ?? data.country)
+          : data.country,
         marketing_channel: data.marketing_channel,
         assigned_employee_id: data.assigned_employee_id,
         avatar: avatarFile,
@@ -312,6 +324,11 @@ export default function EditOwnerSheet({
                 {/* Contact info */}
                 <div className="px-5 py-5 border-b border-border/50 space-y-4">
                   <p className="font-medium text-foreground text-sm">{t("Contact Information")}</p>
+                  {identityLocked ? (
+                    <p className="text-muted-foreground text-xs leading-relaxed">
+                      {t("Identity fields are locked after create")}
+                    </p>
+                  ) : null}
                   <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
                     <FormField
                       control={form.control}
@@ -320,7 +337,13 @@ export default function EditOwnerSheet({
                         <FormItem>
                           <FormLabel className="text-xs">{t("Full Name")} (EN) *</FormLabel>
                           <FormControl>
-                            <Input {...field} dir="ltr" placeholder="e.g. John Doe" className="bg-background h-10" />
+                            <Input
+                              {...field}
+                              dir="ltr"
+                              placeholder="e.g. John Doe"
+                              className="bg-background h-10"
+                              disabled={identityLocked}
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -333,7 +356,13 @@ export default function EditOwnerSheet({
                         <FormItem>
                           <FormLabel className="text-xs">{t("Full Name")} (AR) *</FormLabel>
                           <FormControl>
-                            <Input {...field} dir="rtl" placeholder="مثال: محمد أحمد" className="bg-background h-10" />
+                            <Input
+                              {...field}
+                              dir="rtl"
+                              placeholder="مثال: محمد أحمد"
+                              className="bg-background h-10"
+                              disabled={identityLocked}
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -346,7 +375,11 @@ export default function EditOwnerSheet({
                         <FormItem>
                           <FormLabel className="text-xs">{t("Phone Number")} *</FormLabel>
                           <FormControl>
-                            <PhoneInput {...field} className="flex-1" />
+                            <PhoneInput
+                              {...field}
+                              className="flex-1"
+                              disabled={identityLocked}
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -363,6 +396,7 @@ export default function EditOwnerSheet({
                               value={field.value}
                               onChange={field.onChange}
                               placeholder={t("Select Country")}
+                              disabled={identityLocked}
                             />
                           </FormControl>
                           <FormMessage />
@@ -409,7 +443,7 @@ export default function EditOwnerSheet({
                           <Select
                             value={field.value}
                             onValueChange={field.onChange}
-                            disabled={currentUser?.role === "company_employee"}
+                            disabled={!canChangeAssignment}
                           >
                             <FormControl>
                               <SelectTrigger className="bg-background h-10">

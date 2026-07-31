@@ -9,9 +9,13 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useProperty, useDeleteProperty } from "@/hooks/queries/useProperties";
 import { usePropertyPublications } from "@/hooks/queries/usePortalPublishing";
 import { amenityI18nKey } from "@/lib/portals/amenities";
+import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { canPublishToPortals, canViewRevenue, isAdministratorOrAbove, canAccessManagerModules } from "@/lib/permissions";
 import DocumentHead from "@/components/common/DocumentHead";
 import PropertyForm from "./PropertyForm";
+import PropertyApprovalActions from "./PropertyApprovalActions";
 import PublishToPortalsModal from "./PublishToPortalsModal";
+import DealCompletedModal from "@/components/common/DealCompletedModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +41,8 @@ import {
   Tag,
   User,
   Video,
+  Banknote,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { employeeDisplayName, titleCaseName } from "@/lib/bilingualLabel";
@@ -97,16 +103,26 @@ function Section({
 export default function PropertyDetailView({ propertyId }: Props) {
   const { t } = useTranslation();
   const { language } = useLanguage();
+  const { currentUser } = useCompanyAuth();
   const router = useRouter();
   const isCreate = !propertyId;
+  const canDelete = isAdministratorOrAbove(currentUser?.role);
+  const canSeeCommission = canViewRevenue(currentUser?.role);
+  const canCompleteDeal = canAccessManagerModules(currentUser?.role);
 
-  const { data: property, isLoading } = useProperty(propertyId);
+  const { data: property, isLoading, refetch } = useProperty(propertyId);
   const { data: publications } = usePropertyPublications(propertyId);
   const deleteMutation = useDeleteProperty();
 
   const [isEditing, setIsEditing] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [dealOpen, setDealOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<string | null>(null);
+
+  const showPublish =
+    canPublishToPortals(currentUser?.role) &&
+    property?.approval_status === "approved" &&
+    !property?.paused_at;
 
   const primary = (en?: string | null, ar?: string | null) =>
     language === "ar" ? ar || en || "" : en || ar || "";
@@ -320,10 +336,16 @@ export default function PropertyDetailView({ propertyId }: Props) {
     { label: t("Permit Type"), value: property.permit_type?.toUpperCase() },
     { label: t("Advertising Permit Number"), value: property.advertising_permit_number || null },
     { label: t("License Number"), value: property.issuing_license_number || null },
-    {
-      label: t("Commission %"),
-      value: property.commission_percentage ? `${property.commission_percentage}%` : null,
-    },
+    ...(canSeeCommission
+      ? [
+          {
+            label: t("Commission %"),
+            value: property.commission_percentage
+              ? `${property.commission_percentage}%`
+              : null,
+          },
+        ]
+      : []),
   ].filter((r) => r.value);
 
   const agentPhone = property.employee?.employee_record?.phone;
@@ -379,27 +401,48 @@ export default function PropertyDetailView({ propertyId }: Props) {
             </Button>
           </Link>
           <div className="flex items-center gap-2">
-            <Button onClick={() => setPublishOpen(true)} size="sm" className="h-9 rounded-lg">
-              <Share2 className="w-4 h-4 me-2" />
-              {t("Publish to Portals")}
-            </Button>
+            {canCompleteDeal &&
+            property.approval_status === "approved" &&
+            property.status !== "Sold" &&
+            property.status !== "Rented" ? (
+              <Button
+                onClick={() => setDealOpen(true)}
+                size="sm"
+                variant="secondary"
+                className="h-9 rounded-lg"
+              >
+                <Banknote className="w-4 h-4 me-2" />
+                {t("Add Deal")}
+              </Button>
+            ) : null}
+            {showPublish ? (
+              <Button onClick={() => setPublishOpen(true)} size="sm" className="h-9 rounded-lg">
+                <Share2 className="w-4 h-4 me-2" />
+                {t("Publish to Portals")}
+              </Button>
+            ) : null}
             <Button variant="outline" size="sm" className="h-9 rounded-lg" onClick={() => setIsEditing(true)}>
               <Pencil className="w-4 h-4 me-2" />
               {t("Edit")}
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 text-muted-foreground hover:text-destructive"
-              onClick={handleDelete}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
+            {canDelete ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-muted-foreground hover:text-destructive"
+                onClick={handleDelete}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
 
       <div className="container mx-auto px-4 max-w-6xl pt-6 sm:pt-8">
+        <div className="mb-5">
+          <PropertyApprovalActions property={property} />
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-7 lg:items-start">
           {/* ===================== MAIN ===================== */}
           <div className="lg:col-span-8 space-y-5">
@@ -688,6 +731,26 @@ export default function PropertyDetailView({ propertyId }: Props) {
                 </div>
               </Section>
             )}
+
+            {(property.document_urls?.length ?? 0) > 0 &&
+            !property.owner_masked ? (
+              <Section title={t("Property documents")} icon={FileText}>
+                <ul className="space-y-2">
+                  {(property.document_urls ?? []).map((url, index) => (
+                    <li key={url}>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm text-primary hover:underline break-all"
+                      >
+                        {t("Document")} {index + 1}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            ) : null}
           </div>
 
           {/* ===================== SIDEBAR (not sticky) ===================== */}
@@ -697,14 +760,20 @@ export default function PropertyDetailView({ propertyId }: Props) {
               title={t("Publishing")}
               icon={Tag}
               action={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 rounded-md text-xs"
-                  onClick={() => setPublishOpen(true)}
-                >
-                  {t("Manage")}
-                </Button>
+                showPublish ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-md text-xs"
+                    onClick={() => setPublishOpen(true)}
+                  >
+                    {t("Manage")}
+                  </Button>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">
+                    {t("Approve before publishing")}
+                  </span>
+                )
               }
             >
               <div className="space-y-2">
@@ -806,18 +875,54 @@ export default function PropertyDetailView({ propertyId }: Props) {
             {/* Owner */}
             {property.owner && ownerName ? (
               <Section title={t("Owner")}>
-                <p className="font-semibold" dir="auto">
-                  {ownerName}
-                </p>
-                {property.owner.phone && (
-                  <a
-                    href={`tel:${property.owner.phone}`}
-                    className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
-                    dir="ltr"
-                  >
-                    <Phone className="w-3.5 h-3.5" />
-                    {property.owner.phone}
-                  </a>
+                {property.owner_masked ? (
+                  <>
+                    <p className="font-semibold" dir="auto">
+                      {ownerName}
+                    </p>
+                    {property.owner.phone ? (
+                      <p
+                        className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground select-none"
+                        dir="ltr"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        {property.owner.phone}
+                      </p>
+                    ) : null}
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {t("Owner contact is hidden for unassigned properties")}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Link
+                      href={`/company/owners/${property.owner.id}`}
+                      className="font-semibold hover:text-primary transition-colors"
+                      dir="auto"
+                    >
+                      {ownerName}
+                    </Link>
+                    {property.owner.phone && (
+                      <a
+                        href={`tel:${property.owner.phone}`}
+                        className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+                        dir="ltr"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        {property.owner.phone}
+                      </a>
+                    )}
+                    {property.owner.email ? (
+                      <a
+                        href={`mailto:${property.owner.email}`}
+                        className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+                        dir="ltr"
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        {property.owner.email}
+                      </a>
+                    ) : null}
+                  </>
                 )}
               </Section>
             ) : null}
@@ -832,8 +937,17 @@ export default function PropertyDetailView({ propertyId }: Props) {
 
       <PublishToPortalsModal
         property={property}
-        isOpen={publishOpen}
+        isOpen={publishOpen && showPublish}
         onClose={() => setPublishOpen(false)}
+      />
+      <DealCompletedModal
+        isOpen={dealOpen}
+        property={property}
+        onClose={() => setDealOpen(false)}
+        onSuccess={() => {
+          setDealOpen(false);
+          void refetch();
+        }}
       />
     </div>
   );

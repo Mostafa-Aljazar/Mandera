@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import {
+  canViewAllClients,
+  canImportClientsOrOwners,
+  canExportClientsOrOwners,
+  canDeleteClientOrOwner,
+  canAssignRecords,
+} from "@/lib/permissions";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
 import {
@@ -25,6 +32,7 @@ import BulkAssignModal from "@/components/common/BulkAssignModal";
 import ImportClientsDialog from "@/components/company/clients/ImportClientsDialog";
 import ExportClientsDialog from "@/components/company/clients/ExportClientsDialog";
 import DeleteClientsDialog from "@/components/company/clients/DeleteClientsDialog";
+import DuplicatesReviewPanel from "@/components/company/duplicates/DuplicatesReviewPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -165,6 +173,12 @@ function StatCard({
 
 const ClientsPage = () => {
   const { company, currentUser } = useCompanyAuth();
+  const role = currentUser?.role;
+  const canExport = canExportClientsOrOwners(role);
+  const canImport = canImportClientsOrOwners(role);
+  const canDelete = canDeleteClientOrOwner(role);
+  const canAssign = canAssignRecords(role);
+  const canViewAll = canViewAllClients(role);
   const { language } = useLanguage();
   const { t } = useTranslation();
   const router = useRouter();
@@ -196,8 +210,8 @@ const ClientsPage = () => {
 
   const clientFilters = {
     employeeId:
-      currentUser?.role === "company_employee"
-        ? currentUser.id
+      !canViewAll
+        ? currentUser?.id
         : filterState.employeeId || undefined,
     statusId: filterState.statusId || undefined,
     marketingChannel: filterState.marketingChannel || undefined,
@@ -284,12 +298,12 @@ const ClientsPage = () => {
     if (filterState.updatedToDate) count += 1;
     if (
       filterState.employeeId &&
-      currentUser?.role === "company_super_admin"
+      canViewAll
     ) {
       count += 1;
     }
     return count;
-  }, [filterState, currentUser?.role]);
+  }, [filterState, canViewAll]);
 
   const matchesSearch = (c: Client) => {
     if (!activeSearch) return true;
@@ -595,42 +609,48 @@ const ClientsPage = () => {
               <div className="hidden sm:flex flex-wrap items-center gap-2 shrink-0">
                 {selectedClientIds.length > 0 && (
                   <>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setIsBulkModalOpen(true)}
-                      className="gap-2 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary rounded-xl h-10"
-                    >
-                      <Users className="w-4 h-4" />
-                      {t("Assign Selected")}
-                      <span className="bg-primary/15 px-1.5 rounded-md tabular-nums text-[11px]">
-                        {selectedClientIds.length}
-                      </span>
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setIsDeleteDialogOpen(true)}
-                      className="gap-2 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 text-destructive rounded-xl h-10"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {t("Delete Selected")}
-                      <span className="bg-destructive/15 px-1.5 rounded-md tabular-nums text-[11px]">
-                        {selectedClientIds.length}
-                      </span>
-                    </Button>
+                    {canAssign ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setIsBulkModalOpen(true)}
+                        className="gap-2 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary rounded-xl h-10"
+                      >
+                        <Users className="w-4 h-4" />
+                        {t("Assign Selected")}
+                        <span className="bg-primary/15 px-1.5 rounded-md tabular-nums text-[11px]">
+                          {selectedClientIds.length}
+                        </span>
+                      </Button>
+                    ) : null}
+                    {canDelete ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setIsDeleteDialogOpen(true)}
+                        className="gap-2 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 text-destructive rounded-xl h-10"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {t("Delete Selected")}
+                        <span className="bg-destructive/15 px-1.5 rounded-md tabular-nums text-[11px]">
+                          {selectedClientIds.length}
+                        </span>
+                      </Button>
+                    ) : null}
                   </>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsExportDialogOpen(true)}
-                  className="gap-2 rounded-xl h-10"
-                >
-                  <Upload className="w-4 h-4" />
-                  {t("Export")}
-                </Button>
-                {currentUser?.role === "company_super_admin" && (
+                {canExport ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsExportDialogOpen(true)}
+                    className="gap-2 rounded-xl h-10"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {t("Export")}
+                  </Button>
+                ) : null}
+                {canImport && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -681,6 +701,10 @@ const ClientsPage = () => {
             />
           </section>
 
+          {canViewAll && company?.id ? (
+            <DuplicatesReviewPanel companyId={company.id} initialTab="clients" />
+          ) : null}
+
           <section className="relative bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-2xl overflow-hidden">
             <div
               className="top-0 absolute inset-x-0 bg-gradient-to-b from-primary/[0.05] to-transparent h-16 pointer-events-none"
@@ -700,7 +724,7 @@ const ClientsPage = () => {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
-                  {currentUser?.role === "company_super_admin" && (
+                  {canViewAll && (
                     <Select
                       key={`employee-filter-${language}`}
                       value={filterState.employeeId || "all"}
@@ -745,15 +769,17 @@ const ClientsPage = () => {
                     ) : null}
                   </Button>
 
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsExportDialogOpen(true)}
-                    className="sm:hidden rounded-xl h-11"
-                  >
-                    <Upload className="w-4 h-4" />
-                    {t("Export")}
-                  </Button>
-                  {currentUser?.role === "company_super_admin" && (
+                  {canExport ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsExportDialogOpen(true)}
+                      className="sm:hidden rounded-xl h-11"
+                    >
+                      <Upload className="w-4 h-4" />
+                      {t("Export")}
+                    </Button>
+                  ) : null}
+                  {canImport && (
                     <Button
                       variant="outline"
                       onClick={() => setIsImportDialogOpen(true)}
@@ -902,24 +928,28 @@ const ClientsPage = () => {
                           onClear={() => setSelectedClientIds([])}
                           clearLabel={t("Clear selection")}
                         />
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setIsBulkModalOpen(true)}
-                          className="sm:hidden gap-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary rounded-lg h-8"
-                        >
-                          <Users className="w-3.5 h-3.5" />
-                          {t("Assign Selected")}
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setIsDeleteDialogOpen(true)}
-                          className="sm:hidden gap-1.5 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 text-destructive rounded-lg h-8"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          {t("Delete")}
-                        </Button>
+                        {canAssign ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setIsBulkModalOpen(true)}
+                            className="sm:hidden gap-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary rounded-lg h-8"
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                            {t("Assign Selected")}
+                          </Button>
+                        ) : null}
+                        {canDelete ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setIsDeleteDialogOpen(true)}
+                            className="sm:hidden gap-1.5 bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 text-destructive rounded-lg h-8"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            {t("Delete")}
+                          </Button>
+                        ) : null}
                       </>
                     )}
                   </div>
@@ -966,7 +996,7 @@ const ClientsPage = () => {
             isDeleting={isDeleting}
           />
 
-          {company?.id && (
+          {company?.id && canImport ? (
             <ImportClientsDialog
               isOpen={isImportDialogOpen}
               onClose={() => setIsImportDialogOpen(false)}
@@ -975,21 +1005,23 @@ const ClientsPage = () => {
               marketingChannels={marketingChannels.map((c) => c.name)}
               language={language}
             />
-          )}
+          ) : null}
 
-          <ExportClientsDialog
-            isOpen={isExportDialogOpen}
-            onClose={() => setIsExportDialogOpen(false)}
-            rows={
-              selectedClientIds.length > 0
-                ? currentListings.filter((c) => selectedClientIds.includes(c.id))
-                : currentListings
-            }
-            selectedCount={selectedClientIds.length}
-            employees={employees}
-            statuses={statuses}
-            language={language}
-          />
+          {canExport ? (
+            <ExportClientsDialog
+              isOpen={isExportDialogOpen}
+              onClose={() => setIsExportDialogOpen(false)}
+              rows={
+                selectedClientIds.length > 0
+                  ? currentListings.filter((c) => selectedClientIds.includes(c.id))
+                  : currentListings
+              }
+              selectedCount={selectedClientIds.length}
+              employees={employees}
+              statuses={statuses}
+              language={language}
+            />
+          ) : null}
         </div>
 
         <div className="sm:hidden fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur-md p-3 safe-area-pb">
