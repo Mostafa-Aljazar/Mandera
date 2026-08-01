@@ -19,7 +19,12 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useCompanyOperationsStats } from "@/hooks/queries/useProperties";
 import { useBaseEmployee } from "@/hooks/queries/useEmployees";
 import { cn } from "@/lib/utils";
-import { companyDisplayName, titleCaseName } from "@/lib/bilingualLabel";
+import {
+  companyDisplayName,
+  employeeDisplayName,
+  greetingDisplayName,
+  profileDisplayName,
+} from "@/lib/bilingualLabel";
 import { canViewInsights, isAdministratorOrAbove, canAccessManagerModules } from "@/lib/permissions";
 import { usePendingApprovalsCount, useStaleDraftNotificationCheck } from "@/hooks/queries/useNotifications";
 import {
@@ -238,14 +243,17 @@ export default function CompanyDashboardPage() {
   );
 
   const greetingName = (() => {
-    if (employeeRecord) {
-      const first =
-        language === "ar"
-          ? employeeRecord.first_name_ar || employeeRecord.first_name_en
-          : employeeRecord.first_name_en || employeeRecord.first_name_ar;
-      if (first?.trim()) return titleCaseName(first);
-    }
-    return currentUser?.name?.split(" ")[0] || "";
+    const fromEmployee = employeeRecord
+      ? greetingDisplayName(
+          employeeDisplayName(employeeRecord, language, currentUser?.name),
+        )
+      : "";
+    const fromProfile = greetingDisplayName(
+      profileDisplayName(currentUser, language) || currentUser?.name || "",
+    );
+    const firstName = fromEmployee || fromProfile;
+    if (!firstName) return "";
+    return language === "ar" ? `أ. ${firstName}` : `Mr. ${firstName}`;
   })();
 
   const roleLabel =
@@ -423,12 +431,43 @@ export default function CompanyDashboardPage() {
                   {t("Pending Approvals")}
                 </h2>
                 <p className="mt-1 text-muted-foreground text-sm leading-relaxed">
-                  {t("Review new listings, change requests, and status changes.")}
+                  {t(
+                    "Review drafts, new listings, change requests, and status changes.",
+                  )}
                 </p>
               </div>
-              <div className="gap-3 sm:gap-4 grid sm:grid-cols-3">
+              <div className="gap-3 sm:gap-4 grid sm:grid-cols-2 xl:grid-cols-4">
                 <Link
-                  href="/company/properties"
+                  href="/company/approvals?tab=drafts"
+                  className="group relative flex flex-col gap-3 bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] p-4 sm:p-5 border border-border/60 rounded-2xl overflow-hidden transition-shadow"
+                >
+                  <div
+                    className="top-0 absolute inset-x-0 bg-gradient-to-b from-violet-500/10 to-transparent h-14 pointer-events-none"
+                    aria-hidden
+                  />
+                  <div className="relative flex items-center gap-3">
+                    <span className="flex justify-center items-center bg-violet-500/10 border border-violet-500/15 rounded-xl w-10 h-10 text-violet-600 shrink-0">
+                      <ClipboardCheck className="w-5 h-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-outfit font-semibold text-foreground text-sm sm:text-base tracking-tight">
+                        {t("Drafts pending")}
+                      </p>
+                      {(pendingApprovals?.staleDrafts ?? 0) > 0 ? (
+                        <p className="text-muted-foreground text-xs">
+                          {t("{{count}} stale", {
+                            count: pendingApprovals?.staleDrafts ?? 0,
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <p className="relative font-outfit font-bold text-violet-700 text-2xl tabular-nums">
+                    {pendingLoading ? "—" : (pendingApprovals?.drafts ?? 0)}
+                  </p>
+                </Link>
+                <Link
+                  href="/company/approvals?tab=listings"
                   className="group relative flex flex-col gap-3 bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] p-4 sm:p-5 border border-border/60 rounded-2xl overflow-hidden transition-shadow"
                 >
                   <div
@@ -448,7 +487,7 @@ export default function CompanyDashboardPage() {
                   </p>
                 </Link>
                 <Link
-                  href="/company/properties"
+                  href="/company/approvals?tab=edits"
                   className="group relative flex flex-col gap-3 bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] p-4 sm:p-5 border border-border/60 rounded-2xl overflow-hidden transition-shadow"
                 >
                   <div
@@ -470,7 +509,7 @@ export default function CompanyDashboardPage() {
                   </p>
                 </Link>
                 <Link
-                  href="/company/properties"
+                  href="/company/approvals?tab=status"
                   className="group relative flex flex-col gap-3 bg-card shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-hover)] p-4 sm:p-5 border border-border/60 rounded-2xl overflow-hidden transition-shadow"
                 >
                   <div

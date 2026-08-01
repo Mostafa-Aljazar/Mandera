@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from 'react-i18next';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -20,6 +20,7 @@ import { LoginSchema, type TLoginSchema } from '@/validations/login.schema';
 
 const CompanyLoginPage = () => {
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [freezeError, setFreezeError] = useState('');
   const { login, initialLoading, isAuthenticated } = useCompanyAuth();
   const { t } = useTranslation();
@@ -48,11 +49,23 @@ const CompanyLoginPage = () => {
       console.error('Login error:', error);
 
       const isFrozenError = error.message.includes('frozen') || error.message.includes('تجميد');
+      const isDisabledError =
+        error.message.includes('disabled') ||
+        error.message.includes('تعطيل');
 
       if (isFrozenError) {
         setFreezeError(error.message);
+      } else if (isDisabledError) {
+        toast.error(
+          t("Your account has been disabled. Please contact your company manager."),
+        );
       } else {
-        toast.error(error.message || t('Invalid credentials. Please try again.'));
+        const message = error instanceof Error ? error.message : "";
+        toast.error(
+          message
+            ? t(message, { defaultValue: t("Invalid credentials. Please try again.") })
+            : t("Invalid credentials. Please try again."),
+        );
       }
       setSubmitting(false);
     }
@@ -119,7 +132,29 @@ const CompanyLoginPage = () => {
                     <FormItem>
                       <FormLabel>{t('Password')}</FormLabel>
                       <FormControl>
-                        <Input type="password" className="text-foreground" {...field} />
+                        <div className="relative">
+                          <Input
+                            type={showPassword ? 'text' : 'password'}
+                            className="pe-11 text-foreground"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((v) => !v)}
+                            className="top-1/2 absolute end-1.5 flex justify-center items-center hover:bg-muted rounded-lg w-8 h-8 text-muted-foreground hover:text-foreground transition-colors -translate-y-1/2"
+                            aria-label={
+                              showPassword
+                                ? t('Hide password')
+                                : t('Show password')
+                            }
+                          >
+                            {showPassword ? (
+                              <EyeOff className="w-4 h-4" />
+                            ) : (
+                              <Eye className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>

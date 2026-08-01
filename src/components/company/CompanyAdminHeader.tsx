@@ -11,6 +11,12 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTranslation } from "react-i18next";
@@ -25,9 +31,11 @@ import {
   Building2,
   Settings,
   Menu,
+  ChevronDown,
   ChevronRight,
   ChartColumn,
   Trophy,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { companyDisplayName } from "@/lib/bilingualLabel";
@@ -94,6 +102,16 @@ export default function CompanyAdminHeader() {
       icon: Home,
       match: (path: string) => path.startsWith("/company/properties"),
     },
+    ...(showPendingApprovals
+      ? [
+          {
+            href: "/company/approvals",
+            label: t("Approvals"),
+            icon: ClipboardCheck,
+            match: (path: string) => path.startsWith("/company/approvals"),
+          } satisfies NavItem,
+        ]
+      : []),
     {
       href: "/company/clients",
       label: t("Clients"),
@@ -147,11 +165,19 @@ export default function CompanyAdminHeader() {
       (!item.insightsOnly || showInsights),
   );
 
+  const primaryItems = navItems.filter((item) => !item.insightsOnly);
+  const insightsItems = navItems.filter((item) => item.insightsOnly);
+
   useEffect(() => {
     setNavOpen(false);
   }, [pathname]);
 
   const drawerSide = language === "ar" ? "right" : "left";
+
+  const showNavBadge = (href: string) => {
+    if (!showPendingApprovals || pendingApprovalsCount <= 0) return false;
+    return href === "/company/approvals" || href === "/company/properties";
+  };
 
   return (
     <>
@@ -196,25 +222,23 @@ export default function CompanyAdminHeader() {
               ) : null}
             </div>
 
-            <nav className="hidden lg:flex items-center gap-0.5 bg-muted/50 shadow-[var(--shadow-subtle)] p-1 border border-border/60 rounded-full">
-              {navItems.map(({ href, label, match }) => {
+            {/* Pill nav only on very wide screens — lg/xl laptops use the sheet menu */}
+            <nav className="hidden min-[1800px]:flex items-center gap-0.5 bg-muted/50 shadow-[var(--shadow-subtle)] p-1 border border-border/60 rounded-full">
+              {primaryItems.map(({ href, label, match }) => {
                 const active = match(pathname);
-                const isProperties = href === "/company/properties";
                 return (
                   <Link
                     key={href}
                     href={href}
                     className={cn(
-                      "inline-flex items-center gap-1.5 px-3 py-2 rounded-full font-medium text-sm whitespace-nowrap transition-colors",
+                      "inline-flex items-center gap-1.5 px-2.5 py-2 rounded-full font-medium text-sm whitespace-nowrap transition-colors",
                       active
                         ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   >
                     {label}
-                    {isProperties &&
-                    showPendingApprovals &&
-                    pendingApprovalsCount > 0 ? (
+                    {showNavBadge(href) ? (
                       <Badge
                         variant="secondary"
                         className="bg-amber-500/15 hover:bg-amber-500/15 px-1.5 py-0 border-amber-500/20 h-5 font-semibold tabular-nums text-[10px] text-amber-700"
@@ -227,6 +251,30 @@ export default function CompanyAdminHeader() {
                   </Link>
                 );
               })}
+
+              {insightsItems.length > 0 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 px-2.5 py-2 rounded-full font-medium text-muted-foreground hover:text-foreground text-sm whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {t("Insights")}
+                      <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="center" className="min-w-[12rem]">
+                    {insightsItems.map(({ href, label, icon: Icon }) => (
+                      <DropdownMenuItem key={href} asChild>
+                        <Link href={href} className="flex items-center gap-2 cursor-pointer">
+                          <Icon className="w-4 h-4 text-muted-foreground" />
+                          <span>{label}</span>
+                        </Link>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
             </nav>
 
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -247,7 +295,7 @@ export default function CompanyAdminHeader() {
                 variant="outline"
                 size="sm"
                 onClick={handleLogout}
-                className="hidden lg:inline-flex rounded-lg h-9"
+                className="hidden min-[1800px]:inline-flex rounded-lg h-9"
               >
                 <LogOut className="w-4 h-4 rtl:rotate-180" />
                 <span className="hidden sm:inline">{t("Logout")}</span>
@@ -255,12 +303,13 @@ export default function CompanyAdminHeader() {
 
               <Button
                 variant="outline"
-                size="icon"
-                className="lg:hidden rounded-lg w-9 h-9"
+                size="sm"
+                className="min-[1800px]:hidden rounded-lg h-9 gap-2 px-2.5"
                 onClick={() => setNavOpen(true)}
                 aria-label={t("Open menu")}
               >
                 <Menu className="w-5 h-5" />
+                <span className="hidden sm:inline font-medium">{t("Menu")}</span>
               </Button>
             </div>
           </div>
@@ -322,9 +371,8 @@ export default function CompanyAdminHeader() {
               {t("Navigation")}
             </p>
             <ul className="space-y-1">
-              {navItems.map(({ href, label, icon: Icon, match }) => {
+              {primaryItems.map(({ href, label, icon: Icon, match }) => {
                 const active = match(pathname);
-                const isProperties = href === "/company/properties";
                 return (
                   <li key={href}>
                     <Link
@@ -348,9 +396,7 @@ export default function CompanyAdminHeader() {
                         <Icon className="w-4 h-4" />
                       </span>
                       <span className="flex-1 truncate">{label}</span>
-                      {isProperties &&
-                      showPendingApprovals &&
-                      pendingApprovalsCount > 0 ? (
+                      {showNavBadge(href) ? (
                         <Badge
                           variant="secondary"
                           className="bg-amber-500/15 hover:bg-amber-500/15 px-1.5 py-0 border-amber-500/20 h-5 font-semibold tabular-nums text-[10px] text-amber-700"
@@ -367,6 +413,31 @@ export default function CompanyAdminHeader() {
                 );
               })}
             </ul>
+
+            {insightsItems.length > 0 ? (
+              <>
+                <p className="mt-5 mb-2 px-3 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
+                  {t("Insights")}
+                </p>
+                <ul className="space-y-1">
+                  {insightsItems.map(({ href, label, icon: Icon }) => (
+                    <li key={href}>
+                      <Link
+                        href={href}
+                        onClick={() => setNavOpen(false)}
+                        className="group flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm text-foreground/85 hover:bg-muted/60 hover:text-foreground transition-colors"
+                      >
+                        <span className="flex justify-center items-center bg-muted/50 border border-border/60 rounded-lg w-9 h-9 text-muted-foreground group-hover:text-foreground shrink-0">
+                          <Icon className="w-4 h-4" />
+                        </span>
+                        <span className="flex-1 truncate">{label}</span>
+                        <ChevronRight className="w-4 h-4 text-muted-foreground/60 rtl:rotate-180 shrink-0" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
           </nav>
 
           <div className="mt-auto px-4 py-4 border-border/60 border-t">

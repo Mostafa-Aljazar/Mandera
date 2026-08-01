@@ -106,6 +106,7 @@ import {
 import { useLanguage } from "@/contexts/LanguageContext";
 import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
 import { countryLabel, normalizeCountryValue } from "@/lib/countries";
+import { actionErrorMessage } from "@/lib/actionErrorI18n";
 import { useRecordLockMutations } from "@/hooks/queries/usePropertyApprovals";
 import ClientAppointmentsPanel from "@/components/company/clients/ClientAppointmentsPanel";
 
@@ -251,10 +252,10 @@ export default function ClientDetailView({
           ? currentUser.id
           : "",
       marketing_channel: "",
-      campaign: "",
-      budget: "",
+      budget_from: "",
+      budget_to: "",
+      interests: "",
       preferred_area: "",
-      investment_unit: "",
     },
   });
 
@@ -271,13 +272,16 @@ export default function ClientDetailView({
         interested_properties: client.interested_properties || [],
         employee_id: client.employee_id || "",
         marketing_channel: client.marketing_channel || "",
-        campaign: client.campaign || "",
-        budget:
-          client.budget != null && client.budget !== undefined
-            ? String(client.budget)
+        budget_from:
+          client.budget_from != null && client.budget_from !== undefined
+            ? String(client.budget_from)
             : "",
+        budget_to:
+          client.budget_to != null && client.budget_to !== undefined
+            ? String(client.budget_to)
+            : "",
+        interests: client.interests || "",
         preferred_area: client.preferred_area || "",
-        investment_unit: client.investment_unit || "",
       });
       setPropertySearchOpen(false);
     } else if (isNew) {
@@ -293,10 +297,10 @@ export default function ClientDetailView({
             ? currentUser.id
             : "",
         marketing_channel: "",
-        campaign: "",
-        budget: "",
+        budget_from: "",
+        budget_to: "",
+        interests: "",
         preferred_area: "",
-        investment_unit: "",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -452,15 +456,20 @@ export default function ClientDetailView({
             ? (currentUser?.id ?? formData.employee_id)
             : formData.employee_id,
         marketing_channel: formData.marketing_channel,
-        campaign: formData.campaign?.trim() || "",
-        budget: (() => {
-          const raw = formData.budget?.trim();
+        budget_from: (() => {
+          const raw = formData.budget_from?.trim();
           if (!raw) return null;
           const n = Number(raw);
           return Number.isFinite(n) ? n : null;
         })(),
+        budget_to: (() => {
+          const raw = formData.budget_to?.trim();
+          if (!raw) return null;
+          const n = Number(raw);
+          return Number.isFinite(n) ? n : null;
+        })(),
+        interests: formData.interests?.trim() || "",
         preferred_area: formData.preferred_area?.trim() || "",
-        investment_unit: formData.investment_unit?.trim() || "",
         avatar: avatarFile,
         removeAvatar: removeAvatar && !avatarFile,
       };
@@ -488,15 +497,7 @@ export default function ClientDetailView({
         router.replace(`/company/clients/${result.data!.id}`);
       }
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : t("Error saving client.");
-      toast.error(
-        message === "Client photo must be less than 2MB."
-          ? t("Client photo must be less than 2MB.")
-          : message === "Please upload a JPG, PNG, or WebP image."
-            ? t("Please upload a JPG, PNG, or WebP image.")
-            : message,
-      );
+      toast.error(actionErrorMessage(err, t, "Error saving client."));
     } finally {
       setIsSubmitting(false);
     }
@@ -1177,25 +1178,6 @@ export default function ClientDetailView({
                           />
                           <FormField
                             control={form.control}
-                            name="campaign"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">
-                                  {t("Campaign")}
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    className="bg-background h-10"
-                                    placeholder={t("Optional campaign name")}
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
                             name="employee_id"
                             render={({ field }) => (
                               <FormItem>
@@ -1319,31 +1301,63 @@ export default function ClientDetailView({
                           )}
                         />
 
+                        <div>
+                          <p className="mb-2 text-xs font-medium text-foreground">
+                            {t("Budget")}
+                          </p>
+                          <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
+                            <FormField
+                              control={form.control}
+                              name="budget_from"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs text-muted-foreground">
+                                    {t("From")}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      inputMode="decimal"
+                                      min={0}
+                                      step="any"
+                                      dir="ltr"
+                                      placeholder="0"
+                                      className="bg-background h-10"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name="budget_to"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs text-muted-foreground">
+                                    {t("To")}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      inputMode="decimal"
+                                      min={0}
+                                      step="any"
+                                      dir="ltr"
+                                      placeholder="0"
+                                      className="bg-background h-10"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                        </div>
+
                         <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
-                          <FormField
-                            control={form.control}
-                            name="budget"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">
-                                  {t("Budget")}
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    {...field}
-                                    type="number"
-                                    inputMode="decimal"
-                                    min={0}
-                                    step="any"
-                                    dir="ltr"
-                                    placeholder="0"
-                                    className="bg-background h-10"
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
                           <FormField
                             control={form.control}
                             name="preferred_area"
@@ -1365,16 +1379,16 @@ export default function ClientDetailView({
                           />
                           <FormField
                             control={form.control}
-                            name="investment_unit"
+                            name="interests"
                             render={({ field }) => (
-                              <FormItem className="sm:col-span-2">
+                              <FormItem>
                                 <FormLabel className="text-xs">
-                                  {t("Investment unit")}
+                                  {t("Interests")}
                                 </FormLabel>
                                 <FormControl>
                                   <Input
                                     {...field}
-                                    placeholder={t("Investment unit")}
+                                    placeholder={t("Interests placeholder")}
                                     className="bg-background h-10"
                                   />
                                 </FormControl>

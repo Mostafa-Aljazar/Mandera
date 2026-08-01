@@ -12,7 +12,7 @@ import {
 } from "@/hooks/queries/useProperties";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import PropertyCard from "@/components/company/properties/PropertyCard";
-import PendingApprovalsPanel from "@/components/company/properties/PendingApprovalsPanel";
+import PendingApprovalsBanner from "@/components/company/approvals/PendingApprovalsBanner";
 import DuplicatesReviewPanel from "@/components/company/duplicates/DuplicatesReviewPanel";
 import FilterPanel from "@/components/common/FilterPanel";
 import FilterChips from "@/components/common/FilterChips";
@@ -85,11 +85,13 @@ function StatCard({
   value,
   icon: Icon,
   tone = "primary",
+  onClick,
 }: {
   label: string;
   value: number;
   icon: React.ElementType;
   tone?: "primary" | "sky" | "emerald" | "amber";
+  onClick?: () => void;
 }) {
   const toneStyles = {
     primary: {
@@ -115,8 +117,18 @@ function StatCard({
   } as const;
   const styles = toneStyles[tone];
 
+  const Comp = onClick ? "button" : "div";
+
   return (
-    <div className="relative bg-card shadow-[var(--shadow-subtle)] p-3.5 sm:p-4 border border-border/60 rounded-2xl overflow-hidden">
+    <Comp
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={cn(
+        "relative bg-card shadow-[var(--shadow-subtle)] p-3.5 sm:p-4 border border-border/60 rounded-2xl overflow-hidden text-start w-full",
+        onClick &&
+          "cursor-pointer transition-colors hover:border-primary/30 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+      )}
+    >
       <div
         className={cn(
           "top-0 absolute inset-x-0 bg-gradient-to-b to-transparent h-12 pointer-events-none",
@@ -148,7 +160,7 @@ function StatCard({
           <Icon className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
         </span>
       </div>
-    </div>
+    </Comp>
   );
 }
 
@@ -249,9 +261,11 @@ const PropertiesPage = () => {
       if (p.approval_status && p.approval_status !== "approved") return false;
       if (p.listing_type !== listType) return false;
       if (searchQuery) {
-        const q = searchQuery.toLowerCase();
+        const q = searchQuery.toLowerCase().trim();
         const matches =
           p.code?.toLowerCase().includes(q) ||
+          p.title?.toLowerCase().includes(q) ||
+          p.title_ar?.toLowerCase().includes(q) ||
           p.note_en?.toLowerCase().includes(q) ||
           p.note_ar?.toLowerCase().includes(q);
         if (!matches) return false;
@@ -299,7 +313,10 @@ const PropertiesPage = () => {
 
   const goToProperty = (p: Property) =>
     router.push(`/company/properties/${p.id}`);
-  const goToAdd = () => router.push("/company/properties/add");
+  const goToAdd = () =>
+    router.push(
+      `/company/properties/add?listingType=${encodeURIComponent(activeTab)}`,
+    );
 
   const handleRemoveFilter = (
     key: keyof PropertyFilterState,
@@ -503,12 +520,14 @@ const PropertiesPage = () => {
               value={stats.rent}
               icon={Key}
               tone="sky"
+              onClick={() => setActiveTab("Rent")}
             />
             <StatCard
               label={t("For Sale")}
               value={stats.sale}
               icon={Home}
               tone="emerald"
+              onClick={() => setActiveTab("Sale")}
             />
             <StatCard
               label={t("Available")}
@@ -518,7 +537,7 @@ const PropertiesPage = () => {
             />
           </section>
 
-          <PendingApprovalsPanel />
+          <PendingApprovalsBanner />
 
           {myDrafts.length > 0 ? (
             <section className="relative bg-card shadow-[var(--shadow-subtle)] border border-amber-500/25 rounded-2xl overflow-hidden">
@@ -561,7 +580,7 @@ const PropertiesPage = () => {
                 <div className="relative flex-1 min-w-0">
                   <Search className="top-1/2 start-3 absolute w-4 h-4 text-muted-foreground -translate-y-1/2 pointer-events-none" />
                   <Input
-                    placeholder={t("Search by code or note...")}
+                    placeholder={t("Search by title, code, or note...")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="bg-background ps-9 h-11 rounded-xl"

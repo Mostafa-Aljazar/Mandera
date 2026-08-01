@@ -6,8 +6,8 @@ import SettingsSection from "./SettingsSection";
 import MarketingChannelsTab from "./MarketingChannelsTab";
 
 /**
- * PDF "Client settings" — groups client acquisition settings and points
- * managers to the Client Status tab for pipeline stages.
+ * Client settings — groups client acquisition settings and points
+ * managers to Client stages for pipeline stages.
  */
 export default function ClientSettingsTab() {
   const { t } = useTranslation();

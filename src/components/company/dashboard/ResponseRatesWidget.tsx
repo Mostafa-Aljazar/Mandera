@@ -40,10 +40,16 @@ export default function ResponseRatesWidget({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{t("Employee")}</TableHead>
-              <TableHead className="text-end">{t("Responded")}</TableHead>
-              <TableHead className="text-end">{t("Assigned")}</TableHead>
-              <TableHead className="text-end">{t("Response Rate")}</TableHead>
+              <TableHead className="text-start">{t("Employee")}</TableHead>
+              <TableHead className="w-[7rem] text-center whitespace-nowrap">
+                {t("Responded")}
+              </TableHead>
+              <TableHead className="w-[7rem] text-center whitespace-nowrap">
+                {t("Assigned")}
+              </TableHead>
+              <TableHead className="w-[8rem] text-center whitespace-nowrap">
+                {t("Response Rate")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -56,13 +62,17 @@ export default function ResponseRatesWidget({
             ) : (
               data.map((row) => (
                 <TableRow key={row.employee_id}>
-                  <TableCell className="font-medium" dir="auto">
+                  <TableCell className="font-medium text-start">
                     {employeeDisplayName(row, language, row.name) || t("Unnamed")}
                   </TableCell>
-                  <TableCell className="text-end tabular-nums">{row.responded}</TableCell>
-                  <TableCell className="text-end tabular-nums">{row.total_assigned}</TableCell>
-                  <TableCell className="text-end font-semibold tabular-nums" dir="ltr">
-                    {row.rate}%
+                  <TableCell className="text-center tabular-nums">
+                    {row.responded}
+                  </TableCell>
+                  <TableCell className="text-center tabular-nums">
+                    {row.total_assigned}
+                  </TableCell>
+                  <TableCell className="text-center font-semibold tabular-nums">
+                    <span dir="ltr">{row.rate}%</span>
                   </TableCell>
                 </TableRow>
               ))

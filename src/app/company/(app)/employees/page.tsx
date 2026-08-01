@@ -12,6 +12,7 @@ import {
 } from "@/lib/permissions";
 import {
   useCompanyEmployees,
+  useEmployeeAssignmentCounts,
   useUpdateEmployeeDisabled,
 } from "@/hooks/queries/useEmployees";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
@@ -47,7 +48,7 @@ import { cn } from "@/lib/utils";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { CompanyEmployeeWithDetails } from "@/types/supabase-entities.types";
-import type { ReassignmentTargets } from "@/actions/employees";
+import type { ReassignmentTargets } from "@/actions/employee-types";
 
 const PAGE_SIZE = 9;
 
@@ -177,6 +178,13 @@ const EmployeeListPage = () => {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const canManage = canManageEmployees(currentUser?.role);
+
+  const statusEmployee = statusDialog.employee;
+  const { data: assignmentCounts } = useEmployeeAssignmentCounts(
+    statusEmployee?.id,
+    company?.id,
+    statusDialog.open && !statusEmployee?.employee?.disabled,
+  );
 
   const {
     data: employeesData,
@@ -712,6 +720,7 @@ const EmployeeListPage = () => {
         isSubmitting={isUpdatingStatus}
         employeeProfileId={statusDialog.employee?.id}
         employees={employees}
+        assignmentCounts={assignmentCounts ?? null}
         onConfirm={(targets) => void handleToggleDisable(targets)}
       />
 

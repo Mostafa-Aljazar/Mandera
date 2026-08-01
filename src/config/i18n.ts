@@ -13,16 +13,22 @@ if (!i18n.isInitialized) {
     .init({
       resources: {
         en: { translation: en },
-        ar: { translation: ar }
+        ar: { translation: ar },
       },
+      // Lock the first paint (SSR + client hydration) to English so translated
+      // strings match. LanguageProvider applies the stored preference after mount.
+      lng: 'en',
       fallbackLng: 'en',
       interpolation: {
-        escapeValue: false // not needed for React as it escapes by default
+        escapeValue: false,
       },
       detection: {
         order: ['localStorage', 'navigator'],
-        caches: ['localStorage']
-      }
+        caches: ['localStorage'],
+      },
+      react: {
+        useSuspense: false,
+      },
     });
 }
 

@@ -179,7 +179,7 @@ export default function CompanyFormPage() {
             aria-hidden
           />
 
-          <div className="relative mx-auto px-4 sm:px-6 py-8 sm:py-10 container max-w-3xl">
+          <div className="relative mx-auto px-4 sm:px-6 py-8 sm:py-10 container max-w-6xl">
             <div className="flex justify-between items-start gap-4">
               <div className="min-w-0">
                 <h1 className="font-outfit font-extrabold text-foreground text-2xl sm:text-3xl md:text-4xl tracking-tight">
@@ -205,7 +205,7 @@ export default function CompanyFormPage() {
           </div>
         </section>
 
-        <div className="mx-auto px-4 sm:px-6 py-6 sm:py-8 container max-w-3xl">
+        <div className="mx-auto px-4 sm:px-6 py-6 sm:py-8 container max-w-6xl">
           <div className="bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-2xl overflow-hidden">
             <Form {...form}>
               <form onSubmit={handleSubmit}>

@@ -1,16 +1,23 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import Link from "next/link";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { canViewRevenue } from "@/lib/permissions";
+import { employeeDisplayName } from "@/lib/bilingualLabel";
+import {
+  revenueAgentLabel,
+  revenueClientLabel,
+  revenueOwnerLabel,
+} from "@/lib/revenueLabels";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import RevenueCard from "@/components/company/revenue/RevenueCard";
 import RevenueChangeLogPanel from "@/components/company/revenue/RevenueChangeLogPanel";
-import DealCompletedModal from "@/components/common/DealCompletedModal";
 import { useRevenues } from "@/hooks/queries/useRevenues";
-import { useCompanyEmployeesLookup, useProperties } from "@/hooks/queries/useProperties";
+import { useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,13 +30,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -38,6 +38,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { DirhamIcon, formatAedAmount } from "@/components/ui/dirham-icon";
 import {
   Calendar as CalendarIcon,
   Download,
@@ -47,8 +48,41 @@ import {
   Wallet,
   FilterX,
   Plus,
+  ChevronLeft,
+  ChevronRight,
+  Trophy,
+  Briefcase,
 } from "lucide-react";
-import type { PropertyWithRelations } from "@/types/supabase-entities.types";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+const PAGE_SIZE = 9;
+
+function getPageNumbers(
+  current: number,
+  total: number,
+): (number | "ellipsis")[] {
+  if (total <= 5) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+
+  const pages: (number | "ellipsis")[] = [1];
+  if (current > 3) pages.push("ellipsis");
+
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  for (let i = start; i <= end; i++) pages.push(i);
+
+  if (current < total - 2) pages.push("ellipsis");
+  pages.push(total);
+  return pages;
+}
 
 function StatCard({
   label,
@@ -61,6 +95,7 @@ function StatCard({
   tone?: "primary" | "sky" | "emerald" | "amber";
   isCurrency?: boolean;
 }) {
+  const { t } = useTranslation();
   const toneStyles = {
     primary: { value: "text-foreground", glow: "from-primary/10" },
     sky: { value: "text-sky-700", glow: "from-sky-500/10" },
@@ -82,16 +117,28 @@ function StatCard({
         <p className="font-medium text-muted-foreground text-[11px] sm:text-xs truncate">
           {label}
         </p>
-        <p
-          className={cn(
-            "mt-1.5 font-outfit font-bold tracking-tight tabular-nums",
-            isCurrency ? "text-lg sm:text-2xl" : "text-xl sm:text-3xl",
-            styles.value,
-          )}
-          dir="ltr"
-        >
-          {isCurrency ? `AED ${value.toLocaleString()}` : value}
-        </p>
+        {isCurrency ? (
+          <p
+            className={cn(
+              "inline-flex items-center gap-1.5 mt-1.5 font-outfit font-bold tracking-tight text-lg sm:text-2xl tabular-nums",
+              styles.value,
+            )}
+            dir="ltr"
+          >
+            <DirhamIcon className="w-4 h-4 sm:w-5 sm:h-5" title={t("AED")} />
+            {formatAedAmount(value)}
+          </p>
+        ) : (
+          <p
+            className={cn(
+              "mt-1.5 font-outfit font-bold tracking-tight text-xl sm:text-3xl tabular-nums",
+              styles.value,
+            )}
+            dir="ltr"
+          >
+            {value}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -100,19 +147,19 @@ function StatCard({
 const RevenuePage = () => {
   const { company, currentUser } = useCompanyAuth();
   const { t } = useTranslation();
+  const { language } = useLanguage();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState("all");
+  const [dealStage, setDealStage] = useState("all");
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
-  const [pickPropertyOpen, setPickPropertyOpen] = useState(false);
-  const [selectedPropertyId, setSelectedPropertyId] = useState("");
-  const [dealProperty, setDealProperty] =
-    useState<PropertyWithRelations | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [page, setPage] = useState(1);
 
   const canAccessRevenue = canViewRevenue(currentUser?.role);
 
-  const { data: revenuesData, isLoading: loading, refetch } = useRevenues(
+  const { data: revenuesData, isLoading: loading } = useRevenues(
     canAccessRevenue ? company?.id : undefined,
     {
       employeeId: selectedEmployee !== "all" ? selectedEmployee : undefined,
@@ -129,29 +176,38 @@ const RevenuePage = () => {
   );
   const employees = useMemo(() => employeesData ?? [], [employeesData]);
 
-  const { data: propertiesData } = useProperties(
-    pickPropertyOpen && canAccessRevenue ? company?.id : undefined,
-  );
-  const dealableProperties = useMemo(
-    () =>
-      (propertiesData ?? []).filter(
-        (p) =>
-          p.approval_status === "approved" &&
-          p.status !== "Sold" &&
-          p.status !== "Rented" &&
-          p.status !== "Archived",
-      ),
-    [propertiesData],
-  );
-
   const filteredRevenues = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return revenues;
     return revenues.filter((r) => {
+      const deal = r.approval_status || "pending";
+      const commission = r.commission_approval_status || "pending";
+      const matchesStage =
+        dealStage === "all" ||
+        (dealStage === "deal_pending" && deal === "pending") ||
+        (dealStage === "commission_pending" &&
+          deal === "approved" &&
+          commission === "pending") ||
+        (dealStage === "awaiting_payment" &&
+          deal === "approved" &&
+          commission === "approved" &&
+          !r.commission_paid) ||
+        (dealStage === "paid" &&
+          deal === "approved" &&
+          commission === "approved" &&
+          !!r.commission_paid) ||
+        (dealStage === "rejected" &&
+          (deal === "rejected" || commission === "rejected"));
+
+      if (!matchesStage) return false;
+      if (!q) return true;
+
       const haystack = [
         r.property_code,
         r.emirate,
         r.area_district,
+        revenueClientLabel(r, language),
+        revenueOwnerLabel(r, language),
+        revenueAgentLabel(r, language),
         r.client_name,
         r.owner_name,
         r.employee_name,
@@ -161,11 +217,18 @@ const RevenuePage = () => {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [revenues, searchQuery]);
+  }, [revenues, searchQuery, language, dealStage]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRevenues.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageEnd = Math.min(pageStart + PAGE_SIZE, filteredRevenues.length);
+  const pagedRevenues = filteredRevenues.slice(pageStart, pageEnd);
+  const pageNumbers = getPageNumbers(currentPage, totalPages);
 
   const stats = useMemo(() => {
     const approved = filteredRevenues.filter(
-      (r) => (r.approval_status || "approved") === "approved",
+      (r) => (r.approval_status || "pending") === "approved",
     );
     const total = approved.reduce(
       (sum, r) => sum + (Number(r.commission_value) || 0),
@@ -174,72 +237,122 @@ const RevenuePage = () => {
     const paid = approved
       .filter((r) => r.commission_paid)
       .reduce((sum, r) => sum + (Number(r.commission_value) || 0), 0);
+    const unpaid = total - paid;
     const deals = filteredRevenues.length;
-    const avg = approved.length > 0 ? total / approved.length : 0;
     const agents = new Set(
       filteredRevenues.map((r) => r.employee_id).filter(Boolean),
     ).size;
-    return { total, paid, profits: total, deals, avg, agents };
+    return { total, paid, unpaid, deals, agents };
   }, [filteredRevenues]);
 
+  const employeeBreakdown = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; name: string; deals: number; total: number; paid: number }
+    >();
+    for (const r of filteredRevenues) {
+      const id = r.employee_id || "unassigned";
+      const name =
+        revenueAgentLabel(r, language) || t("Unassigned");
+      const current = map.get(id) || {
+        id,
+        name,
+        deals: 0,
+        total: 0,
+        paid: 0,
+      };
+      const amount = Number(r.commission_value) || 0;
+      const approved = (r.approval_status || "pending") === "approved";
+      current.deals += 1;
+      if (approved) {
+        current.total += amount;
+        if (r.commission_paid) current.paid += amount;
+      }
+      map.set(id, current);
+    }
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  }, [filteredRevenues, language, t]);
+
   const hasActiveFilters =
-    selectedEmployee !== "all" || !!dateFrom || !!dateTo || !!searchQuery;
+    selectedEmployee !== "all" ||
+    dealStage !== "all" ||
+    !!dateFrom ||
+    !!dateTo ||
+    !!searchQuery;
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (searchQuery.trim()) count += 1;
     if (selectedEmployee !== "all") count += 1;
+    if (dealStage !== "all") count += 1;
     if (dateFrom) count += 1;
     if (dateTo) count += 1;
     return count;
-  }, [searchQuery, selectedEmployee, dateFrom, dateTo]);
+  }, [searchQuery, selectedEmployee, dealStage, dateFrom, dateTo]);
 
   const clearFilters = () => {
     setSelectedEmployee("all");
+    setDealStage("all");
     setDateFrom(undefined);
     setDateTo(undefined);
     setSearchQuery("");
+    setPage(1);
   };
 
-  const exportCSV = () => {
+  const exportReport = async () => {
     if (filteredRevenues.length === 0) {
       toast.warning(t("No data to export."));
       return;
     }
-    const headers = [
-      t("Property Code"),
-      t("Location"),
-      t("Commission"),
-      t("Agent"),
-      t("Client & Owner"),
-      t("Completion Date"),
-    ];
-    const rows = filteredRevenues.map((r) => [
-      r.property_code,
-      r.emirate + (r.area_district ? ` - ${r.area_district}` : ""),
-      r.commission_value,
-      r.employee_name,
-      `${r.client_name} / ${r.owner_name}`,
-      format(new Date(r.deal_completion_date), "yyyy-MM-dd"),
-    ]);
-
-    const csvContent = [
-      headers.join(","),
-      ...rows.map((r) => r.map((c) => `"${c || ""}"`).join(",")),
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `revenues_${format(new Date(), "yyyy-MM-dd")}.csv`,
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success(t("Export downloaded successfully."));
+    setExporting(true);
+    try {
+      const {
+        buildSimpleExportWorkbook,
+        writeWorkbookAndDownload,
+      } = await import("@/lib/importExport/shared");
+      const headers = [
+        t("Property Code"),
+        t("Location"),
+        t("Commission"),
+        t("Deal status"),
+        t("Commission status"),
+        t("Payment status"),
+        t("Agent"),
+        t("Client"),
+        t("Owner"),
+        t("Completion Date"),
+        t("Notes"),
+      ];
+      const rows = filteredRevenues.map((r) => [
+        r.property_code,
+        r.emirate + (r.area_district ? ` - ${r.area_district}` : ""),
+        Number(r.commission_value) || 0,
+        t(r.approval_status || "pending"),
+        t(r.commission_approval_status || "pending"),
+        r.commission_paid ? t("Paid") : t("Unpaid"),
+        revenueAgentLabel(r, language),
+        revenueClientLabel(r, language),
+        revenueOwnerLabel(r, language),
+        format(new Date(r.deal_completion_date), "yyyy-MM-dd"),
+        r.notes || "",
+      ]);
+      const workbook = await buildSimpleExportWorkbook(
+        t("Revenue"),
+        headers,
+        rows,
+        language === "ar",
+      );
+      await writeWorkbookAndDownload(
+        workbook,
+        `revenues_${format(new Date(), "yyyy-MM-dd")}.xlsx`,
+      );
+      toast.success(t("Export downloaded successfully."));
+    } catch (err) {
+      console.error(err);
+      toast.error(t("Export failed. Please try again."));
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (!canAccessRevenue) {
@@ -292,25 +405,21 @@ const RevenuePage = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setSelectedPropertyId("");
-                    setPickPropertyOpen(true);
-                  }}
-                  className="gap-2 rounded-lg h-9"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span className="hidden sm:inline">{t("Add Deal")}</span>
+                <Button asChild size="sm" className="gap-2 rounded-lg h-9">
+                  <Link href="/company/revenue/new">
+                    <Plus className="w-4 h-4" />
+                    <span className="hidden sm:inline">{t("Add Deal")}</span>
+                  </Link>
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={exportCSV}
+                  onClick={() => void exportReport()}
+                  disabled={exporting}
                   className="gap-2 rounded-lg h-9"
                 >
                   <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">{t("Export CSV")}</span>
+                  <span className="hidden sm:inline">{t("Export Excel")}</span>
                 </Button>
               </div>
             </div>
@@ -326,8 +435,8 @@ const RevenuePage = () => {
               isCurrency
             />
             <StatCard
-              label={t("Profits & commissions")}
-              value={stats.profits}
+              label={t("Outstanding commissions")}
+              value={stats.unpaid}
               tone="sky"
               isCurrency
             />
@@ -345,6 +454,132 @@ const RevenuePage = () => {
             />
           </section>
 
+          {employeeBreakdown.length > 0 ? (
+            <section className="relative bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-2xl overflow-hidden">
+              <div
+                className="top-0 absolute inset-x-0 bg-gradient-to-b from-primary/[0.07] to-transparent h-20 pointer-events-none"
+                aria-hidden
+              />
+              <div className="relative flex sm:flex-row flex-col sm:justify-between sm:items-start gap-3 p-5 sm:p-6 border-b border-border/60">
+                <div className="flex items-start gap-3 min-w-0">
+                  <span className="flex justify-center items-center bg-primary/10 mt-0.5 border border-primary/15 rounded-xl w-10 h-10 text-primary shrink-0">
+                    <Wallet className="w-5 h-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="font-outfit font-semibold text-foreground text-base sm:text-lg tracking-tight">
+                      {t("Revenue by agent")}
+                    </h2>
+                    <p className="mt-1 text-muted-foreground text-sm leading-relaxed">
+                      {t("Approved commission totals for each closing agent.")}
+                    </p>
+                  </div>
+                </div>
+                <span className="inline-flex self-start items-center bg-muted/70 px-2.5 py-1 rounded-full font-medium text-muted-foreground text-xs tabular-nums">
+                  {employeeBreakdown.length} {t("Agents")}
+                </span>
+              </div>
+
+              <div className="relative p-4 sm:p-5">
+                <div className="border border-border/60 rounded-xl overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-muted/40">
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="w-16 text-center">
+                          {t("Rank")}
+                        </TableHead>
+                        <TableHead>{t("Agent")}</TableHead>
+                        <TableHead className="text-end whitespace-nowrap">
+                          {t("Deals")}
+                        </TableHead>
+                        <TableHead className="text-end whitespace-nowrap">
+                          {t("Total Revenue")}
+                        </TableHead>
+                        <TableHead className="text-end whitespace-nowrap">
+                          {t("Commissions paid")}
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {employeeBreakdown.map((row, index) => {
+                        const isTop = index === 0 && row.total > 0;
+                        return (
+                          <TableRow
+                            key={row.id}
+                            className={cn(
+                              "cursor-pointer transition-colors",
+                              isTop
+                                ? "bg-amber-500/[0.06] hover:bg-amber-500/10 border-s-4 border-s-amber-500"
+                                : "hover:bg-muted/30",
+                            )}
+                            onClick={() => {
+                              if (row.id !== "unassigned") {
+                                setSelectedEmployee(row.id);
+                                setPage(1);
+                              }
+                            }}
+                          >
+                            <TableCell className="text-center font-semibold align-middle">
+                              {isTop ? (
+                                <div className="flex justify-center">
+                                  <Trophy className="fill-amber-500/20 w-5 h-5 text-amber-500" />
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground tabular-nums">
+                                  #{index + 1}
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="align-middle">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={cn(
+                                    "font-medium",
+                                    isTop && "font-bold text-amber-700",
+                                  )}
+                                >
+                                  {row.name}
+                                </span>
+                                {isTop ? (
+                                  <span className="inline-flex items-center bg-amber-500/15 px-2 py-0.5 rounded-full font-semibold text-amber-700 text-xs">
+                                    {t("Top Performer")}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-end font-medium align-middle">
+                              <span className="inline-flex justify-end items-center gap-1.5 tabular-nums">
+                                {row.deals}
+                                <Briefcase className="opacity-50 w-3.5 h-3.5 text-muted-foreground" />
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-end font-medium align-middle">
+                              <span className="inline-flex justify-end items-center gap-1.5 tabular-nums">
+                                {formatAedAmount(row.total)}
+                                <DirhamIcon
+                                  className="opacity-60 w-3.5 h-3.5 text-muted-foreground"
+                                  title={t("AED")}
+                                />
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-end font-medium align-middle">
+                              <span className="inline-flex justify-end items-center gap-1.5 tabular-nums">
+                                {formatAedAmount(row.paid)}
+                                <DirhamIcon
+                                  className="opacity-60 w-3.5 h-3.5 text-muted-foreground"
+                                  title={t("AED")}
+                                />
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           <section className="relative bg-card shadow-[var(--shadow-subtle)] p-4 sm:p-5 border border-border/60 rounded-2xl overflow-hidden">
             <div
               className="top-0 absolute inset-x-0 bg-gradient-to-b from-primary/[0.04] to-transparent h-16 pointer-events-none"
@@ -359,19 +594,25 @@ const RevenuePage = () => {
                     "Search by code, client, owner, or agent...",
                   )}
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setPage(1);
+                  }}
                   className="bg-background ps-9 h-10"
                 />
               </div>
 
-              <div className="items-end gap-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="items-end gap-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
                 <div className="space-y-1.5 min-w-0">
                   <Label className="font-medium text-muted-foreground text-xs">
                     {t("Filter by Agent")}
                   </Label>
                   <Select
                     value={selectedEmployee}
-                    onValueChange={setSelectedEmployee}
+                    onValueChange={(value) => {
+                      setSelectedEmployee(value);
+                      setPage(1);
+                    }}
                   >
                     <SelectTrigger className="bg-background w-full h-10">
                       <SelectValue placeholder={t("All Agents")} />
@@ -380,9 +621,40 @@ const RevenuePage = () => {
                       <SelectItem value="all">{t("All Agents")}</SelectItem>
                       {employees.map((e) => (
                         <SelectItem key={e.id} value={e.id}>
-                          {e.name || e.id}
+                          {employeeDisplayName(e, language, e.name) || e.id}
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5 min-w-0">
+                  <Label className="font-medium text-muted-foreground text-xs">
+                    {t("Deal stage")}
+                  </Label>
+                  <Select
+                    value={dealStage}
+                    onValueChange={(value) => {
+                      setDealStage(value);
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="bg-background w-full h-10">
+                      <SelectValue placeholder={t("All stages")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t("All stages")}</SelectItem>
+                      <SelectItem value="deal_pending">
+                        {t("Deal pending")}
+                      </SelectItem>
+                      <SelectItem value="commission_pending">
+                        {t("Commission pending")}
+                      </SelectItem>
+                      <SelectItem value="awaiting_payment">
+                        {t("Awaiting payment")}
+                      </SelectItem>
+                      <SelectItem value="paid">{t("Paid")}</SelectItem>
+                      <SelectItem value="rejected">{t("Rejected")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -412,7 +684,10 @@ const RevenuePage = () => {
                       <Calendar
                         mode="single"
                         selected={dateFrom}
-                        onSelect={setDateFrom}
+                        onSelect={(date) => {
+                          setDateFrom(date);
+                          setPage(1);
+                        }}
                         initialFocus
                       />
                     </PopoverContent>
@@ -444,14 +719,17 @@ const RevenuePage = () => {
                       <Calendar
                         mode="single"
                         selected={dateTo}
-                        onSelect={setDateTo}
+                        onSelect={(date) => {
+                          setDateTo(date);
+                          setPage(1);
+                        }}
                         initialFocus
                       />
                     </PopoverContent>
                   </Popover>
                 </div>
 
-                <div className="flex items-end min-w-0">
+                <div className="flex items-end min-w-0 sm:col-span-2 lg:col-span-1">
                   <Button
                     type="button"
                     variant="outline"
@@ -481,16 +759,21 @@ const RevenuePage = () => {
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <Wallet className="w-4 h-4 text-primary/70" />
               <span>
-                {t("revenues_showing_count", {
-                  count: filteredRevenues.length,
-                })}
+                {filteredRevenues.length === 0
+                  ? t("revenues_showing_count", { count: 0 })
+                  : t("Showing {{from}}–{{to}} of {{total}}", {
+                      from: pageStart + 1,
+                      to: pageEnd,
+                      total: filteredRevenues.length,
+                    })}
               </span>
             </div>
             <p
-              className="font-outfit font-semibold text-primary text-sm tabular-nums"
+              className="inline-flex items-center gap-1.5 font-outfit font-semibold text-primary text-sm tabular-nums"
               dir="ltr"
             >
-              AED {stats.total.toLocaleString()}
+              <DirhamIcon className="w-4 h-4" title={t("AED")} />
+              {formatAedAmount(stats.total)}
             </p>
           </div>
 
@@ -541,16 +824,74 @@ const RevenuePage = () => {
               </div>
             </div>
           ) : (
-            <div className="gap-4 sm:gap-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-              {filteredRevenues.map((revenue) => (
-                <RevenueCard
-                  key={revenue.id}
-                  revenue={revenue}
-                  companyId={company!.id}
-                  canManage={canAccessRevenue}
-                />
-              ))}
-            </div>
+            <>
+              <div className="gap-4 sm:gap-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                {pagedRevenues.map((revenue) => (
+                  <RevenueCard key={revenue.id} revenue={revenue} />
+                ))}
+              </div>
+
+              {totalPages > 1 ? (
+                <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-card shadow-[var(--shadow-subtle)] px-3.5 sm:px-4 py-3 border border-border/60 rounded-2xl">
+                  <p className="order-2 sm:order-1 text-muted-foreground text-xs sm:text-sm tabular-nums">
+                    {t("Showing {{from}}–{{to}} of {{total}}", {
+                      from: pageStart + 1,
+                      to: pageEnd,
+                      total: filteredRevenues.length,
+                    })}
+                  </p>
+                  <div className="order-1 sm:order-2 flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="rounded-xl w-9 h-9"
+                      disabled={currentPage <= 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      aria-label={t("Previous")}
+                    >
+                      <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
+                    </Button>
+
+                    {pageNumbers.map((item, index) =>
+                      item === "ellipsis" ? (
+                        <span
+                          key={`ellipsis-${index}`}
+                          className="px-1 text-muted-foreground text-sm"
+                        >
+                          …
+                        </span>
+                      ) : (
+                        <Button
+                          key={item}
+                          type="button"
+                          variant={item === currentPage ? "default" : "outline"}
+                          size="icon"
+                          className="rounded-xl w-9 h-9 tabular-nums"
+                          onClick={() => setPage(item)}
+                        >
+                          {item}
+                        </Button>
+                      ),
+                    )}
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="rounded-xl w-9 h-9"
+                      disabled={currentPage >= totalPages}
+                      onClick={() =>
+                        setPage((p) => Math.min(totalPages, p + 1))
+                      }
+                      aria-label={t("Next")}
+                    >
+                      <ChevronRight className="w-4 h-4 rtl:rotate-180" />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </>
           )}
 
           {company?.id ? (
@@ -558,63 +899,6 @@ const RevenuePage = () => {
           ) : null}
         </div>
       </main>
-
-      <Dialog open={pickPropertyOpen} onOpenChange={setPickPropertyOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("Add Deal")}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Label>{t("Select property")}</Label>
-            <Select
-              value={selectedPropertyId}
-              onValueChange={setSelectedPropertyId}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={t("Select property")} />
-              </SelectTrigger>
-              <SelectContent>
-                {dealableProperties.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.code} — {p.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setPickPropertyOpen(false)}
-            >
-              {t("Cancel")}
-            </Button>
-            <Button
-              disabled={!selectedPropertyId}
-              onClick={() => {
-                const property =
-                  dealableProperties.find((p) => p.id === selectedPropertyId) ??
-                  null;
-                if (!property) return;
-                setDealProperty(property);
-                setPickPropertyOpen(false);
-              }}
-            >
-              {t("Continue")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <DealCompletedModal
-        isOpen={!!dealProperty}
-        property={dealProperty}
-        onClose={() => setDealProperty(null)}
-        onSuccess={() => {
-          setDealProperty(null);
-          void refetch();
-        }}
-      />
     </>
   );
 };

@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
-import { ArrowRight, Lock, Mail, ShieldCheck } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,6 +25,7 @@ import { LoginSchema, type TLoginSchema } from "@/validations/login.schema";
 
 export default function MasterLoginPage() {
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { login, initialLoading, isAuthenticated } = useMasterAuth();
   const { t } = useTranslation();
   const router = useRouter();
@@ -129,11 +130,27 @@ export default function MasterLoginPage() {
                         <div className="relative">
                           <Lock className="top-1/2 absolute start-3 w-4 h-4 text-muted-foreground -translate-y-1/2 pointer-events-none" />
                           <Input
-                            type="password"
-                            className="bg-background ps-10 border-border/80 rounded-lg h-11"
+                            type={showPassword ? "text" : "password"}
+                            className="bg-background ps-10 pe-11 border-border/80 rounded-lg h-11"
                             autoComplete="current-password"
                             {...field}
                           />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((v) => !v)}
+                            className="top-1/2 absolute end-1.5 flex justify-center items-center hover:bg-muted rounded-lg w-8 h-8 text-muted-foreground hover:text-foreground transition-colors -translate-y-1/2"
+                            aria-label={
+                              showPassword
+                                ? t("Hide password")
+                                : t("Show password")
+                            }
+                          >
+                            {showPassword ? (
+                              <EyeOff className="w-4 h-4" />
+                            ) : (
+                              <Eye className="w-4 h-4" />
+                            )}
+                          </button>
                         </div>
                       </FormControl>
                       <FormMessage />

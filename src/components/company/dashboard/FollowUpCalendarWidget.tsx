@@ -21,16 +21,24 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { canViewAllClients } from "@/lib/permissions";
+import {
+  bilingualLabel,
+  employeeDisplayName,
+  profileDisplayName,
+} from "@/lib/bilingualLabel";
 import { cn } from "@/lib/utils";
 import { useUpcomingFollowUps } from "@/hooks/queries/useClients";
-import type { ClientWithRelations as Client } from "@/types/supabase-entities.types";
+import type { FollowUpClient } from "@/actions/clients";
 
 const MAX_VISIBLE = 5;
 
-interface ProcessedClient extends Client {
+interface ProcessedClient extends FollowUpClient {
   followUpDateTime: Date;
   statusName: string;
+  displayName: string;
+  agentName: string | null;
   isOverdue: boolean;
   isDueToday: boolean;
   isDueTomorrow: boolean;
@@ -64,8 +72,40 @@ const getStatusColorClass = (statusName?: string) => {
   return colorClasses[Math.abs(hash) % colorClasses.length];
 };
 
+function followUpAgentName(
+  client: FollowUpClient,
+  language: string,
+): string | null {
+  const emp = client.employee as
+    | {
+        name?: string | null;
+        name_en?: string | null;
+        name_ar?: string | null;
+        employee?: {
+          first_name_en?: string | null;
+          first_name_ar?: string | null;
+          last_name_en?: string | null;
+          last_name_ar?: string | null;
+        } | null;
+      }
+    | null
+    | undefined;
+  if (!emp) return null;
+
+  const fromEmployee = employeeDisplayName(emp.employee ?? null, language);
+  if (fromEmployee) return fromEmployee;
+
+  return (
+    profileDisplayName(
+      { name_en: emp.name_en, name_ar: emp.name_ar, name: emp.name },
+      language,
+    ) || emp.name || null
+  );
+}
+
 export default function FollowUpCalendarWidget() {
   const { t, i18n } = useTranslation();
+  const { language } = useLanguage();
   const { company, currentUser } = useCompanyAuth();
   const router = useRouter();
 
@@ -89,10 +129,31 @@ export default function FollowUpCalendarWidget() {
           client.follow_up_date as string,
           client.follow_up_time,
         );
+        const statusName =
+          bilingualLabel(
+            {
+              name_en: client.latest_status_name_en ?? client.status?.name_en,
+              name_ar: client.latest_status_name_ar ?? client.status?.name_ar,
+              name: client.latest_status_name,
+            },
+            language,
+          ) || t("Unknown");
+        const displayName =
+          bilingualLabel(
+            {
+              name_en: client.name_en,
+              name_ar: client.name_ar,
+              name: client.name,
+            },
+            language,
+          ) || t("Unnamed");
+
         return {
-          ...(client as unknown as Client),
+          ...client,
           followUpDateTime,
-          statusName: client.latest_status_name || t("Unknown"),
+          statusName,
+          displayName,
+          agentName: followUpAgentName(client, language),
           isOverdue: isBefore(followUpDateTime, now),
           isDueToday: isToday(followUpDateTime),
           isDueTomorrow: isTomorrow(followUpDateTime),
@@ -102,7 +163,7 @@ export default function FollowUpCalendarWidget() {
         if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
         return a.followUpDateTime.getTime() - b.followUpDateTime.getTime();
       });
-  }, [followUpsData, t]);
+  }, [followUpsData, language, t]);
 
   const stats = useMemo(() => {
     let overdue = 0;
@@ -304,7 +365,7 @@ export default function FollowUpCalendarWidget() {
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start gap-2">
                         <p className="font-semibold text-foreground group-hover:text-primary text-sm truncate transition-colors">
-                          {client.name}
+                          {client.displayName}
                         </p>
                         <span
                           className={cn(
@@ -335,9 +396,9 @@ export default function FollowUpCalendarWidget() {
                         </span>
 
                         {canViewAllClients(currentUser?.role) &&
-                        client.employee ? (
+                        client.agentName ? (
                           <span className="text-muted-foreground/80 truncate">
-                            {t("Agent:")} {client.employee.name}
+                            {t("Agent:")} {client.agentName}
                           </span>
                         ) : null}
                       </div>
@@ -365,4 +426,4 @@ export default function FollowUpCalendarWidget() {
       ) : null}
     </div>
   );
-};
+}

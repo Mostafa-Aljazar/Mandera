@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import SectionBadge from "@/components/common/SectionBadge";
 import MasterAdminHeader from "@/components/master/MasterAdminHeader";
+import { useMasterAuth } from "@/contexts/MasterAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useCompanyDashboardStats } from "@/hooks/queries/useCompanies";
-import { useEmployeeCount } from "@/hooks/useEmployeeCount";
+import { greetingDisplayName, profileDisplayName } from "@/lib/bilingualLabel";
 import { cn } from "@/lib/utils";
 import {
   Building2,
@@ -18,6 +20,7 @@ import {
   Users,
   FileText,
   Plus,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 
@@ -156,15 +159,24 @@ function ActionCard({
 
 export default function MasterDashboardPage() {
   const { t } = useTranslation();
-  const { count: employeeCount, loading: loadingEmployees } =
-    useEmployeeCount(undefined);
+  const { language } = useLanguage();
+  const { currentUser } = useMasterAuth();
   const { data: statsData, isLoading: loading } = useCompanyDashboardStats();
 
   const stats = statsData ?? {
     totalCompanies: 0,
     activeSubscriptions: 0,
     inactiveSubscriptions: 0,
+    totalEmployees: 0,
   };
+
+  const fullName = profileDisplayName(currentUser, language);
+  const firstName = fullName ? greetingDisplayName(fullName) : "";
+  const greetingName = firstName
+    ? language === "ar"
+      ? `أ. ${firstName}`
+      : `Mr. ${firstName}`
+    : "";
 
   const documentTitle = `${t("platformName")} - ${t("Master admin dashboard")}`;
   const activeRate =
@@ -196,6 +208,9 @@ export default function MasterDashboardPage() {
                 </SectionBadge>
                 <h1 className="font-outfit font-extrabold text-foreground text-2xl sm:text-3xl md:text-4xl tracking-tight">
                   {t("Welcome back")}
+                  {greetingName ? (
+                    <span className="text-primary">, {greetingName}</span>
+                  ) : null}
                 </h1>
                 <p className="mt-2 max-w-xl text-muted-foreground text-sm sm:text-base leading-relaxed">
                   {t("Manage companies and monitor subscriptions")}
@@ -246,9 +261,9 @@ export default function MasterDashboardPage() {
               />
               <StatCard
                 label={t("Platform Employees")}
-                value={employeeCount}
+                value={stats.totalEmployees}
                 icon={Users}
-                loading={loadingEmployees}
+                loading={loading}
                 tone="sky"
               />
               <StatCard
@@ -272,7 +287,7 @@ export default function MasterDashboardPage() {
             <h2 className="mb-4 sm:mb-5 font-outfit font-semibold text-foreground text-lg tracking-tight">
               {t("Quick actions")}
             </h2>
-            <div className="gap-3 sm:gap-4 grid sm:grid-cols-2 lg:grid-cols-3">
+            <div className="gap-3 sm:gap-4 grid sm:grid-cols-2 lg:grid-cols-4">
               <ActionCard
                 href="/master/dashboard/companies"
                 title={t("View all companies")}
@@ -291,6 +306,12 @@ export default function MasterDashboardPage() {
                 title={t("master_nav_legal")}
                 description={t("master_action_legal_desc")}
                 icon={FileText}
+              />
+              <ActionCard
+                href="/master/dashboard/settings"
+                title={t("master_nav_settings")}
+                description={t("master_settings_subtitle")}
+                icon={Settings}
               />
             </div>
           </section>

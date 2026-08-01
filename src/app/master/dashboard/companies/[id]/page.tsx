@@ -9,6 +9,8 @@ import DocumentHead from "@/components/common/DocumentHead";
 import MasterAdminHeader from "@/components/master/MasterAdminHeader";
 import IdentityCorrectionPanel from "@/components/master/IdentityCorrectionPanel";
 import { useTranslation } from "react-i18next";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { companyDisplayName } from "@/lib/bilingualLabel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -84,6 +86,7 @@ function FormSection({
 
 export default function CompanyEditPage() {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const { id } = useParams<{ id: string }>();
   const companyId = id as string;
   const router = useRouter();
@@ -263,7 +266,7 @@ export default function CompanyEditPage() {
             aria-hidden
           />
 
-          <div className="relative mx-auto px-4 sm:px-6 py-8 sm:py-10 container max-w-3xl">
+          <div className="relative mx-auto px-4 sm:px-6 py-8 sm:py-10 container max-w-6xl">
             <div className="flex justify-between items-start gap-4">
               <div className="min-w-0">
                 <p className="mb-1 font-mono text-muted-foreground text-xs" dir="ltr">
@@ -273,7 +276,9 @@ export default function CompanyEditPage() {
                   {t("Edit company")}
                 </h1>
                 <p className="mt-2 max-w-xl text-muted-foreground text-sm sm:text-base leading-relaxed">
-                  {company?.company_name_en}
+                  {company
+                    ? companyDisplayName(company, language) || company.company_code
+                    : null}
                 </p>
               </div>
 
@@ -292,7 +297,7 @@ export default function CompanyEditPage() {
           </div>
         </section>
 
-        <div className="mx-auto px-4 sm:px-6 py-6 sm:py-8 container max-w-3xl space-y-6">
+        <div className="mx-auto px-4 sm:px-6 py-6 sm:py-8 container max-w-6xl space-y-6">
           <div className="bg-card shadow-[var(--shadow-subtle)] border border-border/60 rounded-2xl overflow-hidden">
             <Form {...form}>
               <form onSubmit={handleSubmit}>

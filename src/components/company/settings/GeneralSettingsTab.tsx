@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format, isValid, parseISO } from "date-fns";
@@ -19,30 +19,17 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Building2, ImageUp, Loader2 } from "lucide-react";
+import { Building2, Loader2 } from "lucide-react";
 import {
   CompanyGeneralSettingsSchema,
   type TCompanyGeneralSettingsSchema,
 } from "@/validations/company-general-settings.schema";
 import { useUpdateCompanyGeneralSettings } from "@/hooks/queries/useSettings";
 
-const MAX_LOGO_BYTES = 2 * 1024 * 1024;
-const ALLOWED_LOGO_TYPES = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-]);
-
 export default function GeneralSettingsTab() {
   const { t } = useTranslation();
   const { company, refreshCompany } = useCompanyAuth();
   const updateMutation = useUpdateCompanyGeneralSettings();
-
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [removeLogo, setRemoveLogo] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<TCompanyGeneralSettingsSchema>({
     resolver: zodResolver(CompanyGeneralSettingsSchema(t)),
@@ -68,30 +55,6 @@ export default function GeneralSettingsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company?.id]);
 
-  const applyLogoFile = (file: File) => {
-    if (!ALLOWED_LOGO_TYPES.has(file.type)) {
-      toast.error(t("Please upload a JPG, PNG, or WebP image."));
-      return;
-    }
-    if (file.size > MAX_LOGO_BYTES) {
-      toast.error(t("Company logo must be less than 2MB."));
-      return;
-    }
-    if (logoPreview) URL.revokeObjectURL(logoPreview);
-    setLogoFile(file);
-    setLogoPreview(URL.createObjectURL(file));
-    setRemoveLogo(false);
-  };
-
-  const clearLogoSelection = () => {
-    if (logoPreview) URL.revokeObjectURL(logoPreview);
-    setLogoFile(null);
-    setLogoPreview(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const currentLogoUrl = removeLogo ? null : logoPreview || company?.logo_url || null;
-
   const handleSave = form.handleSubmit(async (data) => {
     if (!company?.id) return;
     try {
@@ -102,12 +65,9 @@ export default function GeneralSettingsTab() {
         phone: data.phone,
         adminName: data.adminName,
         email: data.email,
-        logo: logoFile,
-        removeLogo: removeLogo && !logoFile,
       });
       if (result.error) throw new Error(result.error);
       toast.success(t("Settings updated successfully."));
-      clearLogoSelection();
       await refreshCompany();
     } catch (error) {
       console.error(error);
@@ -123,7 +83,7 @@ export default function GeneralSettingsTab() {
 
   return (
     <SettingsSection
-      title={t("General Settings")}
+      title={t("Company data")}
       description={t("company_general_settings_desc")}
       icon={Building2}
       action={
@@ -145,60 +105,6 @@ export default function GeneralSettingsTab() {
     >
       <Form {...form}>
         <form onSubmit={handleSave} className="space-y-8">
-          <div className="space-y-3">
-            <label className="font-medium text-sm leading-none">
-              {t("Company Logo")}
-            </label>
-            <div className="flex items-center gap-4">
-              <div className="flex justify-center items-center bg-muted/30 border border-border/60 rounded-xl w-16 h-16 overflow-hidden shrink-0">
-                {currentLogoUrl ? (
-                  <img
-                    src={currentLogoUrl}
-                    alt={t("Company Logo")}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <ImageUp className="w-5 h-5 text-muted-foreground" />
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) applyLogoFile(file);
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="rounded-lg h-9"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {logoFile || company?.logo_url ? t("Change logo") : t("Upload logo")}
-                </Button>
-                {(logoFile || company?.logo_url) && !removeLogo ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-lg h-9 text-destructive hover:text-destructive"
-                    onClick={() => {
-                      clearLogoSelection();
-                      if (company?.logo_url) setRemoveLogo(true);
-                    }}
-                  >
-                    {t("Remove")}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
           <div className="gap-4 grid grid-cols-1 sm:grid-cols-2">
             <FormField
               control={form.control}

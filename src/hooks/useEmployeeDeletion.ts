@@ -10,9 +10,7 @@ interface EmployeeToDelete {
 }
 
 interface ReassignmentTargets {
-  reassignOwnersTo: string;
-  reassignClientsTo: string;
-  reassignPropertiesTo: string;
+  reassignTo: string;
 }
 
 export const useEmployeeDeletion = () => {

@@ -13,11 +13,14 @@ import {
   updateBaseEmployee,
   deleteEmployeeWorkflow,
   resetEmployeePassword,
-  type CreateEmployeeInput,
-  type UpdateEmployeeInput,
-  type EmployeeToDelete,
-  type ReassignmentTargets,
+  getEmployeeAssignmentCounts,
 } from "@/actions/employees";
+import type {
+  CreateEmployeeInput,
+  UpdateEmployeeInput,
+  EmployeeToDelete,
+  ReassignmentTargets,
+} from "@/actions/employee-types";
 
 export function useCompanyEmployees(companyId?: string) {
   return useQuery({
@@ -183,5 +186,21 @@ export function useDeleteEmployeeWorkflow() {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       queryClient.invalidateQueries({ queryKey: ["properties"] });
     },
+  });
+}
+
+export function useEmployeeAssignmentCounts(
+  profileId?: string,
+  companyId?: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["employee_assignment_counts", profileId, companyId],
+    queryFn: async () => {
+      const result = await getEmployeeAssignmentCounts(profileId!, companyId!);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: enabled && !!profileId && !!companyId,
   });
 }

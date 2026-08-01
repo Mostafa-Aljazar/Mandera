@@ -131,6 +131,14 @@ export function canViewRevenue(role: string | null | undefined): boolean {
   return canAccessManagerModules(role);
 }
 
+/** Hide commission_percentage on property payloads for non-managers. */
+export function stripPropertyCommissionUnlessManager<
+  T extends { commission_percentage?: number | null },
+>(property: T, role: string | null | undefined): T {
+  if (canViewRevenue(role)) return property;
+  return { ...property, commission_percentage: null };
+}
+
 export function canManageEmployees(role: string | null | undefined): boolean {
   return canAccessManagerModules(role);
 }
@@ -159,17 +167,14 @@ export function canAssignRecords(role: string | null | undefined): boolean {
 }
 
 /**
- * PDF: Sales Agents may transfer an owner to another employee.
- * Client reassignment stays Admin/Manager-only via `canAssignRecords`.
+ * Reassign / transfer owner to another employee.
+ * Final permissions matrix: Sales Agent cannot reassign — Admin/Manager only
+ * (same gate as client assignment via `canAssignRecords`).
  */
 export function canChangeOwnerAssignment(
   role: string | null | undefined,
 ): boolean {
-  return (
-    isSalesAgent(role) ||
-    isAdministratorOrAbove(role) ||
-    isMasterAdmin(role)
-  );
+  return canAssignRecords(role);
 }
 
 /** PDF: export when needed — Manager only. */
@@ -215,6 +220,42 @@ export function canEditApprovedPropertyDirectly(
   role: string | null | undefined,
 ): boolean {
   return isAdministratorOrAbove(role) || isMasterAdmin(role);
+}
+
+/**
+ * Sales agents may only edit listings assigned to them.
+ * Administrators / managers (and master admin) can edit any company listing.
+ */
+export function canEditPropertyRecord(
+  role: string | null | undefined,
+  propertyEmployeeId: string | null | undefined,
+  callerId: string | null | undefined,
+): boolean {
+  if (isMasterAdmin(role) || isAdministratorOrAbove(role)) return true;
+  if (!isSalesAgent(role)) return false;
+  return Boolean(
+    callerId && propertyEmployeeId && propertyEmployeeId === callerId,
+  );
+}
+
+/**
+ * Whether the Edit button / property form may open for this listing.
+ * Sales agents cannot edit while pending_review (server also rejects).
+ * Approved listings open the change-request flow for agents.
+ */
+export function canOpenPropertyEditor(
+  role: string | null | undefined,
+  propertyEmployeeId: string | null | undefined,
+  callerId: string | null | undefined,
+  approvalStatus: string | null | undefined,
+): boolean {
+  if (!canEditPropertyRecord(role, propertyEmployeeId, callerId)) {
+    return false;
+  }
+  if (isSalesAgent(role) && approvalStatus === "pending_review") {
+    return false;
+  }
+  return true;
 }
 
 export function canClassifyProperty(role: string | null | undefined): boolean {

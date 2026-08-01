@@ -64,6 +64,36 @@ export function employeeDisplayName(
   return titleCaseName(full || fallback?.trim() || "");
 }
 
+/** Profile display name from bilingual name_en/name_ar (falls back to legacy `name`). */
+export function profileDisplayName(
+  profile:
+    | {
+        name_en?: string | null;
+        name_ar?: string | null;
+        name?: string | null;
+      }
+    | null
+    | undefined,
+  language: string,
+): string {
+  if (!profile) return "";
+  return bilingualLabel(
+    {
+      name_en: profile.name_en,
+      name_ar: profile.name_ar,
+      name: profile.name,
+    },
+    language,
+  );
+}
+
+/** Short greeting form — first name only (honorifics are added by the UI). */
+export function greetingDisplayName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "";
+  return titleCaseName(parts[0]);
+}
+
 /** Capitalize the first character of each word (safe for Arabic — no case change). */
 export function titleCaseName(name: string): string {
   return name

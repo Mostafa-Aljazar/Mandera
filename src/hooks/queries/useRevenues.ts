@@ -3,10 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getRevenues,
+  getRevenue,
   completeDeal,
   updateRevenue,
   approveRevenue,
   rejectRevenue,
+  approveCommission,
+  rejectCommission,
   markCommissionPaid,
   getRevenueChangeLog,
   type RevenueFilters,
@@ -23,6 +26,18 @@ export function useRevenues(companyId?: string, filters: RevenueFilters = {}) {
       return result.data;
     },
     enabled: !!companyId,
+  });
+}
+
+export function useRevenue(companyId?: string, revenueId?: string) {
+  return useQuery({
+    queryKey: ["revenue", companyId, revenueId],
+    queryFn: async () => {
+      const result = await getRevenue(revenueId!, companyId!);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!companyId && !!revenueId,
   });
 }
 
@@ -47,6 +62,7 @@ function useRevenueMutation<TVariables>(
     onSuccess: (result) => {
       if (result.error) return;
       queryClient.invalidateQueries({ queryKey: ["revenues"] });
+      queryClient.invalidateQueries({ queryKey: ["revenue"] });
       queryClient.invalidateQueries({ queryKey: ["revenue_change_log"] });
     },
   });
@@ -69,6 +85,19 @@ export function useRejectRevenue() {
   return useRevenueMutation(
     (variables: { id: string; companyId: string; note: string }) =>
       rejectRevenue(variables.id, variables.companyId, variables.note),
+  );
+}
+
+export function useApproveCommission() {
+  return useRevenueMutation((variables: { id: string; companyId: string }) =>
+    approveCommission(variables.id, variables.companyId),
+  );
+}
+
+export function useRejectCommission() {
+  return useRevenueMutation(
+    (variables: { id: string; companyId: string; note: string }) =>
+      rejectCommission(variables.id, variables.companyId, variables.note),
   );
 }
 

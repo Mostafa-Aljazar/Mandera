@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { Shield } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import SettingsSection from "./SettingsSection";
@@ -12,48 +11,145 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Check, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-type Cell = boolean | "master";
-
+/** Final permissions matrix — matches the product «جدول الصلاحيات النهائي». */
 const MATRIX: {
   capability: string;
-  sales_agent: Cell;
-  administrator: Cell;
-  manager: Cell;
+  sales_agent: string;
+  administrator: string;
+  manager: string;
 }[] = [
-  { capability: "View all clients / owners / properties", sales_agent: false, administrator: true, manager: true },
-  { capability: "Assign / transfer records", sales_agent: false, administrator: true, manager: true },
-  { capability: "Approve properties & edits", sales_agent: false, administrator: true, manager: true },
-  { capability: "Clients by Source / Leaderboard", sales_agent: false, administrator: true, manager: true },
-  { capability: "Revenue", sales_agent: false, administrator: false, manager: true },
-  { capability: "Employees", sales_agent: false, administrator: false, manager: true },
-  { capability: "Company Settings", sales_agent: false, administrator: false, manager: true },
-  { capability: "Export clients / owners", sales_agent: false, administrator: false, manager: true },
-  { capability: "Lock records", sales_agent: false, administrator: false, manager: true },
-  { capability: "Delete client / owner", sales_agent: false, administrator: false, manager: false },
-  { capability: "Edit client / owner name or phone", sales_agent: false, administrator: false, manager: false },
-  { capability: "Identity correction (audit)", sales_agent: "master", administrator: "master", manager: "master" },
+  {
+    capability: "View own clients",
+    sales_agent: "Yes",
+    administrator: "Yes, all clients",
+    manager: "Yes, all clients",
+  },
+  {
+    capability: "View others' clients",
+    sales_agent: "No",
+    administrator: "Yes",
+    manager: "Yes",
+  },
+  {
+    capability: "View own owners",
+    sales_agent: "Yes",
+    administrator: "Yes, all owners",
+    manager: "Yes, all owners",
+  },
+  {
+    capability: "Edit client or owner name",
+    sales_agent: "No",
+    administrator: "No",
+    manager: "No",
+  },
+  {
+    capability: "Edit client or owner phone",
+    sales_agent: "No",
+    administrator: "No",
+    manager: "No",
+  },
+  {
+    capability: "Delete client or owner",
+    sales_agent: "No",
+    administrator: "No",
+    manager: "No",
+  },
+  {
+    capability: "Add property",
+    sales_agent: "Draft only",
+    administrator: "Yes",
+    manager: "Yes",
+  },
+  {
+    capability: "Approve new property",
+    sales_agent: "No",
+    administrator: "Yes",
+    manager: "Yes",
+  },
+  {
+    capability: "Edit approved property directly",
+    sales_agent: "No",
+    administrator: "Yes",
+    manager: "Yes",
+  },
+  {
+    capability: "Submit property edit for review",
+    sales_agent: "Yes",
+    administrator: "Not required",
+    manager: "Not required",
+  },
+  {
+    capability: "Approve agent edit",
+    sales_agent: "No",
+    administrator: "Yes",
+    manager: "Yes",
+  },
+  {
+    capability: "Change property status",
+    sales_agent: "Yes with notification",
+    administrator: "Yes",
+    manager: "Yes",
+  },
+  {
+    capability: "View full property owner data",
+    sales_agent: "Assigned properties only",
+    administrator: "Yes",
+    manager: "Yes",
+  },
+  {
+    capability: "Clients by Source",
+    sales_agent: "No",
+    administrator: "Yes",
+    manager: "Yes",
+  },
+  {
+    capability: "Team Leaderboard",
+    sales_agent: "No",
+    administrator: "Yes",
+    manager: "Yes",
+  },
+  {
+    capability: "Revenue",
+    sales_agent: "No",
+    administrator: "No",
+    manager: "Yes",
+  },
+  {
+    capability: "Employees",
+    sales_agent: "No",
+    administrator: "No",
+    manager: "Yes",
+  },
+  {
+    capability: "Company Settings",
+    sales_agent: "No",
+    administrator: "No",
+    manager: "Yes",
+  },
 ];
 
-function CellIcon({ value }: { value: Cell }) {
-  if (value === "master") {
-    return <span className="text-xs text-muted-foreground">Master Admin</span>;
+function cellTone(value: string): string {
+  if (value === "No") return "text-rose-600/80";
+  if (value === "Yes" || value === "Yes, all clients" || value === "Yes, all owners") {
+    return "text-emerald-700";
   }
-  return value ? (
-    <Check className="w-4 h-4 text-emerald-600 mx-auto" />
-  ) : (
-    <X className="w-4 h-4 text-rose-500/70 mx-auto" />
-  );
+  if (value === "Draft only" || value === "Yes with notification") {
+    return "text-amber-700";
+  }
+  if (value === "Not required" || value === "Assigned properties only") {
+    return "text-muted-foreground";
+  }
+  return "text-foreground";
 }
 
 export default function RolePermissionsTab() {
   const { t } = useTranslation();
-  const rows = useMemo(() => MATRIX, []);
 
   return (
     <SettingsSection
-      title={t("User permissions")}
+      title={t("Final permissions table")}
       description={t(
         "Role capability matrix for Sales Agent, Administrator, and Manager. Identity corrections remain Master Admin only.",
       )}
@@ -61,29 +157,45 @@ export default function RolePermissionsTab() {
     >
       <div className="overflow-x-auto">
         <Table>
-          <TableHeader>
+          <TableHeader className="bg-muted/40">
             <TableRow>
-              <TableHead>{t("Capability")}</TableHead>
-              <TableHead className="text-center">{t("Sales Agent")}</TableHead>
-              <TableHead className="text-center">{t("Administrator")}</TableHead>
-              <TableHead className="text-center">{t("Manager")}</TableHead>
+              <TableHead className="min-w-[12rem] text-start">
+                {t("Capability")}
+              </TableHead>
+              <TableHead className="min-w-[7rem] text-center">
+                {t("Sales Agent")}
+              </TableHead>
+              <TableHead className="min-w-[8rem] text-center">
+                {t("Administrator")}
+              </TableHead>
+              <TableHead className="min-w-[7rem] text-center">
+                {t("Manager")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.capability}>
-                <TableCell className="font-medium text-sm">
+            {MATRIX.map((row) => (
+              <TableRow key={row.capability} className="hover:bg-muted/30">
+                <TableCell className="font-medium text-sm text-start">
                   {t(row.capability)}
                 </TableCell>
-                <TableCell className="text-center">
-                  <CellIcon value={row.sales_agent} />
-                </TableCell>
-                <TableCell className="text-center">
-                  <CellIcon value={row.administrator} />
-                </TableCell>
-                <TableCell className="text-center">
-                  <CellIcon value={row.manager} />
-                </TableCell>
+                {(
+                  [
+                    row.sales_agent,
+                    row.administrator,
+                    row.manager,
+                  ] as const
+                ).map((value, index) => (
+                  <TableCell
+                    key={`${row.capability}-${index}`}
+                    className={cn(
+                      "text-center text-sm font-medium",
+                      cellTone(value),
+                    )}
+                  >
+                    {t(value)}
+                  </TableCell>
+                ))}
               </TableRow>
             ))}
           </TableBody>

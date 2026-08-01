@@ -235,7 +235,7 @@ export async function deleteMessageTemplate(
 export async function getCompanyJsonSettings(
   companyId: string,
 ): Promise<ActionResult<CompanyJsonSettings>> {
-  const access = await assertManager(companyId);
+  const access = await assertCompanyMember(companyId);
   if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase

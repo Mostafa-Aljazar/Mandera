@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
@@ -41,7 +41,16 @@ import { bilingualLabel, employeeDisplayName, type BilingualName } from '@/lib/b
 import { useStatusUpdate } from '@/hooks/useStatusUpdate';
 import { useCompanyEmployeesLookup } from '@/hooks/queries/useProperties';
 import { StatusUpdateSchema, type TStatusUpdateSchema } from '@/validations/status-update.schema';
-import { PROPERTY_STATUS_OPTIONS, isFinalPropertyStatus, isSalesAgent } from '@/lib/permissions';
+import {
+  propertyStatusLabel,
+  resolveCompanyPropertyStatuses,
+  splitSelectablePropertyStatuses,
+} from '@/lib/propertyStatuses';
+import { useCompanyJsonSettings } from '@/hooks/queries/useCompanyExtendedSettings';
+import {
+  isFinalPropertyStatus,
+  isSalesAgent,
+} from '@/lib/permissions';
 
 type EntityType = 'client' | 'owner' | 'property';
 
@@ -74,6 +83,13 @@ export default function StatusUpdateModal({
   const dateLocale = language === "ar" ? ar : enUS;
   const [noteExpanded, setNoteExpanded] = useState(false);
   const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
+  const { data: jsonSettings } = useCompanyJsonSettings(company?.id);
+  const propertyStatusGroups = useMemo(() => {
+    const rows = resolveCompanyPropertyStatuses(
+      jsonSettings?.publish_settings as Record<string, unknown> | undefined,
+    );
+    return splitSelectablePropertyStatuses(rows);
+  }, [jsonSettings?.publish_settings]);
   const currentEmployee = employeesData?.find((e) => e.id === currentUser?.id);
   const currentUserDisplayName =
     employeeDisplayName(
@@ -187,23 +203,106 @@ export default function StatusUpdateModal({
               <FormField
                 control={form.control}
                 name="status_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger className="bg-background h-10">
-                          <SelectValue placeholder={t('Select Status...')} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {PROPERTY_STATUS_OPTIONS.map(s => (
-                          <SelectItem key={s} value={s}>{t(s)}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  const agentView = isSalesAgent(currentUser?.role);
+                  const selectedFinal =
+                    Boolean(field.value) && isFinalPropertyStatus(field.value);
+
+                  const StatusChip = ({
+                    value,
+                    label,
+                    tone,
+                  }: {
+                    value: string;
+                    label: string;
+                    tone: "sky" | "amber";
+                  }) => {
+                    const active = field.value === value;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => field.onChange(value)}
+                        className={cn(
+                          "rounded-lg border px-2.5 py-1.5 text-start text-xs font-medium transition-colors",
+                          active
+                            ? tone === "amber"
+                              ? "border-amber-500/50 bg-amber-500/15 text-amber-950 ring-1 ring-amber-500/30"
+                              : "border-sky-500/50 bg-sky-500/15 text-sky-950 ring-1 ring-sky-500/30"
+                            : "border-border/70 bg-background text-foreground/85 hover:bg-muted/50",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    );
+                  };
+
+                  return (
+                    <FormItem className="space-y-3">
+                      <div className="space-y-3">
+                        <div className="rounded-xl border border-sky-500/25 bg-sky-500/[0.06] p-3 space-y-2">
+                          <div className="space-y-0.5 text-start">
+                            <p className="text-xs font-semibold text-sky-900">
+                              {t("Operational statuses")}
+                            </p>
+                            <p className="text-[11px] text-sky-900/75 leading-relaxed">
+                              {agentView
+                                ? t("Apply immediately — admin is notified")
+                                : t("Apply immediately")}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {propertyStatusGroups.operational.map((s) => (
+                              <StatusChip
+                                key={s.key}
+                                value={s.key}
+                                label={propertyStatusLabel(s, language)}
+                                tone="sky"
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-3 space-y-2">
+                          <div className="space-y-0.5 text-start">
+                            <p className="text-xs font-semibold text-amber-950">
+                              {agentView
+                                ? t("Final statuses — need approval")
+                                : t("Final statuses — admin applies directly")}
+                            </p>
+                            <p className="text-[11px] text-amber-950/75 leading-relaxed">
+                              {agentView
+                                ? t(
+                                    "Request only — listing stays until admin/manager approves",
+                                  )
+                                : t(
+                                    "Managers/admins apply these immediately (no approval queue).",
+                                  )}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {propertyStatusGroups.final.map((s) => (
+                              <StatusChip
+                                key={s.key}
+                                value={s.key}
+                                label={propertyStatusLabel(s, language)}
+                                tone="amber"
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        {agentView && selectedFinal ? (
+                          <p className="text-xs text-amber-900 leading-relaxed">
+                            {t(
+                              "This final status needs administrator approval. The listing stays as-is until approved.",
+                            )}
+                          </p>
+                        ) : null}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
             ) : (
               <FormField

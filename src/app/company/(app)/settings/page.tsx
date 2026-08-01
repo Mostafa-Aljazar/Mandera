@@ -15,20 +15,19 @@ import {
 } from "@/lib/permissions";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import GeneralSettingsTab from "@/components/company/settings/GeneralSettingsTab";
+import LogoSettingsTab from "@/components/company/settings/LogoSettingsTab";
 import OwnerStatusesTab from "@/components/company/settings/OwnerStatusesTab";
 import AreasDistrictsTab from "@/components/company/settings/AreasDistrictsTab";
 import MarketingChannelsTab from "@/components/company/settings/MarketingChannelsTab";
 import PortalIntegrationsTab from "@/components/company/settings/PortalIntegrationsTab";
-import DistributionRulesTab from "@/components/company/settings/DistributionRulesTab";
 import TeamsTab from "@/components/company/settings/TeamsTab";
 import BranchesTab from "@/components/company/settings/BranchesTab";
-import MessageTemplatesTab from "@/components/company/settings/MessageTemplatesTab";
-import WhatsAppSettingsTab from "@/components/company/settings/WhatsAppSettingsTab";
 import NotificationSettingsTab from "@/components/company/settings/NotificationSettingsTab";
 import PublishSettingsTab from "@/components/company/settings/PublishSettingsTab";
 import PropertyStatusesTab from "@/components/company/settings/PropertyStatusesTab";
 import RolePermissionsTab from "@/components/company/settings/RolePermissionsTab";
 import ClientSettingsTab from "@/components/company/settings/ClientSettingsTab";
+import IntegrationsTab from "@/components/company/settings/IntegrationsTab";
 import EmployeeDeletionDialog from "@/components/company/employees/EmployeeDeletionDialog";
 import SettingsSection from "@/components/company/settings/SettingsSection";
 import SettingsTableShell from "@/components/company/settings/SettingsTableShell";
@@ -45,6 +44,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -82,13 +82,12 @@ import {
   Eye,
   Globe,
   Settings2,
-  Shuffle,
   UsersRound,
   Building,
-  MessageSquareText,
-  MessageCircle,
   Bell,
   Send,
+  ImageUp,
+  Plug,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -121,33 +120,44 @@ import {
 
 const SETTINGS_TABS = [
   "general",
-  "employees",
-  "property-types",
-  "property-statuses",
+  "logo",
+  "branches",
   "client-settings",
   "client-statuses",
+  "property-statuses",
+  "property-types",
+  "notification-settings",
+  "publish-settings",
+  "integrations",
+  "user-permissions",
+  "portal-integrations",
+  "teams",
+  "employees",
   "owner-statuses",
   "areas-districts",
   "marketing-channels",
-  "portal-integrations",
-  "distribution-rules",
-  "teams",
-  "branches",
-  "message-templates",
-  "whatsapp-settings",
-  "notification-settings",
-  "publish-settings",
-  "user-permissions",
 ] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
+type NavEntry =
+  | { type: "item"; value: SettingsTab; label: string; icon: LucideIcon }
+  | { type: "separator" }
+  | { type: "heading"; label: string };
+
 function resolveSettingsTab(raw: string | null): SettingsTab {
   if (raw === "portals") return "portal-integrations";
+  // Deferred settings — kept in code, hidden from nav (see docs/company-settings-upcoming.md)
+  if (raw === "whatsapp-settings" || raw === "message-templates") {
+    return "integrations";
+  }
+  if (raw === "distribution-rules") {
+    return "client-settings";
+  }
   if (raw && (SETTINGS_TABS as readonly string[]).includes(raw)) {
     return raw as SettingsTab;
   }
-  return "employees";
+  return "general";
 }
 
 const SettingsPage = () => {
@@ -177,7 +187,7 @@ const SettingsPage = () => {
   const selectTab = (tab: SettingsTab) => {
     setActiveTab(tab);
     const params = new URLSearchParams(searchParams.toString());
-    if (tab === "employees") {
+    if (tab === "general") {
       params.delete("tab");
     } else {
       params.set("tab", tab);
@@ -186,35 +196,55 @@ const SettingsPage = () => {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
 
-  const navItems: { value: SettingsTab; label: string; icon: LucideIcon }[] = [
-    { value: "general", label: t("General"), icon: Settings2 },
-    { value: "employees", label: t("Employees"), icon: Users },
-    { value: "property-types", label: t("Property Types"), icon: Building2 },
-    { value: "property-statuses", label: t("Property Statuses"), icon: ListChecks },
-    { value: "client-settings", label: t("Client settings"), icon: Settings2 },
-    { value: "client-statuses", label: t("Client Status"), icon: ListChecks },
-    { value: "owner-statuses", label: t("Owner Status"), icon: UserRound },
-    { value: "areas-districts", label: t("Areas"), icon: MapPin },
-    { value: "marketing-channels", label: t("Marketing"), icon: Megaphone },
-    { value: "portal-integrations", label: t("Portals"), icon: Globe },
-    { value: "distribution-rules", label: t("Distribution"), icon: Shuffle },
-    { value: "teams", label: t("Teams"), icon: UsersRound },
-    { value: "branches", label: t("Branches"), icon: Building },
-    { value: "message-templates", label: t("Message Templates"), icon: MessageSquareText },
-    { value: "whatsapp-settings", label: t("WhatsApp Settings"), icon: MessageCircle },
-    { value: "notification-settings", label: t("Notification Settings"), icon: Bell },
-    { value: "publish-settings", label: t("Publish Settings"), icon: Send },
-    { value: "user-permissions", label: t("User permissions"), icon: Eye },
+  const navEntries: NavEntry[] = [
+    { type: "item", value: "general", label: t("Company data"), icon: Building2 },
+    { type: "item", value: "logo", label: t("Logo"), icon: ImageUp },
+    { type: "item", value: "branches", label: t("Branches"), icon: Building },
+    { type: "item", value: "client-settings", label: t("Client settings"), icon: Settings2 },
+    { type: "item", value: "client-statuses", label: t("Client stages"), icon: ListChecks },
+    { type: "separator" },
+    { type: "item", value: "property-statuses", label: t("Property Statuses"), icon: ListChecks },
+    { type: "item", value: "property-types", label: t("Property Types"), icon: Building2 },
+    {
+      type: "item",
+      value: "notification-settings",
+      label: t("Notification Settings"),
+      icon: Bell,
+    },
+    { type: "item", value: "publish-settings", label: t("Publish Settings"), icon: Send },
+    { type: "item", value: "integrations", label: t("Integrations"), icon: Plug },
+    { type: "item", value: "user-permissions", label: t("User permissions"), icon: Eye },
+    {
+      type: "item",
+      value: "portal-integrations",
+      label: t("Real estate platforms"),
+      icon: Globe,
+    },
+    { type: "item", value: "teams", label: t("Team Settings"), icon: UsersRound },
+    { type: "separator" },
+    { type: "heading", label: t("More") },
+    { type: "item", value: "employees", label: t("Employees"), icon: Users },
+    { type: "item", value: "owner-statuses", label: t("Owner Status"), icon: UserRound },
+    { type: "item", value: "areas-districts", label: t("Areas"), icon: MapPin },
+    { type: "item", value: "marketing-channels", label: t("Marketing"), icon: Megaphone },
   ];
 
-  const { data: propertyTypesData } = usePropertyTypes(companyId);
+  const navItems = navEntries.filter(
+    (entry): entry is Extract<NavEntry, { type: "item" }> => entry.type === "item",
+  );
+
+  const { data: propertyTypesData, isPending: propertyTypesPending } =
+    usePropertyTypes(companyId);
+  const propertyTypesLoading = Boolean(companyId) && propertyTypesPending;
   const propertyTypes = [...(propertyTypesData ?? [])].sort((a, b) => {
     if (language === "ar") {
       return a.name_ar.localeCompare(b.name_ar, "ar", { sensitivity: "base" });
     }
     return a.name_en.localeCompare(b.name_en, "en", { sensitivity: "base" });
   });
-  const { data: clientStatusesData } = useClientStatuses(companyId);
+  const { data: clientStatusesData, isPending: clientStatusesPending } =
+    useClientStatuses(companyId);
+  const clientStatusesLoading = Boolean(companyId) && clientStatusesPending;
   const clientStatuses = clientStatusesData ?? [];
   const { data: employeesData } = useSettingsEmployees(companyId);
   const employees: CompanyEmployeeWithDetails[] = employeesData ?? [];
@@ -258,6 +288,10 @@ const SettingsPage = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] =
     useState<CompanyEmployeeWithDetails | null>(null);
+  const [clientStatusToDelete, setClientStatusToDelete] =
+    useState<ClientStatus | null>(null);
+  const [propertyTypeToDelete, setPropertyTypeToDelete] =
+    useState<PropertyType | null>(null);
 
   const savePropertyType = propertyTypeForm.handleSubmit(async (formData) => {
     if (!companyId) return;
@@ -322,26 +356,38 @@ const SettingsPage = () => {
     }
   });
 
-  const handleDeletePropertyType = async (id: string) => {
-    if (!window.confirm(t("Are you sure you want to delete this item?")))
-      return;
+  const handleDeletePropertyType = (item: PropertyType) => {
+    setPropertyTypeToDelete(item);
+  };
+
+  const confirmDeletePropertyType = async () => {
+    if (!propertyTypeToDelete) return;
     try {
-      const result = await deletePropertyTypeMutation.mutateAsync(id);
+      const result = await deletePropertyTypeMutation.mutateAsync(
+        propertyTypeToDelete.id,
+      );
       if (result.error) throw new Error(result.error);
-      toast.success(t("Deleted successfully."));
-    } catch (error) {
+      toast.success(t("Property type deleted successfully."));
+      setPropertyTypeToDelete(null);
+    } catch {
       toast.error(t("Failed to delete. It might be in use."));
     }
   };
 
-  const handleDeleteClientStatus = async (id: string) => {
-    if (!window.confirm(t("Are you sure you want to delete this item?")))
-      return;
+  const handleDeleteClientStatus = (item: ClientStatus) => {
+    setClientStatusToDelete(item);
+  };
+
+  const confirmDeleteClientStatus = async () => {
+    if (!clientStatusToDelete) return;
     try {
-      const result = await deleteClientStatusMutation.mutateAsync(id);
+      const result = await deleteClientStatusMutation.mutateAsync(
+        clientStatusToDelete.id,
+      );
       if (result.error) throw new Error(result.error);
-      toast.success(t("Deleted successfully."));
-    } catch (error) {
+      toast.success(t("Client stage deleted successfully."));
+      setClientStatusToDelete(null);
+    } catch {
       toast.error(t("Failed to delete. It might be in use."));
     }
   };
@@ -399,6 +445,7 @@ const SettingsPage = () => {
   const renderTable = (
     data: PropertyType[],
     setOpen: (open: boolean) => void,
+    isLoading = false,
   ) => (
     <SettingsTableShell>
       <Table>
@@ -410,7 +457,19 @@ const SettingsPage = () => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {data.length === 0 ? (
+          {isLoading ? (
+            <TableRow>
+              <TableCell
+                colSpan={3}
+                className="py-12 text-muted-foreground text-center"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {t("Loading...")}
+                </span>
+              </TableCell>
+            </TableRow>
+          ) : data.length === 0 ? (
             <TableRow>
               <TableCell
                 colSpan={3}
@@ -453,7 +512,8 @@ const SettingsPage = () => {
                       variant="ghost"
                       size="icon"
                       className="w-8 h-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => handleDeletePropertyType(item.id)}
+                      onClick={() => handleDeletePropertyType(item)}
+                      aria-label={t("Delete Property Type")}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -479,7 +539,19 @@ const SettingsPage = () => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {clientStatuses.length === 0 ? (
+          {clientStatusesLoading ? (
+            <TableRow>
+              <TableCell
+                colSpan={4}
+                className="py-12 text-muted-foreground text-center"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {t("Loading...")}
+                </span>
+              </TableCell>
+            </TableRow>
+          ) : clientStatuses.length === 0 ? (
             <TableRow>
               <TableCell
                 colSpan={4}
@@ -570,7 +642,8 @@ const SettingsPage = () => {
                       variant="ghost"
                       size="icon"
                       className="w-8 h-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => handleDeleteClientStatus(item.id)}
+                      onClick={() => handleDeleteClientStatus(item)}
+                      aria-label={t("Delete Client Stage")}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -593,7 +666,7 @@ const SettingsPage = () => {
 
   return (
     <>
-      <DocumentHead title={`${t("Settings")} | MANDERA CRM`} />
+      <DocumentHead title={`${t("Company Settings")} | MANDERA CRM`} />
       <CompanyAdminHeader />
 
       <main className="bg-muted/20 min-h-[calc(100vh-68px)]">
@@ -605,12 +678,10 @@ const SettingsPage = () => {
               </span>
               <div className="min-w-0">
                 <h1 className="font-outfit font-bold text-foreground text-xl sm:text-2xl md:text-3xl tracking-tight">
-                  {t("System Settings")}
+                  {t("Company Settings")}
                 </h1>
                 <p className="mt-1 max-w-xl text-muted-foreground text-sm sm:text-base leading-relaxed">
-                  {t(
-                    "Configure global properties, statuses, locations and employees.",
-                  )}
+                  {t("Manager only. Configure company data, stages, portals, and more.")}
                 </p>
               </div>
             </div>
@@ -662,7 +733,26 @@ const SettingsPage = () => {
                   {t("Settings")}
                 </p>
                 <ul className="space-y-0.5">
-                  {navItems.map(({ value, label, icon: Icon }) => {
+                  {navEntries.map((entry, index) => {
+                    if (entry.type === "separator") {
+                      return (
+                        <li
+                          key={`sep-${index}`}
+                          aria-hidden
+                          className="my-2 mx-2 border-border/70 border-t"
+                        />
+                      );
+                    }
+                    if (entry.type === "heading") {
+                      return (
+                        <li key={`heading-${index}`} className="px-3 pt-2 pb-1">
+                          <span className="font-medium text-muted-foreground text-[11px] ltr:uppercase tracking-wider">
+                            {entry.label}
+                          </span>
+                        </li>
+                      );
+                    }
+                    const { value, label, icon: Icon } = entry;
                     const isActive = activeTab === value;
                     return (
                       <li key={value}>
@@ -862,80 +952,136 @@ const SettingsPage = () => {
                       <DialogTrigger asChild>
                         <Button
                           size="sm"
-                          className="gap-2 w-full sm:w-auto h-9"
+                          className="gap-2 w-full sm:w-auto h-9 rounded-xl"
                         >
                           <Plus className="w-4 h-4" /> {t("Add Type")}
                         </Button>
                       </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>
-                            {editItem ? t("Edit") : t("Add")}{" "}
-                            {t("Property Type")}
-                          </DialogTitle>
-                        </DialogHeader>
-                        <Form {...propertyTypeForm}>
-                          <div className="space-y-4 py-4">
-                            <FormField
-                              control={propertyTypeForm.control}
-                              name="name_en"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>{`${t("Name")} (EN)`}</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      {...field}
-                                      value={field.value ?? ""}
-                                      dir="ltr"
-                                      placeholder="e.g. Villa"
-                                      className="bg-background h-10"
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
+                      <DialogContent className="gap-0 p-0 sm:max-w-md overflow-hidden sm:rounded-2xl">
+                        <div className="relative px-6 pt-6 pb-4">
+                          <div
+                            className="absolute inset-0 bg-gradient-to-b from-primary/[0.08] to-transparent pointer-events-none"
+                            aria-hidden
+                          />
+                          <DialogHeader className="relative space-y-3">
+                            <div className="flex justify-center items-center mx-auto bg-primary/10 ring-4 ring-primary/10 rounded-2xl w-12 h-12 text-primary">
+                              {editItem ? (
+                                <Edit2 className="w-5 h-5" />
+                              ) : (
+                                <Plus className="w-5 h-5" />
                               )}
-                            />
-                            <FormField
-                              control={propertyTypeForm.control}
-                              name="name_ar"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>{`${t("Name")} (AR)`}</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      {...field}
-                                      value={field.value ?? ""}
-                                      dir="rtl"
-                                      placeholder="مثال: فيلا"
-                                      className="bg-background h-10"
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-                        </Form>
-                        <DialogFooter>
+                            </div>
+                            <div className="space-y-1.5 text-center sm:text-start">
+                              <DialogTitle className="font-outfit text-lg">
+                                {editItem
+                                  ? t("Edit Property Type")
+                                  : t("Add Property Type")}
+                              </DialogTitle>
+                              <DialogDescription className="text-muted-foreground text-sm leading-relaxed">
+                                {editItem
+                                  ? t(
+                                      "Update the English and Arabic names for this property type.",
+                                    )
+                                  : t(
+                                      "Add a property type used when creating listings (e.g. Villa, Apartment).",
+                                    )}
+                              </DialogDescription>
+                            </div>
+                          </DialogHeader>
+
+                          <Form {...propertyTypeForm}>
+                            <div className="relative gap-4 grid sm:grid-cols-2 mt-5">
+                              <FormField
+                                control={propertyTypeForm.control}
+                                name="name_en"
+                                render={({ field }) => (
+                                  <FormItem className="space-y-2">
+                                    <FormLabel className="text-xs">
+                                      {t("English name")}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        {...field}
+                                        value={field.value ?? ""}
+                                        dir="ltr"
+                                        placeholder="e.g. Villa"
+                                        className="bg-background rounded-xl h-11"
+                                        disabled={isSubmitting}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <FormField
+                                control={propertyTypeForm.control}
+                                name="name_ar"
+                                render={({ field }) => (
+                                  <FormItem className="space-y-2">
+                                    <FormLabel className="text-xs">
+                                      {t("Arabic name")}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        {...field}
+                                        value={field.value ?? ""}
+                                        dir="rtl"
+                                        placeholder="مثال: فيلا"
+                                        className="bg-background rounded-xl h-11"
+                                        disabled={isSubmitting}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          </Form>
+                        </div>
+
+                        <DialogFooter className="bg-muted/30 px-6 py-4 border-t border-border/60 sm:justify-end">
                           <Button
+                            type="button"
+                            variant="outline"
                             disabled={isSubmitting}
-                            onClick={savePropertyType}
-                            className="w-full sm:w-auto"
+                            className="rounded-xl"
+                            onClick={() => setOpenPropertyType(false)}
                           >
-                            {isSubmitting ? t("Saving...") : t("Save")}
+                            {t("Cancel")}
+                          </Button>
+                          <Button
+                            type="button"
+                            disabled={isSubmitting}
+                            className="gap-1.5 rounded-xl"
+                            onClick={savePropertyType}
+                          >
+                            {isSubmitting ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : editItem ? (
+                              <Edit2 className="w-4 h-4" />
+                            ) : (
+                              <Plus className="w-4 h-4" />
+                            )}
+                            {editItem
+                              ? t("Save Changes")
+                              : t("Add Property Type")}
                           </Button>
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
                   }
                 >
-                  {renderTable(propertyTypes, setOpenPropertyType)}
+                  {renderTable(
+                    propertyTypes,
+                    setOpenPropertyType,
+                    propertyTypesLoading,
+                  )}
                 </SettingsSection>
               )}
 
               {activeTab === "client-statuses" && (
                 <SettingsSection
-                  title={t("Client Statuses")}
+                  title={t("Client stages")}
                   description={t("Manage stages for client pipeline.")}
                   icon={ListChecks}
                   action={
@@ -1047,6 +1193,7 @@ const SettingsPage = () => {
               )}
 
               {activeTab === "general" && <GeneralSettingsTab />}
+              {activeTab === "logo" && <LogoSettingsTab />}
               {activeTab === "property-statuses" && <PropertyStatusesTab />}
               {activeTab === "client-settings" && <ClientSettingsTab />}
               {activeTab === "owner-statuses" && <OwnerStatusesTab />}
@@ -1055,11 +1202,9 @@ const SettingsPage = () => {
               {activeTab === "portal-integrations" && (
                 <PortalIntegrationsTab />
               )}
-              {activeTab === "distribution-rules" && <DistributionRulesTab />}
+              {activeTab === "integrations" && <IntegrationsTab />}
               {activeTab === "teams" && <TeamsTab />}
               {activeTab === "branches" && <BranchesTab />}
-              {activeTab === "message-templates" && <MessageTemplatesTab />}
-              {activeTab === "whatsapp-settings" && <WhatsAppSettingsTab />}
               {activeTab === "notification-settings" && (
                 <NotificationSettingsTab />
               )}
@@ -1069,6 +1214,174 @@ const SettingsPage = () => {
           </div>
         </div>
       </main>
+
+      <Dialog
+        open={Boolean(propertyTypeToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deletePropertyTypeMutation.isPending) {
+            setPropertyTypeToDelete(null);
+          }
+        }}
+      >
+        <DialogContent className="gap-0 p-0 sm:max-w-md overflow-hidden sm:rounded-2xl">
+          <div className="relative px-6 pt-6 pb-4">
+            <div
+              className="absolute inset-0 bg-gradient-to-b from-destructive/[0.08] to-transparent pointer-events-none"
+              aria-hidden
+            />
+            <DialogHeader className="relative space-y-3">
+              <div className="flex justify-center items-center mx-auto bg-destructive/10 ring-4 ring-destructive/10 rounded-2xl w-12 h-12 text-destructive">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1.5 text-center sm:text-start">
+                <DialogTitle className="font-outfit text-lg">
+                  {t("Delete Property Type")}
+                </DialogTitle>
+                <DialogDescription className="text-muted-foreground text-sm leading-relaxed">
+                  {t(
+                    "This type will be removed from settings. Properties already using it may keep the old value until updated.",
+                  )}
+                </DialogDescription>
+              </div>
+            </DialogHeader>
+
+            {propertyTypeToDelete ? (
+              <div className="relative flex items-start gap-3 bg-muted/50 mt-5 p-3 border border-border/60 rounded-xl">
+                <span className="flex justify-center items-center bg-background border border-border/50 rounded-xl w-10 h-10 text-muted-foreground shrink-0">
+                  <Building2 className="w-4 h-4" />
+                </span>
+                <div className="min-w-0 space-y-0.5 text-start">
+                  <p className="font-medium text-foreground text-sm truncate">
+                    {language === "ar"
+                      ? propertyTypeToDelete.name_ar ||
+                        propertyTypeToDelete.name_en
+                      : propertyTypeToDelete.name_en ||
+                        propertyTypeToDelete.name_ar}
+                  </p>
+                  <p
+                    className="text-muted-foreground text-xs truncate"
+                    dir={language === "ar" ? "ltr" : "rtl"}
+                  >
+                    {language === "ar"
+                      ? propertyTypeToDelete.name_en
+                      : propertyTypeToDelete.name_ar}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter className="bg-muted/30 px-6 py-4 border-t border-border/60 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deletePropertyTypeMutation.isPending}
+              className="rounded-xl"
+              onClick={() => setPropertyTypeToDelete(null)}
+            >
+              {t("Cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletePropertyTypeMutation.isPending}
+              className="gap-1.5 rounded-xl"
+              onClick={confirmDeletePropertyType}
+            >
+              {deletePropertyTypeMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              {t("Delete Property Type")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(clientStatusToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deleteClientStatusMutation.isPending) {
+            setClientStatusToDelete(null);
+          }
+        }}
+      >
+        <DialogContent className="gap-0 p-0 sm:max-w-md overflow-hidden sm:rounded-2xl">
+          <div className="relative px-6 pt-6 pb-4">
+            <div
+              className="absolute inset-0 bg-gradient-to-b from-destructive/[0.08] to-transparent pointer-events-none"
+              aria-hidden
+            />
+            <DialogHeader className="relative space-y-3">
+              <div className="flex justify-center items-center mx-auto bg-destructive/10 ring-4 ring-destructive/10 rounded-2xl w-12 h-12 text-destructive">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1.5 text-center sm:text-start">
+                <DialogTitle className="font-outfit text-lg">
+                  {t("Delete Client Stage")}
+                </DialogTitle>
+                <DialogDescription className="text-muted-foreground text-sm leading-relaxed">
+                  {t(
+                    "This stage will be removed from the client pipeline. Clients currently using it may need another stage assigned.",
+                  )}
+                </DialogDescription>
+              </div>
+            </DialogHeader>
+
+            {clientStatusToDelete ? (
+              <div className="relative flex items-start gap-3 bg-muted/50 mt-5 p-3 border border-border/60 rounded-xl">
+                <span className="flex justify-center items-center bg-background border border-border/50 rounded-xl w-10 h-10 font-mono text-muted-foreground text-xs shrink-0">
+                  #{clientStatusToDelete.priority_order || "—"}
+                </span>
+                <div className="min-w-0 space-y-0.5 text-start">
+                  <p className="font-medium text-foreground text-sm truncate">
+                    {language === "ar"
+                      ? clientStatusToDelete.name_ar ||
+                        clientStatusToDelete.name_en
+                      : clientStatusToDelete.name_en ||
+                        clientStatusToDelete.name_ar}
+                  </p>
+                  <p
+                    className="text-muted-foreground text-xs truncate"
+                    dir={language === "ar" ? "ltr" : "rtl"}
+                  >
+                    {language === "ar"
+                      ? clientStatusToDelete.name_en
+                      : clientStatusToDelete.name_ar}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter className="bg-muted/30 px-6 py-4 border-t border-border/60 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleteClientStatusMutation.isPending}
+              className="rounded-xl"
+              onClick={() => setClientStatusToDelete(null)}
+            >
+              {t("Cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteClientStatusMutation.isPending}
+              className="gap-1.5 rounded-xl"
+              onClick={confirmDeleteClientStatus}
+            >
+              {deleteClientStatusMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              {t("Delete Client Stage")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <EmployeeDeletionDialog
         isOpen={isDeleteDialogOpen}

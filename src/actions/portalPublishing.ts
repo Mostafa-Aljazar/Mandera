@@ -2,7 +2,7 @@
 
 import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
 import { assertCompanyMember } from "@/actions/_access";
-import { canPublishToPortals } from "@/lib/permissions";
+import { canApproveProperties, canPublishToPortals, canViewCompanySettings } from "@/lib/permissions";
 import {
   createListing,
   publishListing,
@@ -75,11 +75,18 @@ export async function getPropertyPublications(
   return { data: (data ?? []) as PropertyPublication[] };
 }
 
-/** Full credentials (incl. secrets) for a company's Settings screen. Uses the
- *  user client, so RLS (same-company select) enforces access. */
+/** Full credentials (incl. secrets) for a company's Settings screen — manager only. */
 export async function getPortalCredentials(
   companyId: string,
 ): Promise<ActionResult<PortalCredentials[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (!canViewCompanySettings(access.data.role)) {
+    return { error: "Only managers can view portal credentials." };
+  }
+
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("company_portal_credentials")
@@ -127,8 +134,14 @@ export interface UpsertPortalCredentialsInput {
 export async function upsertPortalCredentials(
   input: UpsertPortalCredentialsInput,
 ): Promise<ActionResult<PortalCredentials>> {
-  // RLS on company_portal_credentials restricts writes to manager
-  // (or master_admin) for this company_id.
+  const access = await assertCompanyMember(input.companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (!canViewCompanySettings(access.data.role)) {
+    return { error: "Only managers can manage portal credentials." };
+  }
+
   const supabase = await getServerSupabase();
 
   const payload: Record<string, unknown> = {
@@ -201,6 +214,14 @@ export async function searchPfLocations(
 export async function testPfConnection(
   companyId: string,
 ): Promise<ActionResult<ConnectionDiagnosticStep[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (!canViewCompanySettings(access.data.role)) {
+    return { error: "Only managers can test portal connections." };
+  }
+
   const cred = await loadCredential(companyId, "propertyfinder");
   if (!cred) return { error: "PropertyFinder is not configured" };
   const steps = await diagnosePfConnection(cred);
@@ -211,6 +232,14 @@ export async function testPfConnection(
 export async function regenerateFeedToken(
   companyId: string,
 ): Promise<ActionResult<string>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (!canViewCompanySettings(access.data.role)) {
+    return { error: "Only managers can manage portal credentials." };
+  }
+
   const token = crypto.randomUUID().replace(/-/g, "");
   const res = await upsertPortalCredentials({
     companyId,
@@ -222,6 +251,64 @@ export async function regenerateFeedToken(
 }
 
 // --- Publish toggle ---------------------------------------------------------
+
+async function loadCompanyPublishSettings(
+  companyId: string,
+): Promise<Record<string, unknown>> {
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from("companies")
+    .select("publish_settings")
+    .eq("id", companyId)
+    .maybeSingle();
+  return (data?.publish_settings as Record<string, unknown> | null) ?? {};
+}
+
+/**
+ * Unpublish every active portal listing for a property (used when pausing
+ * with auto_unpublish_on_pause enabled).
+ */
+export async function unpublishAllPortalsForProperty(
+  propertyId: string,
+  companyId: string,
+): Promise<ActionResult<null>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (
+    !canPublishToPortals(access.data.role) &&
+    !canApproveProperties(access.data.role)
+  ) {
+    return { error: "Access denied" };
+  }
+
+  const supabase = await getServerSupabase();
+  const { data: pubs, error } = await supabase
+    .from("property_publications")
+    .select("platform, status")
+    .eq("property_id", propertyId)
+    .eq("company_id", companyId)
+    .in("status", ["published", "pending"]);
+
+  if (error) return { error: error.message };
+
+  for (const pub of pubs ?? []) {
+    const result = await setPortalPublication(
+      propertyId,
+      pub.platform as Portal,
+      false,
+    );
+    if (result.error) {
+      console.warn(
+        `[portals] auto-unpublish ${pub.platform} failed:`,
+        result.error,
+      );
+    }
+  }
+
+  return { data: null };
+}
 
 async function fetchPropertyWithRelations(
   propertyId: string,
@@ -281,8 +368,12 @@ export async function setPortalPublication(
     return { error: "Only administrators and managers can publish to portals." };
   }
 
-  // Draft / pending / rejected listings must not go to portals.
-  if (enabled && property.approval_status !== "approved") {
+  const publishSettings = await loadCompanyPublishSettings(property.company_id);
+  const requireApproval = publishSettings.require_approval_before_publish !== false;
+
+  // Draft / pending / rejected listings must not go to portals when the
+  // company requires approval first (default: on).
+  if (enabled && requireApproval && property.approval_status !== "approved") {
     return {
       error:
         "Only approved properties can be published to portals. Complete the approval workflow first.",

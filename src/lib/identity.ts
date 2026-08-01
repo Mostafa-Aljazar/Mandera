@@ -21,6 +21,10 @@ export const OWNER_IDENTITY_FIELDS = [
   "country",
 ] as const;
 
+/** Canonical server/UI error when a locked identity write is attempted. */
+export const IDENTITY_FIELDS_LOCKED_ERROR =
+  "Identity fields (name, phone, country) are locked after create. Only Master Admin can apply an exceptional correction with a full audit log.";
+
 /**
  * Always strip identity fields from normal update payloads.
  * Master Admin exceptional corrections go through `correctIdentityField` (audited) only —
@@ -50,22 +54,25 @@ export function patchTouchesIdentityFields(
 export function maskOwnerName(name: string | null | undefined): string {
   const trimmed = (name || "").trim();
   if (!trimmed) return "*****";
-  // PDF: first 3–4 letters of the first word (e.g. Ahmed → Ahme*****).
+  // PDF: first name only, then asterisks (e.g. "Ahmed *****").
   const firstWord = trimmed.split(/\s+/)[0] || trimmed;
-  const visible = firstWord.slice(0, 4);
-  return `${visible}*****`;
+  return `${firstWord} *****`;
 }
 
 export function maskPhone(phone: string | null | undefined): string {
   const digits = (phone || "").replace(/\D/g, "");
   if (!digits) return "05********";
-  // Prefer UAE-style mask from the PDF (05********) when number starts with 05/5.
-  if (digits.startsWith("05") && digits.length >= 3) {
-    return `05${"*".repeat(Math.max(8, digits.length - 2))}`;
+
+  // Normalize UAE internationals (+9715…) to local 05… form from the PDF.
+  let local = digits;
+  if (local.startsWith("971")) local = local.slice(3);
+  if (local.startsWith("5") && !local.startsWith("05")) {
+    local = `0${local}`;
   }
-  if (digits.startsWith("5") && digits.length >= 2) {
-    return `05${"*".repeat(Math.max(8, digits.length - 1))}`;
+
+  if (local.startsWith("05") && local.length >= 3) {
+    return `05${"*".repeat(8)}`;
   }
-  if (digits.length <= 2) return "********";
-  return `${digits.slice(0, 2)}${"*".repeat(Math.max(8, digits.length - 2))}`;
+  if (local.length <= 2) return "********";
+  return `${local.slice(0, 2)}${"*".repeat(Math.max(8, local.length - 2))}`;
 }

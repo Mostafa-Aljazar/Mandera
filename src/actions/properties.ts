@@ -4,7 +4,9 @@ import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
 import {
   companyRolesFilter,
   canEditApprovedPropertyDirectly,
+  canLockRecords,
   canViewRevenue,
+  stripPropertyCommissionUnlessManager,
   isAdministratorOrAbove,
   isFinalPropertyStatus,
   isOperationalPropertyStatus,
@@ -17,7 +19,12 @@ import {
   maskOwnerName,
   maskPhone,
 } from "@/lib/identity";
-import { notifyCompanyAdministrators } from "@/actions/notifications";
+import { notifyCompanyAdministrators, bilingualActorNotifyLabel } from "@/actions/notifications";
+import {
+  formatNotifyAgentLine,
+  formatNotifyPropertyLine,
+  formatNotifyTitleLine,
+} from "@/lib/notificationCopy";
 import type {
   Property,
   PropertyWithRelations,
@@ -84,12 +91,13 @@ function maskPropertyOwner(
       document_urls: [],
       owner: owner
         ? {
-            id: owner.id,
+            // Strip id so the client cannot navigate to /owners/:id.
+            id: "",
             name: maskOwnerName(owner.name),
-            name_en: owner.name_en ? maskOwnerName(owner.name_en) : owner.name_en,
-            name_ar: owner.name_ar ? maskOwnerName(owner.name_ar) : owner.name_ar,
+            name_en: owner.name_en ? maskOwnerName(owner.name_en) : null,
+            name_ar: owner.name_ar ? maskOwnerName(owner.name_ar) : null,
             phone: maskPhone(owner.phone),
-            email: undefined,
+            email: null,
           }
         : owner,
     };
@@ -100,12 +108,69 @@ function maskPropertyOwner(
   return maskDetailedAddressForAgent(next, callerId);
 }
 
+type OwnerContactRow = {
+  id: string;
+  name: string | null;
+  name_en: string | null;
+  name_ar: string | null;
+  phone: string | null;
+  email: string | null;
+};
+
+/**
+ * Owner RLS only lets sales agents read owners assigned to them, so the
+ * properties→owners embed is often null for someone else's listing.
+ * Re-attach owner via admin (after caller auth), then mask in app code (PDF).
+ */
+async function attachOwnersForSalesAgent(
+  properties: PropertyWithRelations[],
+): Promise<PropertyWithRelations[]> {
+  const ownerIds = [
+    ...new Set(
+      properties
+        .map((p) => p.owner_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  if (ownerIds.length === 0) return properties;
+
+  const admin = await getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("owners")
+    .select("id, name, name_en, name_ar, phone, email")
+    .in("id", ownerIds);
+  if (error) {
+    console.warn("[properties] attachOwnersForSalesAgent:", error.message);
+    return properties;
+  }
+
+  const byId = new Map(
+    ((data ?? []) as OwnerContactRow[]).map((row) => [row.id, row]),
+  );
+
+  return properties.map((property) => {
+    if (!property.owner_id) return property;
+    const owner = byId.get(property.owner_id);
+    if (!owner) return property;
+    return {
+      ...property,
+      owner: {
+        id: owner.id,
+        name: owner.name,
+        name_en: owner.name_en,
+        name_ar: owner.name_ar,
+        phone: owner.phone,
+        email: owner.email,
+      },
+    };
+  });
+}
+
 function stripCommissionIfNeeded<T extends { commission_percentage?: number | null }>(
   property: T,
   role: string | null | undefined,
 ): T {
-  if (canViewRevenue(role)) return property;
-  return { ...property, commission_percentage: null };
+  return stripPropertyCommissionUnlessManager(property, role);
 }
 
 function resolveWritablePropertyStatus(
@@ -208,6 +273,7 @@ export async function getProperties(
 
   if (isSalesAgent(access.data.role)) {
     const callerId = access.data.userId;
+    properties = await attachOwnersForSalesAgent(properties);
     properties = properties
       .filter((p) => canSalesAgentViewApproval(p, callerId))
       .map((p) => maskPropertyOwner(p, callerId));
@@ -242,9 +308,10 @@ export async function getProperty(
     if (!canSalesAgentViewApproval(property, callerId)) {
       return { error: "Access denied" };
     }
+    const [withOwner] = await attachOwnersForSalesAgent([property]);
     return {
       data: stripCommissionIfNeeded(
-        maskPropertyOwner(property, callerId),
+        maskPropertyOwner(withOwner, callerId),
         access.data.role,
       ),
     };
@@ -682,18 +749,25 @@ export async function createProperty(
     });
 
     if (isAgent) {
+      const agentLabel = await bilingualActorNotifyLabel(
+        access.data.userId,
+        input.createdByName,
+      );
+      const agentLine = formatNotifyAgentLine(null, null, agentLabel);
       await notifyCompanyAdministrators({
         companyId: input.companyId,
         type: "property_created",
         title: "New Property Added",
-        body: `Property: ${data.code} — ${data.title}\nAgent: ${input.createdByName}\nStatus: Draft\nDate: ${formatNotificationDate()}`,
+        body: `${formatNotifyPropertyLine(data.code, data.title, data.title_ar)}${agentLine ? `\n${agentLine}` : ""}\nStatus: Draft\nDate: ${formatNotificationDate()}`,
         link: `/company/properties/${data.id}`,
         entityType: "property",
         entityId: data.id,
       });
     }
 
-    return { data: data as Property };
+    return {
+      data: stripCommissionIfNeeded(data as Property, access.data.role),
+    };
   } catch (err) {
     return { error: (err as Error).message };
   }
@@ -720,7 +794,11 @@ export interface UpdatePropertyInput extends PropertyPortalFields {
   status?: string | null;
   advertising_permit_number?: string | null;
   images?: File[];
+  /** Remaining existing image URLs after client-side removals. */
+  keepImages?: string[];
   floor_plans?: File[];
+  /** Remaining existing floor-plan URLs after client-side removals. */
+  keepFloorPlans?: string[];
 }
 
 export async function updateProperty(
@@ -741,7 +819,7 @@ export async function updateProperty(
 
     if (fetchError) return { error: fetchError.message };
 
-    if (existing.is_locked && !canEditApprovedPropertyDirectly(access.data.role)) {
+    if (existing.is_locked && !canLockRecords(access.data.role)) {
       return { error: "This property is locked and cannot be edited." };
     }
 
@@ -772,11 +850,13 @@ export async function updateProperty(
     }
 
     const newImageUrls = await uploadPropertyImages(input.companyId, input.images ?? []);
-    const images = newImageUrls.length > 0 ? newImageUrls : existing.images;
+    const keptImages = input.keepImages ?? ((existing.images as string[] | null) ?? []);
+    const images = [...keptImages, ...newImageUrls];
 
     const newFloorPlanUrls = await uploadPropertyFloorPlans(input.companyId, input.floor_plans ?? []);
-    const floorPlanUrls =
-      newFloorPlanUrls.length > 0 ? newFloorPlanUrls : existing.floor_plan_urls;
+    const keptFloorPlans =
+      input.keepFloorPlans ?? ((existing.floor_plan_urls as string[] | null) ?? []);
+    const floorPlanUrls = [...keptFloorPlans, ...newFloorPlanUrls];
 
     const employeeId = isSalesAgent(access.data.role)
       ? existing.employee_id
@@ -825,11 +905,17 @@ export async function updateProperty(
       // Intentionally not implemented yet.
     }
 
-    // Administrator notifications: Agent edits property data / adds photos (PDF items 2–3).
+    // Administrator notifications: Agent edits property data / adds photos / removes photos.
     if (isSalesAgent(access.data.role)) {
-      const propLine = `Property: ${(data as Property).code} — ${(data as Property).title}`;
+      const prop = data as Property;
+      const propLine = formatNotifyPropertyLine(prop.code, prop.title, prop.title_ar);
       const dateLine = `Date: ${formatNotificationDate()}`;
       const link = `/company/properties/${input.id}`;
+      const existingImages = (existing.images as string[] | null) ?? [];
+      const removedImageCount = Math.max(
+        0,
+        existingImages.length - keptImages.length,
+      );
 
       await notifyCompanyAdministrators({
         companyId: input.companyId,
@@ -852,9 +938,95 @@ export async function updateProperty(
           entityId: input.id,
         });
       }
+
+      if (removedImageCount > 0) {
+        await notifyCompanyAdministrators({
+          companyId: input.companyId,
+          type: "property_images_removal_request",
+          title: "Property Image Deletion Requested",
+          body: `${propLine}\nImages removed: ${removedImageCount}\n${dateLine}`,
+          link,
+          entityType: "property",
+          entityId: input.id,
+        });
+      }
     }
 
-    return { data: data as Property };
+    return {
+      data: stripCommissionIfNeeded(data as Property, access.data.role),
+    };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
+async function uploadPropertyDocuments(
+  companyId: string,
+  files: File[],
+): Promise<string[]> {
+  if (files.length === 0) return [];
+
+  const supabase = await getServerSupabase();
+  const urls: string[] = [];
+
+  for (const file of files) {
+    const safeName = file.name.replace(/[^\w.\-()+ ]+/g, "_");
+    const path = `${companyId}/documents/${crypto.randomUUID()}-${safeName}`;
+    const { error } = await supabase.storage
+      .from("property-images")
+      .upload(path, file, { contentType: file.type || "application/octet-stream" });
+
+    if (error) throw new Error(`Document upload failed: ${error.message}`);
+
+    const { data } = supabase.storage.from("property-images").getPublicUrl(path);
+    urls.push(data.publicUrl);
+  }
+
+  return urls;
+}
+
+/** Admin/Manager: replace document_urls (keep existing + upload new files). */
+export async function updatePropertyDocuments(
+  propertyId: string,
+  companyId: string,
+  keepUrls: string[],
+  newFiles: File[] = [],
+): Promise<ActionResult<Property>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canEditApprovedPropertyDirectly(access.data.role)) {
+    return { error: "Only administrators and managers can manage property documents." };
+  }
+
+  const supabase = await getServerSupabase();
+  const { data: existing, error: fetchError } = await supabase
+    .from("properties")
+    .select("id, is_locked, document_urls")
+    .eq("id", propertyId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+
+  if (fetchError) return { error: fetchError.message };
+  if (!existing) return { error: "Property not found" };
+
+  if (existing.is_locked && !canLockRecords(access.data.role)) {
+    return { error: "This property is locked and cannot be edited." };
+  }
+
+  try {
+    const uploaded = await uploadPropertyDocuments(companyId, newFiles);
+    const documentUrls = [...keepUrls, ...uploaded];
+    const { data, error } = await supabase
+      .from("properties")
+      .update({ document_urls: documentUrls })
+      .eq("id", propertyId)
+      .eq("company_id", companyId)
+      .select()
+      .single();
+    if (error) return { error: error.message };
+    return {
+      data: stripCommissionIfNeeded(data as Property, access.data.role),
+    };
   } catch (err) {
     return { error: (err as Error).message };
   }
@@ -904,6 +1076,10 @@ export async function updatePropertyStatus(
   if (fetchError) return { error: fetchError.message };
   if (!existing) return { error: "Property not found" };
 
+  if (existing.is_locked && !canLockRecords(access.data.role)) {
+    return { error: "This property is locked and cannot be edited." };
+  }
+
   const previousStatus = existing.status || "Available";
   const isAgent = isSalesAgent(access.data.role);
   const isAdminPlus =
@@ -934,13 +1110,28 @@ export async function updatePropertyStatus(
       companyId,
       type: "property_status_change_request",
       title: "Property Status Change Requested",
-      body: `Property: ${existing.code}\nTitle: ${existing.title || "—"}\nAgent: ${createdByName}\nPrevious Status: ${previousStatus}\nNew Status: ${newStatus}\nDate: ${formatNotificationDate()}`,
+      body: [
+        formatNotifyPropertyLine(existing.code, existing.title, existing.title_ar),
+        formatNotifyTitleLine(existing.title, existing.title_ar),
+        formatNotifyAgentLine(
+          null,
+          null,
+          await bilingualActorNotifyLabel(createdByUserId, createdByName),
+        ),
+        `Previous Status: ${previousStatus}`,
+        `New Status: ${newStatus}`,
+        `Date: ${formatNotificationDate()}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
       link: `/company/properties/${propertyId}`,
       entityType: "property_status_change_request",
       entityId: request.id,
     });
 
-    return { data: existing as Property };
+    return {
+      data: stripCommissionIfNeeded(existing as Property, access.data.role),
+    };
   }
 
   if (!isAdminPlus && !isOperationalPropertyStatus(newStatus) && !isFinalPropertyStatus(newStatus)) {
@@ -971,12 +1162,27 @@ export async function updatePropertyStatus(
       companyId,
       type: "property_status_changed",
       title: "Property Status Changed",
-      body: `Property: ${data.code}\nTitle: ${data.title || "—"}\nAgent: ${createdByName}\nPrevious Status: ${previousStatus}\nNew Status: ${newStatus}\nDate: ${formatNotificationDate()}`,
+      body: [
+        formatNotifyPropertyLine(data.code, data.title, data.title_ar),
+        formatNotifyTitleLine(data.title, data.title_ar),
+        formatNotifyAgentLine(
+          null,
+          null,
+          await bilingualActorNotifyLabel(createdByUserId, createdByName),
+        ),
+        `Previous Status: ${previousStatus}`,
+        `New Status: ${newStatus}`,
+        `Date: ${formatNotificationDate()}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
       link: `/company/properties/${propertyId}`,
       entityType: "property",
       entityId: propertyId,
     });
   }
 
-  return { data: data as Property };
+  return {
+    data: stripCommissionIfNeeded(data as Property, access.data.role),
+  };
 }

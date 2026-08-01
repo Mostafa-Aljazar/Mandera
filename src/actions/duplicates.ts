@@ -3,6 +3,7 @@
 import { assertCompanyMember } from "@/actions/_access";
 import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
 import {
+  canViewRevenue,
   isAdministratorOrAbove,
   isMasterAdmin,
 } from "@/lib/permissions";
@@ -182,12 +183,26 @@ export async function mergeClients(
     .in("client_id", mergeIds);
   if (historyError) return { error: historyError.message };
 
-  const { error: revenueError } = await admin
+  const { count: revenueCount, error: revenueCountError } = await admin
     .from("revenues")
-    .update({ client_id: input.keepId })
+    .select("id", { count: "exact", head: true })
     .eq("company_id", input.companyId)
     .in("client_id", mergeIds);
-  if (revenueError) return { error: revenueError.message };
+  if (revenueCountError) return { error: revenueCountError.message };
+
+  if ((revenueCount ?? 0) > 0) {
+    if (!canViewRevenue(access.data?.role)) {
+      return {
+        error: "Unable to merge these clients. Please contact a manager.",
+      };
+    }
+    const { error: revenueError } = await admin
+      .from("revenues")
+      .update({ client_id: input.keepId })
+      .eq("company_id", input.companyId)
+      .in("client_id", mergeIds);
+    if (revenueError) return { error: revenueError.message };
+  }
 
   const { error: deleteError } = await admin
     .from("clients")

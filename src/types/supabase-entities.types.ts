@@ -29,6 +29,9 @@ export interface Profile {
   company_id: string | null;
   employee_id: string | null;
   name: string | null;
+  name_en?: string | null;
+  name_ar?: string | null;
+  avatar_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -446,16 +449,16 @@ export interface Client {
   employee_id: string;
   company_id: string;
   marketing_channel: string | null;
-  campaign?: string | null;
   follow_up_date: string | null;
   follow_up_time: string | null;
   status_id: string | null;
   avatar_url: string | null;
   is_locked: boolean;
   editing_locked?: boolean;
-  budget?: number | null;
+  budget_from?: number | null;
+  budget_to?: number | null;
+  interests?: string | null;
   preferred_area?: string | null;
-  investment_unit?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -526,11 +529,43 @@ export interface Revenue {
   owner_name: string;
   company_id: string;
   approval_status?: "pending" | "approved" | "rejected";
+  commission_approval_status?: "pending" | "approved" | "rejected";
   commission_paid?: boolean;
   commission_paid_at?: string | null;
   notes?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** `revenues` with bilingual client/agent/owner joins for display. */
+export interface RevenueWithRelations extends Revenue {
+  client?: {
+    id: string;
+    name: string | null;
+    name_en?: string | null;
+    name_ar?: string | null;
+    avatar_url?: string | null;
+  } | null;
+  /** Resolved from the property matching `property_code` (no owner_id on revenues). */
+  owner?: {
+    id: string;
+    name: string | null;
+    name_en?: string | null;
+    name_ar?: string | null;
+  } | null;
+  employee_profile?: {
+    id: string;
+    name: string | null;
+    name_en?: string | null;
+    name_ar?: string | null;
+    employee?: {
+      first_name_en?: string | null;
+      first_name_ar?: string | null;
+      last_name_en?: string | null;
+      last_name_ar?: string | null;
+      avatar_url?: string | null;
+    } | null;
+  } | null;
 }
 
 export interface RevenueChangeLog {
@@ -544,6 +579,20 @@ export interface RevenueChangeLog {
   changed_by_name: string | null;
   note: string | null;
   created_at: string;
+  changed_by_profile?: {
+    id: string;
+    name: string | null;
+    name_en?: string | null;
+    name_ar?: string | null;
+    avatar_url?: string | null;
+    employee?: {
+      first_name_en?: string | null;
+      first_name_ar?: string | null;
+      last_name_en?: string | null;
+      last_name_ar?: string | null;
+      avatar_url?: string | null;
+    } | null;
+  } | null;
 }
 
 export interface CompanyTeam {

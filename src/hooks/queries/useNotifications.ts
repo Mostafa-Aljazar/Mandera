@@ -47,6 +47,8 @@ export function usePendingApprovalsCount(companyId?: string, enabled = true) {
         result.data ?? {
           total: 0,
           newListings: 0,
+          drafts: 0,
+          staleDrafts: 0,
           changeRequests: 0,
           statusChanges: 0,
         }

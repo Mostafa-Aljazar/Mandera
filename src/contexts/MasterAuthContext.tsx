@@ -21,6 +21,7 @@ function needsMasterAuth(pathname: string) {
 
 interface MasterAuthContextValue {
   currentUser: AuthUser | null;
+  setCurrentUser: (user: AuthUser | null) => void;
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   isAuthenticated: boolean;
@@ -110,6 +111,7 @@ export const MasterAuthProvider = ({ children }: { children: ReactNode }) => {
 
   const value: MasterAuthContextValue = {
     currentUser,
+    setCurrentUser,
     login,
     logout,
     isAuthenticated: !!currentUser,

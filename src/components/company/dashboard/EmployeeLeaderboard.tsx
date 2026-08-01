@@ -21,6 +21,12 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { useEmployeeLeaderboard } from "@/hooks/queries/useEmployeeLeaderboard";
+import { useLanguage } from "@/contexts/LanguageContext";
+import {
+  bilingualLabel,
+  employeeDisplayName,
+  profileDisplayName,
+} from "@/lib/bilingualLabel";
 import { cn } from "@/lib/utils";
 import type { LeaderboardEmployee } from "@/actions/employeeLeaderboard";
 
@@ -28,10 +34,33 @@ interface EmployeeLeaderboardProps {
   companyId?: string;
 }
 
+function leaderboardEmployeeName(
+  emp: LeaderboardEmployee,
+  language: string,
+): string {
+  const fromEmployee = employeeDisplayName(
+    {
+      first_name_en: emp.first_name_en,
+      first_name_ar: emp.first_name_ar,
+      last_name_en: emp.last_name_en,
+      last_name_ar: emp.last_name_ar,
+    },
+    language,
+  );
+  if (fromEmployee) return fromEmployee;
+  return (
+    profileDisplayName(
+      { name_en: emp.name_en, name_ar: emp.name_ar, name: emp.name },
+      language,
+    ) || emp.name
+  );
+}
+
 export default function EmployeeLeaderboard({
   companyId,
 }: EmployeeLeaderboardProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const { data: leaderboardData, isLoading } = useEmployeeLeaderboard(companyId);
   const employeesData = leaderboardData ?? [];
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
@@ -88,7 +117,7 @@ export default function EmployeeLeaderboard({
               <TableHeader className="bg-muted/40">
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="w-16 text-center">{t("Rank")}</TableHead>
-                  <TableHead>{t("Employee Name")}</TableHead>
+                  <TableHead className="text-start">{t("Employee Name")}</TableHead>
                   <TableHead className="text-end whitespace-nowrap">
                     {t("Clients added")}
                   </TableHead>
@@ -119,6 +148,7 @@ export default function EmployeeLeaderboard({
                       isTop={isTop}
                       isExpanded={isExpanded}
                       onToggle={() => toggleRow(emp.id)}
+                      language={language}
                       t={t}
                     />
                   );
@@ -138,6 +168,7 @@ function FragmentRow({
   isTop,
   isExpanded,
   onToggle,
+  language,
   t,
 }: {
   emp: LeaderboardEmployee;
@@ -145,8 +176,11 @@ function FragmentRow({
   isTop: boolean;
   isExpanded: boolean;
   onToggle: () => void;
+  language: string;
   t: (key: string) => string;
 }) {
+  const displayName = leaderboardEmployeeName(emp, language);
+
   return (
     <>
       <TableRow
@@ -170,7 +204,7 @@ function FragmentRow({
             </span>
           )}
         </TableCell>
-        <TableCell className="align-middle">
+        <TableCell className="align-middle text-start">
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
@@ -178,7 +212,7 @@ function FragmentRow({
                 isTop && "font-bold text-amber-700",
               )}
             >
-              {emp.name}
+              {displayName}
             </span>
             {isTop ? (
               <span className="inline-flex items-center bg-amber-500/15 px-2 py-0.5 rounded-full font-semibold text-amber-700 text-xs">
@@ -245,18 +279,24 @@ function FragmentRow({
                   {t("Status Breakdown:")}
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
-                  {Object.entries(emp.statusCounts).length > 0 ? (
-                    Object.entries(emp.statusCounts).map(([status, count]) => {
+                  {emp.statusCounts.length > 0 ? (
+                    emp.statusCounts.map((status) => {
                       const displayName =
-                        status === "__NEW__" ? t("New") : status;
+                        status.key === "__NEW__"
+                          ? t("New")
+                          : bilingualLabel(status, language) ||
+                            (language === "ar"
+                              ? status.name_ar || status.name_en
+                              : status.name_en || status.name_ar) ||
+                            t("Unknown");
                       return (
                         <span
-                          key={status}
+                          key={status.key}
                           className="inline-flex items-center gap-1.5 bg-primary/10 px-2.5 py-1 border border-primary/15 rounded-full font-medium text-primary text-xs"
                         >
                           {displayName}
                           <span className="inline-flex justify-center items-center bg-primary/15 px-1.5 rounded-full min-w-5 text-[11px] tabular-nums">
-                            {count}
+                            {status.count}
                           </span>
                         </span>
                       );

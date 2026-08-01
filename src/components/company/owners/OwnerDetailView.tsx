@@ -71,7 +71,6 @@ import {
   canEditIdentityFields,
   canLockRecords,
   canViewOwnerStatus,
-  isSalesAgent,
 } from "@/lib/permissions";
 import StatusUpdateModal from "@/components/common/StatusUpdateModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
@@ -91,11 +90,11 @@ import {
   useCompanyEmployeesLookup,
   useOwnerProperties,
 } from "@/hooks/queries/useProperties";
-import { useConvertOwnerToClient } from "@/hooks/queries/useClients";
 import { useOwnerStatusBadge } from "@/hooks/useOwnerStatusBadge";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { countryLabel, normalizeCountryValue } from "@/lib/countries";
 import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
+import { actionErrorMessage } from "@/lib/actionErrorI18n";
 import { useRecordLockMutations } from "@/hooks/queries/usePropertyApprovals";
 
 const DEFAULT_MARKETING_CHANNELS = [
@@ -189,11 +188,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
   const canChangeAssignment = canChangeOwnerAssignment(currentUser?.role);
   const canDelete = canDeleteClientOrOwner(currentUser?.role);
   const canLock = canLockRecords(currentUser?.role);
-  const canConvertToClient =
-    !isNew &&
-    (isSalesAgent(currentUser?.role) || canChangeAssignment);
   const showOwnerStatus = canViewOwnerStatus(currentUser?.role);
-  const convertOwnerToClient = useConvertOwnerToClient();
 
   const tabFromUrl = resolveOwnerTab(searchParams.get("tab"), isNew);
   const [activeTab, setActiveTab] = useState<OwnerTab>(tabFromUrl);
@@ -421,15 +416,7 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
         router.replace(`/company/owners/${result.data!.id}`);
       }
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : t("Error saving owner.");
-      toast.error(
-        message === "Owner photo must be less than 2MB."
-          ? t("Owner photo must be less than 2MB.")
-          : message === "Please upload a JPG, PNG, or WebP image."
-            ? t("Please upload a JPG, PNG, or WebP image.")
-            : message,
-      );
+      toast.error(actionErrorMessage(err, t, "Error saving owner."));
     } finally {
       setIsSubmitting(false);
     }
@@ -472,21 +459,6 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
     }
   };
 
-  const handleConvertToClient = async () => {
-    if (!owner || !company?.id) return;
-    try {
-      const client = await convertOwnerToClient.mutateAsync({
-        ownerId: owner.id,
-        companyId: company.id,
-        interest_type: "Sale",
-      });
-      toast.success(t("Owner converted to client"));
-      router.push(`/company/clients/${client.id}`);
-    } catch (error) {
-      toast.error((error as Error).message);
-    }
-  };
-
   if (!isNew && isLoadingOwner) {
     return (
       <div className="mx-auto px-4 sm:px-6 py-8 container max-w-6xl space-y-6">
@@ -510,18 +482,6 @@ export default function OwnerDetailView({ ownerId = null }: OwnerDetailViewProps
           </Button>
         </Link>
         <div className="flex items-center gap-2">
-          {owner && canConvertToClient ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 h-9"
-              disabled={convertOwnerToClient.isPending}
-              onClick={handleConvertToClient}
-            >
-              <UserPlus className="w-4 h-4" />
-              {t("Convert to Client")}
-            </Button>
-          ) : null}
           {owner && canLock ? (
             <Button
               variant="outline"

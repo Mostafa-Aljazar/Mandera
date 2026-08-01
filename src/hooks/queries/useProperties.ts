@@ -7,6 +7,7 @@ import {
   getPropertiesForOwner,
   createProperty,
   updateProperty,
+  updatePropertyDocuments,
   deleteProperty,
   updatePropertyStatus,
   getPropertyTypesForCompany,
@@ -122,6 +123,13 @@ export function useCreateProperty() {
     onSuccess: (result, variables) => {
       if (result.error) return;
       queryClient.invalidateQueries({ queryKey: ["properties", variables.companyId] });
+      queryClient.invalidateQueries({
+        queryKey: ["notifications", "pending-approvals", variables.companyId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["pending-property-approvals", variables.companyId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
   });
 }
@@ -134,6 +142,39 @@ export function useUpdateProperty() {
       if (result.error) return;
       queryClient.invalidateQueries({ queryKey: ["properties", variables.companyId] });
       queryClient.invalidateQueries({ queryKey: ["properties", "detail", variables.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["notifications", "pending-approvals", variables.companyId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["pending-property-approvals", variables.companyId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export function useUpdatePropertyDocuments() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      propertyId,
+      companyId,
+      keepUrls,
+      newFiles,
+    }: {
+      propertyId: string;
+      companyId: string;
+      keepUrls: string[];
+      newFiles?: File[];
+    }) => updatePropertyDocuments(propertyId, companyId, keepUrls, newFiles ?? []),
+    onSuccess: (result, variables) => {
+      if (result.error) return;
+      queryClient.invalidateQueries({
+        queryKey: ["properties", "detail", variables.propertyId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["properties", variables.companyId],
+      });
     },
   });
 }

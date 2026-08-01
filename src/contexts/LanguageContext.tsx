@@ -14,18 +14,30 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue | undefined>(undefined);
 
+function resolveLanguage(lng: string | undefined): Language {
+  return lng?.startsWith('ar') ? 'ar' : 'en';
+}
+
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
   const { i18n } = useTranslation();
-  
-  // Use i18next's resolved language, default to 'en'
-  const language = i18n.language?.startsWith('ar') ? 'ar' : 'en';
+  const language = resolveLanguage(i18n.language);
+
+  // After hydration, apply the user's saved language (localStorage / navigator).
+  // Doing this in useEffect avoids SSR/client text mismatches.
+  useEffect(() => {
+    const stored = window.localStorage.getItem('i18nextLng');
+    const preferred = stored
+      ? resolveLanguage(stored)
+      : resolveLanguage(window.navigator.language);
+    if (preferred !== resolveLanguage(i18n.language)) {
+      void i18n.changeLanguage(preferred);
+    }
+  }, [i18n]);
 
   useEffect(() => {
-    // Update document direction and language attributes for CSS matching
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
     document.documentElement.lang = language;
-    
-    // Apply CSS classes for language-specific styling overrides
+
     if (language === 'ar') {
       document.documentElement.classList.add('lang-ar');
       document.documentElement.classList.remove('lang-en');
@@ -37,11 +49,13 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
 
   const toggleLanguage = () => {
     const newLang = language === 'en' ? 'ar' : 'en';
-    i18n.changeLanguage(newLang);
+    void i18n.changeLanguage(newLang);
   };
 
   return (
-    <LanguageContext.Provider value={{ language, setLanguage: i18n.changeLanguage, toggleLanguage }}>
+    <LanguageContext.Provider
+      value={{ language, setLanguage: i18n.changeLanguage, toggleLanguage }}
+    >
       <DirectionProvider dir={language === 'ar' ? 'rtl' : 'ltr'}>
         {children}
       </DirectionProvider>

@@ -63,7 +63,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function StatusHistoryDisplay({ entityType, entityId, refreshTrigger, hideStatus = false }: StatusHistoryDisplayProps) {
   const { currentUser, company } = useCompanyAuth();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { language } = useLanguage();
   const dateLocale = language === 'ar' ? ar : enUS;
 
@@ -108,6 +108,20 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
       },
       language,
     ) || h.created_by_name || t('Unknown');
+
+  const translateHistoryNote = (note: string) => {
+    const approved = note.match(
+      /^Approved final status change to (.+)$/i,
+    );
+    if (approved) {
+      const status = approved[1].trim();
+      return t("Approved final status change to {{status}}", {
+        status: i18n.exists(status) ? t(status) : status,
+      });
+    }
+    if (i18n.exists(note)) return t(note);
+    return note;
+  };
 
   const canDeleteHistory = canEditActivityHistory(currentUser?.role);
 
@@ -254,7 +268,7 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
 
                     {h.note && (
                       <p className="mb-3 text-foreground/85 text-sm leading-relaxed whitespace-pre-wrap text-start">
-                        {h.note}
+                        {translateHistoryNote(h.note)}
                       </p>
                     )}
 

@@ -5,13 +5,75 @@ import { assertCompanyMember } from "@/actions/_access";
 import {
   canManageEmployees,
   companyRolesFilter,
+  jobTitleForRole,
+  type CompanyRole,
 } from "@/lib/permissions";
 import type {
   EmployeeRecord,
   CompanyEmployeeWithDetails,
 } from "@/types/supabase-entities.types";
+import type {
+  CreateEmployeeInput,
+  UpdateEmployeeInput,
+  EmployeeToDelete,
+  ReassignmentTargets,
+} from "@/actions/employee-types";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
+
+/**
+ * Force-logout an auth user: ban (or unban) + best-effort wipe of all
+ * refresh-token sessions so they cannot keep using the app after disable/delete.
+ */
+async function syncAuthAccessForEmployee(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  userId: string,
+  mode: "ban" | "unban" | "revoke",
+): Promise<void> {
+  if (mode === "unban") {
+    const { error } = await admin.auth.admin.updateUserById(userId, {
+      ban_duration: "none",
+    });
+    if (error) {
+      console.warn("[employees] unban auth user:", error.message);
+    }
+    return;
+  }
+
+  if (mode === "ban") {
+    const { error } = await admin.auth.admin.updateUserById(userId, {
+      // ~100 years — blocks new logins until explicitly unbanned on re-enable.
+      ban_duration: "876000h",
+    });
+    if (error) {
+      console.warn("[employees] ban auth user:", error.message);
+    }
+  }
+
+  // Wipe sessions so refresh tokens die immediately (JWT access tokens still
+  // expire naturally — GoTrue cannot revoke a JWT mid-lifetime).
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SECRET_KEY;
+    if (!url || !key) return;
+    const res = await fetch(`${url}/auth/v1/admin/users/${userId}/sessions`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        apikey: key,
+      },
+    });
+    if (!res.ok && res.status !== 404) {
+      console.warn(
+        "[employees] revoke sessions:",
+        res.status,
+        await res.text().catch(() => ""),
+      );
+    }
+  } catch (err) {
+    console.warn("[employees] revoke sessions failed:", err);
+  }
+}
 
 const COMPANY_EMPLOYEE_SELECT = "*, employee:employees!profiles_employee_id_fkey(*)";
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
@@ -172,6 +234,12 @@ export async function getCompanyEmployee(
 export async function getBaseEmployees(
   companyId: string,
 ): Promise<ActionResult<EmployeeRecord[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canManageEmployees(access.data.role)) {
+    return { error: "Only managers can list employees." };
+  }
+
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("employees")
@@ -200,23 +268,6 @@ export async function getEmployeeCount(companyId?: string): Promise<ActionResult
 
   if (error) return { error: error.message };
   return { data: count ?? 0 };
-}
-
-export interface CreateEmployeeInput {
-  companyId: string;
-  first_name_en: string;
-  first_name_ar: string;
-  last_name_en: string;
-  last_name_ar: string;
-  email: string;
-  phone: string;
-  job_title: string;
-  role: string;
-  password: string;
-  avatar?: File | null;
-  team_id?: string | null;
-  reports_to_employee_id?: string | null;
-  branch_id?: string | null;
 }
 
 export async function createEmployee(
@@ -309,26 +360,6 @@ export async function createEmployee(
   return { data: null };
 }
 
-export interface UpdateEmployeeInput {
-  profileId: string;
-  employeeId: string | null;
-  first_name_en: string;
-  first_name_ar: string;
-  last_name_en: string;
-  last_name_ar: string;
-  email: string;
-  phone: string;
-  job_title: string;
-  role: string;
-  companyId?: string;
-  avatar?: File | null;
-  team_id?: string | null;
-  reports_to_employee_id?: string | null;
-  branch_id?: string | null;
-  /** When true and no new file is provided, clear the existing photo. */
-  removeAvatar?: boolean;
-}
-
 export async function updateEmployee(
   input: UpdateEmployeeInput,
 ): Promise<ActionResult<null>> {
@@ -403,8 +434,23 @@ export async function updateEmployee(
       last_name_ar: input.last_name_ar || input.last_name_en,
       email: input.email,
       phone: input.phone || "N/A",
-      job_title: input.job_title || "administrator",
     };
+
+    if (canManageOthers) {
+      const syncedJobTitle =
+        nextRole &&
+        (nextRole === "sales_agent" ||
+          nextRole === "administrator" ||
+          nextRole === "manager")
+          ? jobTitleForRole(nextRole as CompanyRole)
+          : input.job_title || "sales_agent";
+      patch.job_title = syncedJobTitle;
+      if (input.team_id !== undefined) patch.team_id = input.team_id;
+      if (input.reports_to_employee_id !== undefined) {
+        patch.reports_to_employee_id = input.reports_to_employee_id;
+      }
+      if (input.branch_id !== undefined) patch.branch_id = input.branch_id;
+    }
 
     if (input.avatar instanceof File && input.companyId) {
       const upload = await uploadEmployeeAvatar(input.companyId, input.avatar);
@@ -413,11 +459,6 @@ export async function updateEmployee(
     } else if (input.removeAvatar) {
       patch.avatar_url = null;
     }
-    if (input.team_id !== undefined) patch.team_id = input.team_id;
-    if (input.reports_to_employee_id !== undefined) {
-      patch.reports_to_employee_id = input.reports_to_employee_id;
-    }
-    if (input.branch_id !== undefined) patch.branch_id = input.branch_id;
 
     const { error: employeeError } = await admin
       .from("employees")
@@ -503,50 +544,69 @@ export async function updateEmployeeDisabled(
     }
 
     if (targets) {
-      const targetIds = [
-        targets.reassignOwnersTo,
-        targets.reassignClientsTo,
-        targets.reassignPropertiesTo,
-      ];
-      if (targetIds.some((id) => !id || id === profile.id)) {
-        return { error: "Choose valid reassignment targets." };
+      const reassignTo = targets.reassignTo;
+      if (!reassignTo || reassignTo === profile.id) {
+        return { error: "Choose a valid reassignment target." };
       }
-      const { data: targetProfiles, error: targetsError } = await admin
+      const { data: targetProfile, error: targetsError } = await admin
         .from("profiles")
         .select("id")
         .eq("company_id", resolvedCompanyId)
-        .in("id", [...new Set(targetIds)]);
+        .eq("id", reassignTo)
+        .maybeSingle();
       if (targetsError) return { error: targetsError.message };
-      if ((targetProfiles ?? []).length !== new Set(targetIds).size) {
+      if (!targetProfile) {
         return { error: "A reassignment target does not belong to this company." };
       }
 
       const { error: ownersError } = await admin
         .from("owners")
-        .update({ assigned_employee_id: targets.reassignOwnersTo })
+        .update({ assigned_employee_id: reassignTo })
         .eq("company_id", resolvedCompanyId)
         .eq("assigned_employee_id", profile.id);
       if (ownersError) return { error: ownersError.message };
       const { error: clientsError } = await admin
         .from("clients")
-        .update({ employee_id: targets.reassignClientsTo })
+        .update({ employee_id: reassignTo })
         .eq("company_id", resolvedCompanyId)
         .eq("employee_id", profile.id);
       if (clientsError) return { error: clientsError.message };
       const { error: propertiesError } = await admin
         .from("properties")
-        .update({ employee_id: targets.reassignPropertiesTo })
+        .update({ employee_id: reassignTo })
         .eq("company_id", resolvedCompanyId)
         .eq("employee_id", profile.id);
       if (propertiesError) return { error: propertiesError.message };
     }
+
+    const { error } = await admin
+      .from("employees")
+      .update({ disabled: true })
+      .eq("id", employeeId);
+    if (error) return { error: error.message };
+
+    await syncAuthAccessForEmployee(admin, profile.id, "ban");
+    return { data: null };
   }
+
+  // Re-enable: lift ban so they can sign in again.
+  const { data: profile, error: linkedProfileError } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("employee_id", employeeId)
+    .eq("company_id", resolvedCompanyId)
+    .maybeSingle();
+  if (linkedProfileError) return { error: linkedProfileError.message };
 
   const { error } = await admin
     .from("employees")
-    .update({ disabled })
+    .update({ disabled: false })
     .eq("id", employeeId);
   if (error) return { error: error.message };
+
+  if (profile?.id) {
+    await syncAuthAccessForEmployee(admin, profile.id, "unban");
+  }
   return { data: null };
 }
 
@@ -578,13 +638,67 @@ export async function resetEmployeePassword(
     password: newPassword,
   });
   if (error) return { error: error.message };
+  await syncAuthAccessForEmployee(admin, profileId, "revoke");
   return { data: null };
+}
+
+export async function getEmployeeAssignmentCounts(
+  profileId: string,
+  companyId: string,
+): Promise<
+  ActionResult<{ owners: number; clients: number; properties: number; total: number }>
+> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canManageEmployees(access.data.role)) {
+    return { error: "Only managers can view assignment counts." };
+  }
+
+  const admin = getSupabaseAdmin();
+  const [owners, clients, properties] = await Promise.all([
+    admin
+      .from("owners")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("assigned_employee_id", profileId),
+    admin
+      .from("clients")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("employee_id", profileId),
+    admin
+      .from("properties")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("employee_id", profileId),
+  ]);
+  const countError = owners.error || clients.error || properties.error;
+  if (countError) return { error: countError.message };
+
+  const ownersCount = owners.count ?? 0;
+  const clientsCount = clients.count ?? 0;
+  const propertiesCount = properties.count ?? 0;
+  return {
+    data: {
+      owners: ownersCount,
+      clients: clientsCount,
+      properties: propertiesCount,
+      total: ownersCount + clientsCount + propertiesCount,
+    },
+  };
 }
 
 export async function getBaseEmployee(id: string): Promise<ActionResult<EmployeeRecord>> {
   const supabase = await getServerSupabase();
   const { data, error } = await supabase.from("employees").select("*").eq("id", id).single();
   if (error) return { error: error.message };
+  if (!data) return { error: "Employee not found." };
+
+  const access = await assertCompanyMember(data.company_id);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canManageEmployees(access.data.role)) {
+    return { error: "Only managers can view employees." };
+  }
   return { data: data as EmployeeRecord };
 }
 
@@ -599,21 +713,23 @@ export async function updateBaseEmployee(
   },
 ): Promise<ActionResult<null>> {
   const supabase = await getServerSupabase();
+  const { data: existing, error: fetchError } = await supabase
+    .from("employees")
+    .select("id, company_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) return { error: fetchError.message };
+  if (!existing) return { error: "Employee not found." };
+
+  const access = await assertCompanyMember(existing.company_id);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canManageEmployees(access.data.role)) {
+    return { error: "Only managers can update employees." };
+  }
+
   const { error } = await supabase.from("employees").update(input).eq("id", id);
   if (error) return { error: error.message };
   return { data: null };
-}
-
-export interface EmployeeToDelete {
-  profileId: string;
-  employeeId?: string | null;
-  isBaseOnly?: boolean;
-}
-
-export interface ReassignmentTargets {
-  reassignOwnersTo: string;
-  reassignClientsTo: string;
-  reassignPropertiesTo: string;
 }
 
 export async function deleteEmployeeWorkflow(
@@ -630,6 +746,7 @@ export async function deleteEmployeeWorkflow(
   const admin = getSupabaseAdmin();
   const targetId = employeeToDelete.profileId;
   const baseEmployeeId = employeeToDelete.employeeId;
+  const reassignTo = targets.reassignTo;
 
   if (employeeToDelete.isBaseOnly) {
     if (baseEmployeeId) {
@@ -639,26 +756,33 @@ export async function deleteEmployeeWorkflow(
     return { data: null };
   }
 
+  if (!reassignTo || reassignTo === targetId) {
+    return { error: "Choose a valid reassignment target." };
+  }
+
   const { error: ownersError } = await admin
     .from("owners")
-    .update({ assigned_employee_id: targets.reassignOwnersTo })
+    .update({ assigned_employee_id: reassignTo })
     .eq("assigned_employee_id", targetId);
   if (ownersError) return { error: ownersError.message };
 
   const { error: clientsError } = await admin
     .from("clients")
-    .update({ employee_id: targets.reassignClientsTo })
+    .update({ employee_id: reassignTo })
     .eq("employee_id", targetId);
   if (clientsError) return { error: clientsError.message };
 
   const { error: propertiesError } = await admin
     .from("properties")
-    .update({ employee_id: targets.reassignPropertiesTo })
+    .update({ employee_id: reassignTo })
     .eq("employee_id", targetId);
   if (propertiesError) return { error: propertiesError.message };
 
   // Historical records (revenues, client_status_history, owner_status_history)
   // are intentionally NOT reassigned/deleted, to preserve historical data integrity.
+
+  // Kick active sessions before tearing down the auth user.
+  await syncAuthAccessForEmployee(admin, targetId, "revoke");
 
   const { error: profileError } = await admin.from("profiles").delete().eq("id", targetId);
   if (profileError) return { error: profileError.message };

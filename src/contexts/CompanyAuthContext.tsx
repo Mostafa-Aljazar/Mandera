@@ -11,6 +11,11 @@ import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import supabase from "@/lib/supabase/client";
 import type { AuthUser, Company } from "@/types/supabase-entities.types";
+import { isCompanyEmployeeLoginDisabled } from "@/actions/employee-auth";
+
+/** Stable i18n key thrown / shown when a disabled employee tries to sign in. */
+const EMPLOYEE_ACCOUNT_DISABLED_MESSAGE =
+  "Your account has been disabled. Please contact your company manager.";
 
 const COMPANY_AUTH_PATHS = [
   "/company/login",
@@ -51,6 +56,20 @@ function resolveCompany(
   return Array.isArray(companies) ? (companies[0] ?? null) : companies;
 }
 
+type ProfileAuthRow = ProfileWithCompany & {
+  employee?: { disabled?: boolean | null } | { disabled?: boolean | null }[] | null;
+};
+
+function isEmployeeDisabled(profile: ProfileAuthRow): boolean {
+  const emp = Array.isArray(profile.employee)
+    ? profile.employee[0]
+    : profile.employee;
+  return Boolean(emp?.disabled);
+}
+
+const PROFILE_AUTH_SELECT =
+  "*, companies(*), employee:employees!profiles_employee_id_fkey(disabled)";
+
 export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
   const shouldInit = needsCompanyAuth(pathname);
@@ -82,7 +101,7 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("*, companies(*)")
+        .select(PROFILE_AUTH_SELECT)
         .eq("id", session.user.id)
         .single();
 
@@ -94,7 +113,16 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
           profile.role === "administrator" ||
           profile.role === "manager")
       ) {
-        const { companies, ...profileFields } = profile as ProfileWithCompany;
+        if (isEmployeeDisabled(profile as ProfileAuthRow)) {
+          await supabase.auth.signOut();
+          setCurrentUser(null);
+          setCurrentCompany(null);
+          setInitialLoading(false);
+          return;
+        }
+
+        const { companies, employee: _employee, ...profileFields } =
+          profile as ProfileAuthRow;
         const user = { ...profileFields, email: session.user.email } as AuthUser;
         user.name = user.name || user.email || "Unknown User";
 
@@ -119,6 +147,21 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
       await supabase.auth.signInWithPassword({ email, password });
 
     if (authError || !authData.user) {
+      const authMsg = (authError?.message || "").toLowerCase();
+      const looksBanned =
+        authMsg.includes("ban") ||
+        authMsg.includes("disabled") ||
+        (authError as { code?: string } | null)?.code === "user_banned";
+
+      if (looksBanned) {
+        throw new Error(EMPLOYEE_ACCOUNT_DISABLED_MESSAGE);
+      }
+
+      const disabledCheck = await isCompanyEmployeeLoginDisabled(email);
+      if (disabledCheck.data) {
+        throw new Error(EMPLOYEE_ACCOUNT_DISABLED_MESSAGE);
+      }
+
       throw new Error(
         "Invalid email or password. Please verify your credentials.",
       );
@@ -127,7 +170,7 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("*, companies(*)")
+        .select(PROFILE_AUTH_SELECT)
         .eq("id", authData.user.id)
         .single();
 
@@ -143,7 +186,12 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
         );
       }
 
-      const { companies, ...profileFields } = profile as ProfileWithCompany;
+      if (isEmployeeDisabled(profile as ProfileAuthRow)) {
+        throw new Error(EMPLOYEE_ACCOUNT_DISABLED_MESSAGE);
+      }
+
+      const { companies, employee: _employee, ...profileFields } =
+        profile as ProfileAuthRow;
       const userRecord = { ...profileFields, email: authData.user.email } as AuthUser;
       userRecord.name = userRecord.name || userRecord.email || "Unknown User";
 

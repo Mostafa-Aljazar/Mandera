@@ -12,6 +12,7 @@ import {
 } from "@/actions/_access";
 import {
   OWNER_IDENTITY_FIELDS,
+  IDENTITY_FIELDS_LOCKED_ERROR,
   stripIdentityFields,
 } from "@/lib/identity";
 import {
@@ -363,8 +364,7 @@ export async function updateOwner(
 
   if (identityMismatch) {
     return {
-      error:
-        "Identity fields (name, phone, country) are locked after create. Only Master Admin can apply an exceptional correction with a full audit log.",
+      error: IDENTITY_FIELDS_LOCKED_ERROR,
     };
   }
 
@@ -391,10 +391,14 @@ export async function updateOwner(
     patch.avatar_url = null;
   }
 
-  const { data, error } = await supabase
+  // Admin write after role checks: sales-agent transfer changes assigned_employee_id
+  // so RLS WITH CHECK / RETURNING SELECT would otherwise reject the new row.
+  const admin = await getSupabaseAdmin();
+  const { data, error } = await admin
     .from("owners")
     .update(patch)
     .eq("id", input.id)
+    .eq("company_id", companyId)
     .select()
     .single();
 

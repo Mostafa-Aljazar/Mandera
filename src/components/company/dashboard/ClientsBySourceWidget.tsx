@@ -17,6 +17,12 @@ import { useClientsBySource } from "@/hooks/queries/useClients";
 import { ChartColumn, Filter, TrendingUp, CalendarRange } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DatePicker } from "@/components/ui/date-picker";
+import { useLanguage } from "@/contexts/LanguageContext";
+import {
+  employeeDisplayName,
+  profileDisplayName,
+} from "@/lib/bilingualLabel";
+import type { ClientsBySourceRow } from "@/actions/clients";
 
 const CHART_COLORS = [
   "hsl(192 85% 30%)",
@@ -29,18 +35,15 @@ const CHART_COLORS = [
   "hsl(24 95% 53%)",
 ];
 
-interface SourceDataPoint {
-  name: string;
-  count: number;
-}
-
 interface ClientsBySourceWidgetProps {
   companyId?: string;
-  /** When set, hides group-by tabs and locks the breakdown mode. */
-  fixedGroupBy?: "source" | "campaign" | "employee";
+  /** When set, locks the breakdown mode (e.g. employee chart). */
+  fixedGroupBy?: "source" | "employee";
   title?: string;
   description?: string;
 }
+
+type ChartRow = ClientsBySourceRow & { label: string };
 
 export default function ClientsBySourceWidget({
   companyId,
@@ -49,21 +52,11 @@ export default function ClientsBySourceWidget({
   description,
 }: ClientsBySourceWidgetProps) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const [period, setPeriod] = useState("this_month");
-  const [groupByState, setGroupBy] = useState<"source" | "campaign" | "employee">(
-    fixedGroupBy ?? "source",
-  );
-  const groupBy = fixedGroupBy ?? groupByState;
+  const groupBy = fixedGroupBy ?? "source";
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-
-  const GROUP_BY_OPTIONS = useMemo(
-    () => [
-      { id: "source" as const, label: t("By source") },
-      { id: "campaign" as const, label: t("By campaign") },
-    ],
-    [t],
-  );
 
   const PERIODS = useMemo(
     () => [
@@ -147,10 +140,22 @@ export default function ClientsBySourceWidget({
       : undefined,
   );
 
-  const data = useMemo(() => {
+  const data: ChartRow[] = useMemo(() => {
     const rows = [...(sourceData ?? [])].sort((a, b) => b.count - a.count);
-    return rows;
-  }, [sourceData]);
+    return rows.map((row) => {
+      const label =
+        groupBy === "employee"
+          ? employeeDisplayName(
+              row,
+              language,
+              profileDisplayName(row, language),
+            ) ||
+            (row.id === "unassigned" ? t("Unassigned") : row.name) ||
+            t("Unassigned")
+          : t(row.name);
+      return { ...row, label };
+    });
+  }, [sourceData, language, groupBy, t]);
 
   const totalClients = data.reduce((sum, item) => sum + item.count, 0);
   const topSource = data[0] ?? null;
@@ -218,33 +223,12 @@ export default function ClientsBySourceWidget({
             </h3>
             <p className="mt-1 text-muted-foreground text-sm leading-relaxed">
               {description ??
-                t(
-                  "Client performance by marketing source, campaign, and employee.",
-                )}
+                t("Client performance by marketing source.")}
             </p>
           </div>
         </div>
 
         <div className="flex flex-col items-end gap-2.5 w-full sm:w-auto shrink-0">
-          {!fixedGroupBy ? (
-            <div className="flex gap-1 bg-muted/50 p-1 border border-border/60 rounded-full w-full sm:w-auto overflow-x-auto">
-              {GROUP_BY_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setGroupBy(opt.id)}
-                  className={cn(
-                    "flex items-center gap-1 px-3 py-1.5 rounded-full font-medium text-xs whitespace-nowrap transition-colors",
-                    groupBy === opt.id
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
           <div className="flex gap-1 bg-muted/50 p-1 border border-border/60 rounded-full w-full sm:w-auto overflow-x-auto">
             {PERIODS.map((p) => (
               <button
@@ -346,7 +330,7 @@ export default function ClientsBySourceWidget({
                   {t("Top source")}
                 </p>
                 <p className="mt-1.5 font-outfit font-bold text-foreground text-base sm:text-lg tracking-tight truncate">
-                  {topSource?.name}
+                  {topSource?.label}
                 </p>
                 <p className="mt-0.5 text-muted-foreground text-xs tabular-nums">
                   {topSource?.count} · {topShare}%
@@ -367,7 +351,7 @@ export default function ClientsBySourceWidget({
                       stroke="hsl(var(--border))"
                     />
                     <XAxis
-                      dataKey="name"
+                      dataKey="label"
                       tick={{
                         fill: "hsl(var(--muted-foreground))",
                         fontSize: 11,
@@ -426,7 +410,7 @@ export default function ClientsBySourceWidget({
 
                     return (
                       <li
-                        key={item.name}
+                        key={item.id}
                         className="bg-background/80 p-3 border border-border/50 rounded-xl"
                       >
                         <div className="flex justify-between items-center gap-2 mb-2">
@@ -436,7 +420,7 @@ export default function ClientsBySourceWidget({
                               style={{ backgroundColor: color }}
                             />
                             <span className="font-medium text-foreground text-sm truncate">
-                              {item.name}
+                              {item.label}
                             </span>
                           </div>
                           <span className="font-semibold text-foreground text-sm tabular-nums shrink-0">

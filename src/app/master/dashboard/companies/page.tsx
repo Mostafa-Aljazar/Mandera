@@ -30,6 +30,8 @@ import {
   useDeleteCompanyCascade,
 } from "@/hooks/queries/useCompanies";
 import { useEmployeeCount } from "@/hooks/useEmployeeCount";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { companyDisplayName } from "@/lib/bilingualLabel";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -51,12 +53,33 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  MoreVertical,
   type LucideIcon,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 type StatusFilter = "all" | "active" | "frozen";
 
 const PAGE_SIZE = 10;
+const EMAIL_DISPLAY_MAX = 22;
+
+function truncateEmail(email: string, max = EMAIL_DISPLAY_MAX): string {
+  if (!email || email.length <= max) return email;
+  return `${email.slice(0, max - 1)}…`;
+}
+
+async function copyEmail(email: string, successLabel: string) {
+  try {
+    await navigator.clipboard.writeText(email);
+    toast.success(successLabel);
+  } catch {
+    toast.error(email);
+  }
+}
 
 function getPageNumbers(current: number, total: number): (number | "ellipsis")[] {
   if (total <= 5) {
@@ -148,6 +171,151 @@ function StatusBadge({ frozen }: { frozen: boolean }) {
   );
 }
 
+function CompanyLogo({
+  company,
+  size = "md",
+}: {
+  company: Company;
+  size?: "md" | "lg";
+}) {
+  const sizeClass = size === "lg" ? "w-11 h-11" : "w-10 h-10";
+  const iconClass = size === "lg" ? "w-5 h-5" : "w-4 h-4";
+  const displayName =
+    company.company_name_en || company.company_name_ar || company.company_code;
+
+  if (company.logo_url) {
+    return (
+      <span
+        className={cn(
+          "block border border-border/50 rounded-full overflow-hidden shrink-0 bg-muted/30",
+          sizeClass,
+        )}
+      >
+        <img
+          src={company.logo_url}
+          alt={displayName}
+          className="w-full h-full object-cover"
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={cn(
+        "flex justify-center items-center bg-primary/10 border border-primary/15 rounded-full text-primary shrink-0",
+        sizeClass,
+      )}
+    >
+      <Building2 className={iconClass} />
+    </span>
+  );
+}
+
+function CompanyActionsMenu({
+  company,
+  onDelete,
+  onToggleFreeze,
+}: {
+  company: Company;
+  onDelete: (company: Company) => void;
+  onToggleFreeze: (company: Company) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "rounded-xl w-8 h-8 text-muted-foreground hover:text-foreground transition-colors",
+            open && "bg-muted text-foreground",
+          )}
+          aria-label={t("Actions")}
+        >
+          <MoreVertical className="w-4 h-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="p-0 w-52 rounded-2xl border-border/60 bg-card shadow-[var(--shadow-hover)] overflow-hidden"
+      >
+        <div className="px-3.5 pt-3 pb-2 border-b border-border/50">
+          <p className="font-medium text-muted-foreground text-[11px] uppercase tracking-wide">
+            {t("Actions")}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-0.5 p-1.5">
+          <Button
+            asChild
+            variant="ghost"
+            className="justify-start gap-2.5 px-2.5 rounded-xl h-10 font-medium"
+            onClick={() => setOpen(false)}
+          >
+            <Link href={`/master/dashboard/companies/${company.id}`}>
+              <span className="flex justify-center items-center bg-primary/10 rounded-lg w-7 h-7 text-primary shrink-0">
+                <Pencil className="w-3.5 h-3.5" />
+              </span>
+              {t("Edit")}
+            </Link>
+          </Button>
+
+          <Button
+            variant="ghost"
+            className={cn(
+              "justify-start gap-2.5 px-2.5 rounded-xl h-10 font-medium",
+              company.is_frozen
+                ? "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-500/10"
+                : "text-amber-700 hover:text-amber-800 hover:bg-amber-500/10",
+            )}
+            onClick={() => {
+              setOpen(false);
+              onToggleFreeze(company);
+            }}
+          >
+            <span
+              className={cn(
+                "flex justify-center items-center rounded-lg w-7 h-7 shrink-0",
+                company.is_frozen
+                  ? "bg-emerald-500/10 text-emerald-600"
+                  : "bg-amber-500/10 text-amber-600",
+              )}
+            >
+              {company.is_frozen ? (
+                <Unlock className="w-3.5 h-3.5" />
+              ) : (
+                <Lock className="w-3.5 h-3.5" />
+              )}
+            </span>
+            {company.is_frozen ? t("Unfreeze") : t("Freeze")}
+          </Button>
+
+          <div className="bg-border/60 mx-1.5 my-1 h-px" />
+
+          <Button
+            variant="ghost"
+            className="justify-start gap-2.5 px-2.5 rounded-xl h-10 font-medium text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => {
+              setOpen(false);
+              onDelete(company);
+            }}
+          >
+            <span className="flex justify-center items-center bg-destructive/10 rounded-lg w-7 h-7 text-destructive shrink-0">
+              <Trash2 className="w-3.5 h-3.5" />
+            </span>
+            {t("Delete")}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function CompanyRow({
   company,
   onDelete,
@@ -158,18 +326,19 @@ function CompanyRow({
   onToggleFreeze: (company: Company) => void;
 }) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const { count: employeeCount } = useEmployeeCount(company.id);
+  const displayName =
+    companyDisplayName(company, language) || company.company_code;
 
   return (
     <TableRow className="hover:bg-muted/30">
-      <TableCell className="min-w-[200px]">
+      <TableCell className="w-[28%] max-w-0">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="flex justify-center items-center bg-primary/10 border border-primary/15 rounded-xl w-10 h-10 text-primary shrink-0">
-            <Building2 className="w-4 h-4" />
-          </span>
+          <CompanyLogo company={company} />
           <div className="min-w-0">
             <p className="font-semibold text-foreground truncate">
-              {company.company_name_en || company.company_code}
+              {displayName}
             </p>
             <p className="font-mono text-muted-foreground text-xs truncate" dir="ltr">
               {company.company_code}
@@ -177,16 +346,19 @@ function CompanyRow({
           </div>
         </div>
       </TableCell>
-      <TableCell>
-        <span
-          className="inline-flex items-center gap-1.5 text-muted-foreground text-sm"
+      <TableCell className="w-[22%] max-w-0">
+        <button
+          type="button"
           dir="ltr"
+          title={`${company.email} — ${t("Click to copy")}`}
+          onClick={() => copyEmail(company.email, t("Email copied"))}
+          className="inline-flex items-center gap-1.5 max-w-full text-muted-foreground hover:text-primary text-sm transition-colors"
         >
           <Mail className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate max-w-[16rem]">{company.email}</span>
-        </span>
+          <span className="truncate">{truncateEmail(company.email)}</span>
+        </button>
       </TableCell>
-      <TableCell>
+      <TableCell className="w-[14%] whitespace-nowrap">
         <span className="inline-flex items-center gap-1.5 font-semibold">
           <Users className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
           <span className="tabular-nums" dir="ltr">
@@ -198,53 +370,20 @@ function CompanyRow({
           </span>
         </span>
       </TableCell>
-      <TableCell>
+      <TableCell className="w-[12%] whitespace-nowrap">
         <StatusBadge frozen={!!company.is_frozen} />
       </TableCell>
-      <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+      <TableCell className="w-[14%] text-muted-foreground text-sm whitespace-nowrap">
         <span dir="ltr">
           {new Date(company.created_at).toLocaleDateString()}
         </span>
       </TableCell>
-      <TableCell className="w-[1%] whitespace-nowrap">
-        <div className="flex justify-end items-center gap-0.5">
-          <Button
-            asChild
-            variant="ghost"
-            size="icon"
-            className="rounded-lg w-8 h-8 text-muted-foreground hover:text-primary"
-          >
-            <Link href={`/master/dashboard/companies/${company.id}`}>
-              <Pencil className="w-4 h-4" />
-            </Link>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "rounded-lg w-8 h-8",
-              company.is_frozen
-                ? "text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700"
-                : "text-amber-600 hover:bg-amber-500/10 hover:text-amber-700",
-            )}
-            onClick={() => onToggleFreeze(company)}
-            title={company.is_frozen ? t("Unfreeze") : t("Freeze")}
-          >
-            {company.is_frozen ? (
-              <Unlock className="w-4 h-4" />
-            ) : (
-              <Lock className="w-4 h-4" />
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-lg w-8 h-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => onDelete(company)}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        </div>
+      <TableCell className="w-[10%] text-end">
+        <CompanyActionsMenu
+          company={company}
+          onDelete={onDelete}
+          onToggleFreeze={onToggleFreeze}
+        />
       </TableCell>
     </TableRow>
   );
@@ -260,27 +399,41 @@ function CompanyMobileCard({
   onToggleFreeze: (company: Company) => void;
 }) {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const { count: employeeCount } = useEmployeeCount(company.id);
+  const displayName =
+    companyDisplayName(company, language) || company.company_code;
 
   return (
     <div className="bg-card shadow-[var(--shadow-subtle)] p-4 border border-border/60 rounded-2xl">
       <div className="flex items-start gap-3 mb-3">
-        <span className="flex justify-center items-center bg-primary/10 border border-primary/15 rounded-xl w-11 h-11 text-primary shrink-0">
-          <Building2 className="w-5 h-5" />
-        </span>
+        <CompanyLogo company={company} size="lg" />
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-foreground truncate">
-            {company.company_name_en || company.company_code}
+            {displayName}
           </p>
-          <p className="mt-0.5 text-muted-foreground text-xs truncate">
-            {company.email}
-          </p>
+          <button
+            type="button"
+            dir="ltr"
+            title={`${company.email} — ${t("Click to copy")}`}
+            onClick={() => copyEmail(company.email, t("Email copied"))}
+            className="mt-0.5 max-w-full text-muted-foreground hover:text-primary text-xs truncate text-start transition-colors"
+          >
+            {truncateEmail(company.email)}
+          </button>
         </div>
-        <StatusBadge frozen={!!company.is_frozen} />
+        <div className="flex items-center gap-1 shrink-0">
+          <StatusBadge frozen={!!company.is_frozen} />
+          <CompanyActionsMenu
+            company={company}
+            onDelete={onDelete}
+            onToggleFreeze={onToggleFreeze}
+          />
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-4 text-muted-foreground text-xs">
-        <span className="inline-flex items-center gap-1 font-mono">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs">
+        <span className="inline-flex items-center gap-1 font-mono" dir="ltr">
           {company.company_code}
         </span>
         <span className="inline-flex items-center gap-1">
@@ -289,36 +442,7 @@ function CompanyMobileCard({
             {employeeCount}/{company.max_employee_count}
           </span>
         </span>
-        <span>{new Date(company.created_at).toLocaleDateString()}</span>
-      </div>
-
-      <div className="flex gap-2">
-        <Button asChild variant="outline" size="sm" className="flex-1 rounded-lg h-9">
-          <Link href={`/master/dashboard/companies/${company.id}`}>
-            <Pencil className="w-3.5 h-3.5" />
-            {t("Edit")}
-          </Link>
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="rounded-lg h-9"
-          onClick={() => onToggleFreeze(company)}
-        >
-          {company.is_frozen ? (
-            <Unlock className="w-3.5 h-3.5" />
-          ) : (
-            <Lock className="w-3.5 h-3.5" />
-          )}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="hover:bg-destructive/10 border-destructive/20 rounded-lg h-9 text-destructive hover:text-destructive"
-          onClick={() => onDelete(company)}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
+        <span dir="ltr">{new Date(company.created_at).toLocaleDateString()}</span>
       </div>
     </div>
   );
@@ -326,6 +450,7 @@ function CompanyMobileCard({
 
 export default function CompanyListPage() {
   const { t } = useTranslation();
+  const { language } = useLanguage();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
@@ -603,41 +728,41 @@ export default function CompanyListPage() {
                 </div>
               ) : (
                 <>
-                  <div className="hidden md:block border border-border/60 rounded-xl overflow-hidden">
-                    <Table>
+                  <div className="hidden md:block border border-border/60 rounded-xl overflow-hidden [&>div]:overflow-hidden">
+                    <Table className="table-fixed">
                       <TableHeader className="bg-muted/40">
                         <TableRow className="hover:bg-transparent">
-                          <TableHead className="min-w-[200px]">
+                          <TableHead className="w-[28%]">
                             <span className="inline-flex items-center gap-1.5">
                               <Building2 className="w-3.5 h-3.5 opacity-70" />
                               {t("Company Name")}
                             </span>
                           </TableHead>
-                          <TableHead>
+                          <TableHead className="w-[22%]">
                             <span className="inline-flex items-center gap-1.5">
                               <Mail className="w-3.5 h-3.5 opacity-70" />
                               {t("Email")}
                             </span>
                           </TableHead>
-                          <TableHead className="whitespace-nowrap">
+                          <TableHead className="w-[14%] whitespace-nowrap">
                             <span className="inline-flex items-center gap-1.5">
                               <Users className="w-3.5 h-3.5 opacity-70" />
                               {t("Employee Count")}
                             </span>
                           </TableHead>
-                          <TableHead>
+                          <TableHead className="w-[12%]">
                             <span className="inline-flex items-center gap-1.5">
                               <CheckCircle2 className="w-3.5 h-3.5 opacity-70" />
                               {t("Status")}
                             </span>
                           </TableHead>
-                          <TableHead className="whitespace-nowrap">
+                          <TableHead className="w-[14%] whitespace-nowrap">
                             <span className="inline-flex items-center gap-1.5">
                               <CalendarDays className="w-3.5 h-3.5 opacity-70" />
                               {t("Created Date")}
                             </span>
                           </TableHead>
-                          <TableHead className="w-[1%] text-end whitespace-nowrap">
+                          <TableHead className="w-[10%] text-end whitespace-nowrap">
                             {t("Actions")}
                           </TableHead>
                         </TableRow>
@@ -763,7 +888,10 @@ export default function CompanyListPage() {
                 "Are you sure you want to delete this company? All related data will be permanently deleted.",
               )}
               <div className="bg-muted mt-4 p-3 border border-border rounded-xl font-medium">
-                {deleteDialog.company?.company_name_en}
+                {deleteDialog.company
+                  ? companyDisplayName(deleteDialog.company, language) ||
+                    deleteDialog.company.company_code
+                  : null}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -812,7 +940,10 @@ export default function CompanyListPage() {
                 ? t("Do you want to unfreeze this company?")
                 : t("Do you want to freeze this company?")}
               <div className="bg-muted mt-4 p-3 border border-border rounded-xl font-medium">
-                {freezeDialog.company?.company_name_en}
+                {freezeDialog.company
+                  ? companyDisplayName(freezeDialog.company, language) ||
+                    freezeDialog.company.company_code
+                  : null}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -186,7 +186,8 @@ export async function listIdentityFieldAudit(input: {
 
 /**
  * Master Admin only — correct a locked identity field on a client or owner
- * and write an identity_field_audit row.
+ * and write an identity_field_audit row (via DB RPC so the immutability
+ * trigger allows the write inside one transaction).
  */
 export async function correctIdentityField(
   input: CorrectIdentityFieldInput,
@@ -212,68 +213,34 @@ export async function correctIdentityField(
     return { error: `Field "${input.fieldName}" cannot be corrected.` };
   }
 
-  const table = input.entityType === "client" ? "clients" : "owners";
   const admin = getSupabaseAdmin();
+  const { data, error } = await admin.rpc("master_correct_identity_field", {
+    p_entity_type: input.entityType,
+    p_entity_id: input.entityId,
+    p_field_name: input.fieldName,
+    p_new_value: input.newValue.trim(),
+    p_reason: reason,
+    p_requester_name: requesterName,
+    p_performed_by: access.data.userId,
+    p_requested_by: input.requestedBy ?? null,
+    p_company_id: input.companyId ?? null,
+  });
 
-  const { data: existing, error: fetchError } = await admin
-    .from(table)
-    .select("*")
-    .eq("id", input.entityId)
-    .maybeSingle();
+  if (error) return { error: error.message };
 
-  if (fetchError) return { error: fetchError.message };
-  if (!existing) return { error: `${input.entityType} not found` };
+  const payload = data as {
+    entity?: Record<string, unknown>;
+    audit?: IdentityFieldAudit;
+  } | null;
 
-  const companyId =
-    input.companyId ?? (existing.company_id as string | null) ?? null;
-  const oldValue =
-    existing[input.fieldName] == null
-      ? null
-      : String(existing[input.fieldName]);
-  const newValue = input.newValue.trim();
-
-  const patch: Record<string, unknown> = {
-    [input.fieldName]: newValue,
-  };
-  // Keep legacy `name` in sync when correcting bilingual name fields.
-  if (input.fieldName === "name_en") {
-    patch.name = newValue;
-  } else if (input.fieldName === "name" && "name_en" in existing) {
-    patch.name_en = newValue;
+  if (!payload?.entity || !payload?.audit) {
+    return { error: "Identity correction failed." };
   }
-
-  const { data: updated, error: updateError } = await admin
-    .from(table)
-    .update(patch)
-    .eq("id", input.entityId)
-    .select()
-    .single();
-
-  if (updateError) return { error: updateError.message };
-
-  const { data: audit, error: auditError } = await admin
-    .from("identity_field_audit")
-    .insert({
-      company_id: companyId,
-      entity_type: input.entityType,
-      entity_id: input.entityId,
-      field_name: input.fieldName,
-      old_value: oldValue,
-      new_value: newValue,
-      reason,
-      requester_name: requesterName,
-      requested_by: input.requestedBy ?? null,
-      performed_by: access.data.userId,
-    })
-    .select()
-    .single();
-
-  if (auditError) return { error: auditError.message };
 
   return {
     data: {
-      entity: updated as Record<string, unknown>,
-      audit: audit as IdentityFieldAudit,
+      entity: payload.entity,
+      audit: payload.audit,
     },
   };
 }

@@ -17,6 +17,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
+import ResetPasswordDialog from "@/components/company/employees/ResetPasswordDialog";
 import {
   Select,
   SelectContent,
@@ -85,7 +86,9 @@ import {
   isManager,
   isAdministrator,
   canManageEmployees,
+  canViewRevenue,
   jobTitleForRole,
+  roleFromJobTitle,
 } from "@/lib/permissions";
 
 const JOB_TITLES = ["sales_agent", "administrator", "manager"] as const;
@@ -206,6 +209,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
   const { language } = useLanguage();
   const router = useRouter();
   const { company, currentUser } = useCompanyAuth();
+  const canAccessRevenue = canViewRevenue(currentUser?.role);
   const [activeTab, setActiveTab] = useState("info");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -273,7 +277,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
   const teams = teamsData ?? [];
   const branches = branchesData ?? [];
   const { data: revenuesData, isFetching: loadingRevenues } = useRevenues(
-    company?.id,
+    canAccessRevenue ? company?.id : undefined,
     revenueFilters,
   );
   const { data: activityData, isFetching: loadingActivity } =
@@ -296,6 +300,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
 
   const updateEmployeeMutation = useUpdateEmployee();
   const resetPasswordMutation = useResetEmployeePassword();
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
 
   const form = useForm<TEmployeeProfileSchema>({
     resolver: zodResolver(EmployeeProfileSchema(t)),
@@ -469,14 +474,8 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
     }
   });
 
-  const handleResetPassword = async () => {
+  const handleResetPassword = async (newPassword: string) => {
     if (!company?.id || !employee) return;
-    const newPassword = window.prompt(t("Enter a new password"));
-    if (newPassword === null) return;
-    if (newPassword.length < 6) {
-      toast.error(t("Password must be at least 6 characters."));
-      return;
-    }
     const result = await resetPasswordMutation.mutateAsync({
       profileId: employee.id,
       companyId: company.id,
@@ -487,6 +486,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
       return;
     }
     toast.success(t("Employee password reset successfully."));
+    setResetPasswordOpen(false);
   };
 
   if (isLoading || !employee) {
@@ -527,7 +527,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
             size="sm"
             className="gap-1.5 h-9"
             disabled={resetPasswordMutation.isPending}
-            onClick={() => void handleResetPassword()}
+            onClick={() => setResetPasswordOpen(true)}
           >
             {resetPasswordMutation.isPending ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -691,12 +691,16 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                         label: t("Properties"),
                         count: properties.length,
                       },
-                      {
-                        value: "revenues",
-                        icon: Wallet,
-                        label: t("Revenue"),
-                        count: revenues.length,
-                      },
+                      ...(canAccessRevenue
+                        ? [
+                            {
+                              value: "revenues",
+                              icon: Wallet,
+                              label: t("Revenue"),
+                              count: revenues.length,
+                            },
+                          ]
+                        : []),
                       {
                         value: "activity",
                         icon: History,
@@ -980,7 +984,14 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                               </FormLabel>
                               <Select
                                 value={field.value}
-                                onValueChange={field.onChange}
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  form.setValue(
+                                    "role",
+                                    roleFromJobTitle(value),
+                                    { shouldDirty: true },
+                                  );
+                                }}
                               >
                                 <FormControl>
                                   <SelectTrigger className="bg-background h-10">
@@ -1015,7 +1026,20 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                               </FormLabel>
                               <Select
                                 value={field.value}
-                                onValueChange={field.onChange}
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  if (
+                                    value === "sales_agent" ||
+                                    value === "administrator" ||
+                                    value === "manager"
+                                  ) {
+                                    form.setValue(
+                                      "job_title",
+                                      jobTitleForRole(value),
+                                      { shouldDirty: true },
+                                    );
+                                  }
+                                }}
                                 disabled={employee.id === currentUser?.id}
                               >
                                 <FormControl>
@@ -1339,6 +1363,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                     </SectionCard>
                   </TabsContent>
 
+                  {canAccessRevenue ? (
                   <TabsContent
                     value="revenues"
                     className="space-y-5 mt-0 p-5 sm:p-6"
@@ -1408,6 +1433,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                       )}
                     </SectionCard>
                   </TabsContent>
+                  ) : null}
 
                   <TabsContent
                     value="activity"
@@ -1648,11 +1674,15 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                       label: t("Properties"),
                       value: properties.length,
                     },
-                    {
-                      icon: Wallet,
-                      label: t("Deals"),
-                      value: revenues.length,
-                    },
+                    ...(canAccessRevenue
+                      ? [
+                          {
+                            icon: Wallet,
+                            label: t("Deals"),
+                            value: revenues.length,
+                          },
+                        ]
+                      : []),
                   ].map(({ icon: Icon, label, value }) => (
                     <div
                       key={label}
@@ -1667,6 +1697,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                       </span>
                     </div>
                   ))}
+                  {canAccessRevenue ? (
                   <div className="flex justify-between items-center bg-card px-3 py-2.5 border border-border/50 rounded-lg text-sm">
                     <span className="text-muted-foreground">
                       {t("Commission")}
@@ -1678,12 +1709,23 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                       AED {totalCommission.toLocaleString()}
                     </span>
                   </div>
+                  ) : null}
                 </div>
               </div>
             </div>
           </aside>
         </div>
       </div>
+
+      <ResetPasswordDialog
+        open={resetPasswordOpen}
+        onOpenChange={setResetPasswordOpen}
+        employeeName={displayName}
+        isSubmitting={resetPasswordMutation.isPending}
+        onConfirm={(password) => {
+          void handleResetPassword(password);
+        }}
+      />
     </div>
   );
 };

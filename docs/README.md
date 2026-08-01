@@ -11,6 +11,13 @@ except where noted below.
 document for the portal-publishing feature: how it's built, where every piece lives, and what's
 still outstanding. Everything else in `portals/` is reference material it draws from.
 
+[`company-settings-upcoming.md`](company-settings-upcoming.md) — Company Settings features that
+are **hidden for now** (WhatsApp, Message Templates, Client distribution) and planned as
+upcoming work. Read this before re-enabling those nav items or deleting their tables/UI.
+
+[`identity-field-protection.md`](identity-field-protection.md) — Name/phone immutability after
+client/owner create, Master Admin correction + audit trail, and the DB trigger migration.
+
 ## `portals/` — portal integration references
 
 | File | What it is |

@@ -1,6 +1,7 @@
 "use server";
 
 import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
+import { companyRolesFilter } from "@/lib/permissions";
 import type { Company } from "@/types/supabase-entities.types";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
@@ -80,6 +81,8 @@ export interface CompanyDashboardStats {
   totalCompanies: number;
   activeSubscriptions: number;
   inactiveSubscriptions: number;
+  /** Company-scoped seats across all tenants (not master_admin accounts). */
+  totalEmployees: number;
 }
 
 export async function getCompanyDashboardStats(): Promise<ActionResult<CompanyDashboardStats>> {
@@ -95,11 +98,21 @@ export async function getCompanyDashboardStats(): Promise<ActionResult<CompanyDa
     return c.is_active && now <= endDate;
   }).length;
 
+  // Platform-wide company employee seats (manager / administrator / sales_agent).
+  const admin = getSupabaseAdmin();
+  const { count: employeeCount, error: employeeError } = await admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .not("company_id", "is", null)
+    .in("role", companyRolesFilter());
+  if (employeeError) return { error: employeeError.message };
+
   return {
     data: {
       totalCompanies: (companies ?? []).length,
       activeSubscriptions: active,
       inactiveSubscriptions: (companies ?? []).length - active,
+      totalEmployees: employeeCount ?? 0,
     },
   };
 }

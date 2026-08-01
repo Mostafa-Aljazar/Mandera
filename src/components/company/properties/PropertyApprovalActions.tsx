@@ -15,16 +15,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
-import { usePropertyApprovalMutations, usePendingChangeRequestForProperty } from "@/hooks/queries/usePropertyApprovals";
+import {
+  usePropertyApprovalMutations,
+  usePendingChangeRequestForProperty,
+  usePropertyReviewFeedback,
+} from "@/hooks/queries/usePropertyApprovals";
 import {
   canApproveProperties,
   canClassifyProperty,
   canAccessManagerModules,
   canReopenArchivedProperty,
   changeRequestStatusLabel,
+  isAdministratorOrAbove,
   isSalesAgent,
 } from "@/lib/permissions";
 import type { PropertyWithRelations } from "@/types/supabase-entities.types";
+import { AlertCircle } from "lucide-react";
 
 type Props = {
   property: PropertyWithRelations & { owner_masked?: boolean };
@@ -58,6 +64,16 @@ export default function PropertyApprovalActions({ property }: Props) {
   const canCancelPendingChange =
     !!pendingChangeRequest &&
     (pendingChangeRequest.requested_by === currentUser?.id || canApprove);
+
+  const isAssignedAgent =
+    isAgent && property.employee_id === currentUser?.id;
+  const canSeeReviewFeedback =
+    isAdministratorOrAbove(role) || isAssignedAgent;
+  const { data: reviewFeedback } = usePropertyReviewFeedback(
+    property.id,
+    companyId,
+    canSeeReviewFeedback,
+  );
 
   const run = async (fn: () => Promise<unknown>, successKey: string) => {
     try {
@@ -94,6 +110,41 @@ export default function PropertyApprovalActions({ property }: Props) {
           </span>
         ) : null}
       </div>
+
+      {canSeeReviewFeedback && reviewFeedback ? (
+        <div
+          className={
+            reviewFeedback.status === "rejected"
+              ? "rounded-lg border border-destructive/25 bg-destructive/5 px-3.5 py-3 text-start"
+              : "rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3.5 py-3 text-start"
+          }
+        >
+          <p className="flex items-start gap-2 text-sm font-semibold leading-snug">
+            <AlertCircle
+              className={
+                reviewFeedback.status === "rejected"
+                  ? "mt-0.5 h-4 w-4 shrink-0 text-destructive"
+                  : "mt-0.5 h-4 w-4 shrink-0 text-amber-700"
+              }
+            />
+            <span>
+              {reviewFeedback.kind === "listing"
+                ? reviewFeedback.status === "rejected"
+                  ? t("Listing was not approved")
+                  : t("Listing returned for changes")
+                : reviewFeedback.status === "rejected"
+                  ? t("Edit request was rejected")
+                  : t("Edit request was not approved — changes required")}
+            </span>
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+            <span className="font-medium text-muted-foreground">
+              {t("Review note")}:{" "}
+            </span>
+            {reviewFeedback.note}
+          </p>
+        </div>
+      ) : null}
 
       {pendingChangeRequest ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
@@ -134,7 +185,7 @@ export default function PropertyApprovalActions({ property }: Props) {
         </div>
       ) : null}
 
-      {isAgent && (approval === "draft" || approval === "rejected") ? (
+      {isAssignedAgent && (approval === "draft" || approval === "rejected") ? (
         <Button
           size="sm"
           disabled={mutations.submitForReview.isPending}
@@ -149,7 +200,7 @@ export default function PropertyApprovalActions({ property }: Props) {
         </Button>
       ) : null}
 
-      {isAgent && approval === "approved" ? (
+      {isAssignedAgent && approval === "approved" ? (
         <p className="text-sm text-muted-foreground">
           {t(
             "Edits to approved properties require a change request and admin review.",

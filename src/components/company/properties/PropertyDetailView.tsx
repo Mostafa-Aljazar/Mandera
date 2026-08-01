@@ -1,22 +1,31 @@
 "use client";
 
 import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useProperty, useDeleteProperty } from "@/hooks/queries/useProperties";
+import { useProperty, useDeleteProperty, useUpdatePropertyDocuments } from "@/hooks/queries/useProperties";
 import { usePropertyPublications } from "@/hooks/queries/usePortalPublishing";
 import { amenityI18nKey } from "@/lib/portals/amenities";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
-import { canPublishToPortals, canViewRevenue, isAdministratorOrAbove, canAccessManagerModules } from "@/lib/permissions";
+import {
+  canPublishToPortals,
+  canViewRevenue,
+  isAdministratorOrAbove,
+  canAccessManagerModules,
+  canOpenPropertyEditor,
+  canLockRecords,
+  canEditApprovedPropertyDirectly,
+} from "@/lib/permissions";
+import { usePendingStatusChangeRequestForProperty } from "@/hooks/queries/usePropertyApprovals";
 import DocumentHead from "@/components/common/DocumentHead";
 import PropertyForm from "./PropertyForm";
 import PropertyApprovalActions from "./PropertyApprovalActions";
 import PublishToPortalsModal from "./PublishToPortalsModal";
-import DealCompletedModal from "@/components/common/DealCompletedModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
+import StatusUpdateModal from "@/components/common/StatusUpdateModal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,6 +34,8 @@ import {
   Pencil,
   Trash2,
   Share2,
+  Upload,
+  Loader2,
   MapPin,
   Maximize,
   BedDouble,
@@ -43,6 +54,8 @@ import {
   Video,
   Banknote,
   FileText,
+  EyeOff,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { employeeDisplayName, titleCaseName } from "@/lib/bilingualLabel";
@@ -103,9 +116,12 @@ function Section({
 export default function PropertyDetailView({ propertyId }: Props) {
   const { t } = useTranslation();
   const { language } = useLanguage();
-  const { currentUser } = useCompanyAuth();
+  const { currentUser, company } = useCompanyAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const isCreate = !propertyId;
+  const defaultListingType =
+    searchParams.get("listingType") === "Sale" ? "Sale" : "Rent";
   const canDelete = isAdministratorOrAbove(currentUser?.role);
   const canSeeCommission = canViewRevenue(currentUser?.role);
   const canCompleteDeal = canAccessManagerModules(currentUser?.role);
@@ -113,11 +129,24 @@ export default function PropertyDetailView({ propertyId }: Props) {
   const { data: property, isLoading, refetch } = useProperty(propertyId);
   const { data: publications } = usePropertyPublications(propertyId);
   const deleteMutation = useDeleteProperty();
+  const updateDocuments = useUpdatePropertyDocuments();
+  const { data: pendingStatusRequest, refetch: refetchPendingStatus } =
+    usePendingStatusChangeRequestForProperty(propertyId, company?.id);
+
+  const canManageDocs = canEditApprovedPropertyDirectly(currentUser?.role);
+  const canEditProperty =
+    canOpenPropertyEditor(
+      currentUser?.role,
+      property?.employee_id,
+      currentUser?.id,
+      property?.approval_status,
+    ) &&
+    (!property?.is_locked || canLockRecords(currentUser?.role));
 
   const [isEditing, setIsEditing] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [dealOpen, setDealOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<string | null>(null);
+  const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
 
   const showPublish =
     canPublishToPortals(currentUser?.role) &&
@@ -186,6 +215,7 @@ export default function PropertyDetailView({ propertyId }: Props) {
         <div className="mx-auto px-4 sm:px-6 py-5 sm:py-7 container max-w-6xl">
           <PropertyForm
             mode="create"
+            defaultListingType={defaultListingType}
             onSaved={(id) => router.push(`/company/properties/${id}`)}
             onCancel={() => router.push("/company/properties")}
           />
@@ -207,7 +237,7 @@ export default function PropertyDetailView({ propertyId }: Props) {
     );
   }
 
-  if (isEditing) {
+  if (isEditing && canEditProperty) {
     return (
       <div className="pb-28 sm:pb-14">
         <section className="relative border-border/50 border-b overflow-hidden">
@@ -364,24 +394,23 @@ export default function PropertyDetailView({ propertyId }: Props) {
       property.employee?.name ||
       "",
   );
-  const ownerName = titleCaseName((() => {
+  const ownerName = (() => {
     const owner = property.owner;
     if (!owner) return "";
-    if (language === "ar") {
-      return (
-        owner.name_ar?.trim() ||
-        owner.name_en?.trim() ||
-        owner.name?.trim() ||
-        ""
-      );
-    }
-    return (
-      owner.name_en?.trim() ||
-      owner.name_ar?.trim() ||
-      owner.name?.trim() ||
-      ""
-    );
-  })());
+    const raw =
+      language === "ar"
+        ? owner.name_ar?.trim() ||
+          owner.name_en?.trim() ||
+          owner.name?.trim() ||
+          ""
+        : owner.name_en?.trim() ||
+          owner.name_ar?.trim() ||
+          owner.name?.trim() ||
+          "";
+    // Keep API mask intact (e.g. "أحمد *****") — don't title-case asterisks.
+    if (property.owner_masked) return raw;
+    return titleCaseName(raw);
+  })();
   const hasSideThumbs = images.length > 1;
 
   return (
@@ -405,14 +434,11 @@ export default function PropertyDetailView({ propertyId }: Props) {
             property.approval_status === "approved" &&
             property.status !== "Sold" &&
             property.status !== "Rented" ? (
-              <Button
-                onClick={() => setDealOpen(true)}
-                size="sm"
-                variant="secondary"
-                className="h-9 rounded-lg"
-              >
-                <Banknote className="w-4 h-4 me-2" />
-                {t("Add Deal")}
+              <Button asChild size="sm" variant="secondary" className="h-9 rounded-lg">
+                <Link href={`/company/revenue/new?propertyId=${property.id}`}>
+                  <Banknote className="w-4 h-4 me-2" />
+                  {t("Add Deal")}
+                </Link>
               </Button>
             ) : null}
             {showPublish ? (
@@ -421,10 +447,12 @@ export default function PropertyDetailView({ propertyId }: Props) {
                 {t("Publish to Portals")}
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" className="h-9 rounded-lg" onClick={() => setIsEditing(true)}>
-              <Pencil className="w-4 h-4 me-2" />
-              {t("Edit")}
-            </Button>
+            {canEditProperty ? (
+              <Button variant="outline" size="sm" className="h-9 rounded-lg" onClick={() => setIsEditing(true)}>
+                <Pencil className="w-4 h-4 me-2" />
+                {t("Edit")}
+              </Button>
+            ) : null}
             {canDelete ? (
               <Button
                 variant="ghost"
@@ -732,23 +760,94 @@ export default function PropertyDetailView({ propertyId }: Props) {
               </Section>
             )}
 
-            {(property.document_urls?.length ?? 0) > 0 &&
-            !property.owner_masked ? (
+            {(canManageDocs && !property.owner_masked) ||
+            ((property.document_urls?.length ?? 0) > 0 &&
+              !property.owner_masked) ? (
               <Section title={t("Property documents")} icon={FileText}>
                 <ul className="space-y-2">
                   {(property.document_urls ?? []).map((url, index) => (
-                    <li key={url}>
+                    <li
+                      key={url}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2"
+                    >
                       <a
                         href={url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-sm text-primary hover:underline break-all"
+                        className="text-sm text-primary hover:underline break-all min-w-0"
                       >
                         {t("Document")} {index + 1}
                       </a>
+                      {canManageDocs &&
+                      (!property.is_locked ||
+                        canLockRecords(currentUser?.role)) ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                          disabled={updateDocuments.isPending}
+                          onClick={async () => {
+                            if (!company?.id || !propertyId) return;
+                            const keepUrls = (property.document_urls ?? []).filter(
+                              (u) => u !== url,
+                            );
+                            const result = await updateDocuments.mutateAsync({
+                              propertyId,
+                              companyId: company.id,
+                              keepUrls,
+                            });
+                            if (result.error) {
+                              toast.error(result.error);
+                              return;
+                            }
+                            toast.success(t("Document deleted"));
+                            void refetch();
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
+                {canManageDocs &&
+                (!property.is_locked || canLockRecords(currentUser?.role)) ? (
+                  <div className="mt-3">
+                    <label className="inline-flex items-center gap-2 rounded-lg border border-border/70 bg-background px-3 py-2 text-sm font-medium cursor-pointer hover:bg-muted/50 transition-colors">
+                      {updateDocuments.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                      {t("Upload documents")}
+                      <input
+                        type="file"
+                        className="sr-only"
+                        multiple
+                        accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"
+                        disabled={updateDocuments.isPending}
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files ?? []);
+                          e.target.value = "";
+                          if (!files.length || !company?.id || !propertyId) return;
+                          const result = await updateDocuments.mutateAsync({
+                            propertyId,
+                            companyId: company.id,
+                            keepUrls: property.document_urls ?? [],
+                            newFiles: files,
+                          });
+                          if (result.error) {
+                            toast.error(result.error);
+                            return;
+                          }
+                          toast.success(t("Document added"));
+                          void refetch();
+                        }}
+                      />
+                    </label>
+                  </div>
+                ) : null}
               </Section>
             ) : null}
           </div>
@@ -874,62 +973,156 @@ export default function PropertyDetailView({ propertyId }: Props) {
 
             {/* Owner */}
             {property.owner && ownerName ? (
-              <Section title={t("Owner")}>
-                {property.owner_masked ? (
-                  <>
-                    <p className="font-semibold" dir="auto">
-                      {ownerName}
-                    </p>
-                    {property.owner.phone ? (
-                      <p
-                        className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground select-none"
-                        dir="ltr"
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                        {property.owner.phone}
-                      </p>
-                    ) : null}
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {t("Owner contact is hidden for unassigned properties")}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <Link
-                      href={`/company/owners/${property.owner.id}`}
-                      className="font-semibold hover:text-primary transition-colors"
-                      dir="auto"
+              <Section
+                title={t("Owner")}
+                icon={User}
+                action={
+                  property.owner_masked ? (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-amber-500/30 bg-amber-500/10 text-amber-800 text-[10px] font-medium"
                     >
-                      {ownerName}
-                    </Link>
-                    {property.owner.phone && (
-                      <a
-                        href={`tel:${property.owner.phone}`}
-                        className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+                      <EyeOff className="w-3 h-3" />
+                      {t("Hidden")}
+                    </Badge>
+                  ) : null
+                }
+              >
+                {property.owner_masked ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground font-outfit text-base font-bold">
+                        {ownerName.charAt(0)}
+                        <span className="absolute -bottom-0.5 -end-0.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-card bg-amber-500 text-white">
+                          <Shield className="w-2.5 h-2.5" />
+                        </span>
+                      </span>
+                      <div className="min-w-0">
+                        <p
+                          className="font-semibold truncate leading-tight select-none tracking-wide"
+                          dir="auto"
+                        >
+                          {ownerName}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {t("Contact details restricted")}
+                        </p>
+                      </div>
+                    </div>
+
+                    {property.owner.phone ? (
+                      <div
+                        className="flex items-center gap-2 rounded-xl border border-dashed border-border/80 bg-muted/30 px-3 py-2.5 select-none pointer-events-none"
                         dir="ltr"
+                        aria-hidden
                       >
-                        <Phone className="w-3.5 h-3.5" />
-                        {property.owner.phone}
-                      </a>
-                    )}
-                    {property.owner.email ? (
-                      <a
-                        href={`mailto:${property.owner.email}`}
-                        className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
-                        dir="ltr"
-                      >
-                        <Mail className="w-3.5 h-3.5" />
-                        {property.owner.email}
-                      </a>
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-background border border-border/60 text-muted-foreground">
+                          <Phone className="w-3.5 h-3.5" />
+                        </span>
+                        <span className="font-mono text-sm tracking-wider text-muted-foreground">
+                          {property.owner.phone}
+                        </span>
+                      </div>
                     ) : null}
-                  </>
+
+                    <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-3.5 py-3">
+                      <EyeOff className="mt-0.5 w-4 h-4 shrink-0 text-amber-700" />
+                      <p className="text-xs leading-relaxed text-amber-950/80">
+                        {t(
+                          "Owner contact is hidden for unassigned properties",
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-outfit text-base font-bold">
+                        {ownerName.charAt(0).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <Link
+                          href={`/company/owners/${property.owner.id}`}
+                          className="font-semibold truncate leading-tight hover:text-primary transition-colors block"
+                          dir="auto"
+                        >
+                          {ownerName}
+                        </Link>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {t("Property owner")}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {property.owner.phone ? (
+                        <a
+                          href={`tel:${property.owner.phone}`}
+                          className="flex items-center gap-2 rounded-xl border border-border/70 px-3 py-2.5 text-sm hover:bg-muted/70 hover:border-primary/25 transition-colors"
+                          dir="ltr"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-primary shrink-0" />
+                          <span className="truncate">{property.owner.phone}</span>
+                        </a>
+                      ) : null}
+                      {property.owner.email ? (
+                        <a
+                          href={`mailto:${property.owner.email}`}
+                          className="flex items-center gap-2 rounded-xl border border-border/70 px-3 py-2.5 text-sm hover:bg-muted/70 hover:border-primary/25 transition-colors min-w-0"
+                          dir="ltr"
+                        >
+                          <Mail className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                          <span className="truncate">{property.owner.email}</span>
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
                 )}
               </Section>
             ) : null}
 
-            {/* Timeline */}
-            <div className="rounded-2xl border border-border/70 bg-card p-5">
-              <StatusHistoryDisplay entityType="property" entityId={property.id} />
+            {/* Status update + timeline */}
+            <div className="space-y-4">
+              {pendingStatusRequest ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-3.5 py-3 text-start">
+                  <p className="text-sm font-semibold text-amber-950">
+                    {t("Final status change awaiting approval")}
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-foreground/90">
+                    <span className="text-muted-foreground">
+                      {t(pendingStatusRequest.previous_status)}
+                    </span>
+                    <span className="mx-1.5 text-muted-foreground" aria-hidden>
+                      →
+                    </span>
+                    <span className="font-medium text-amber-950">
+                      {t(pendingStatusRequest.new_status)}
+                    </span>
+                  </p>
+                  <p className="mt-1.5 text-xs text-muted-foreground leading-relaxed">
+                    {t(
+                      "The live listing status stays unchanged until an administrator approves this request.",
+                    )}
+                  </p>
+                </div>
+              ) : null}
+              {canEditProperty ? (
+                <StatusUpdateModal
+                  entityType="property"
+                  entityData={property}
+                  onSuccess={() => {
+                    setHistoryRefreshTrigger((n) => n + 1);
+                    void refetch();
+                    void refetchPendingStatus();
+                  }}
+                />
+              ) : null}
+              <div className="rounded-2xl border border-border/70 bg-card p-5">
+                <StatusHistoryDisplay
+                  entityType="property"
+                  entityId={property.id}
+                  refreshTrigger={historyRefreshTrigger}
+                />
+              </div>
             </div>
           </aside>
         </div>
@@ -939,15 +1132,6 @@ export default function PropertyDetailView({ propertyId }: Props) {
         property={property}
         isOpen={publishOpen && showPublish}
         onClose={() => setPublishOpen(false)}
-      />
-      <DealCompletedModal
-        isOpen={dealOpen}
-        property={property}
-        onClose={() => setDealOpen(false)}
-        onSuccess={() => {
-          setDealOpen(false);
-          void refetch();
-        }}
       />
     </div>
   );

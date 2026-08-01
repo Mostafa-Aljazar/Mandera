@@ -13,8 +13,13 @@ import {
   canViewRevenue,
   changeRequestStatusLabel,
   isSalesAgent,
-  OPERATIONAL_PROPERTY_STATUSES,
 } from "@/lib/permissions";
+import {
+  propertyStatusLabel,
+  resolveCompanyPropertyStatuses,
+  splitSelectablePropertyStatuses,
+} from "@/lib/propertyStatuses";
+import { useCompanyJsonSettings } from "@/hooks/queries/useCompanyExtendedSettings";
 import type { PropertyApprovalStatus } from "@/types/supabase-entities.types";
 import {
   usePropertyTypes,
@@ -43,7 +48,9 @@ import { Form } from "@/components/ui/form";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -80,19 +87,6 @@ const EMIRATES = [
   "Fujairah",
   "Umm Al Quwain",
 ];
-const STATUS_OPTIONS = [
-  "Available",
-  "Viewing Scheduled",
-  "Under Offer",
-  "Reserved",
-  "Follow-up Required",
-  "Sold",
-  "Rented",
-  "Unavailable",
-  "Archived",
-  "Cancelled",
-];
-const AGENT_STATUS_OPTIONS = [...OPERATIONAL_PROPERTY_STATUSES];
 const FURNISHING_OPTIONS = ["furnished", "semi-furnished", "unfurnished"];
 const RENT_FREQUENCIES = ["yearly", "monthly", "weekly", "daily"];
 const PERMIT_TYPES = ["rera", "dtcm", "adrec"];
@@ -506,6 +500,16 @@ export default function PropertyForm({
   const isAgent = isSalesAgent(currentUser?.role);
   const canSetApproved = canApproveProperties(currentUser?.role);
   const canEditCommission = canViewRevenue(currentUser?.role);
+  const { data: jsonSettings } = useCompanyJsonSettings(company?.id);
+  const selectableStatuses = useMemo(() => {
+    const rows = resolveCompanyPropertyStatuses(
+      jsonSettings?.publish_settings as Record<string, unknown> | undefined,
+    );
+    return splitSelectablePropertyStatuses(rows, {
+      includeKey: property?.status,
+      agentsOnly: isAgent,
+    });
+  }, [jsonSettings?.publish_settings, property?.status, isAgent]);
   const agentEditingApproved =
     mode === "edit" &&
     isAgent &&
@@ -751,7 +755,9 @@ export default function PropertyForm({
         status: values.status || "Available",
         advertising_permit_number: values.advertising_permit_number || "",
         images: imagesFiles,
+        keepImages: existingImageUrls,
         floor_plans: floorPlanFiles,
+        keepFloorPlans: existingFloorPlanUrls,
         ...portalPayload,
       };
 
@@ -963,8 +969,8 @@ export default function PropertyForm({
                   <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
                     {(
                       [
-                        { value: "Sale", label: t("For Sale"), icon: Home },
                         { value: "Rent", label: t("For Rent"), icon: Key },
+                        { value: "Sale", label: t("For Sale"), icon: Home },
                       ] as const
                     ).map((opt) => {
                       const selected = formData.listing_type === opt.value;
@@ -1027,15 +1033,43 @@ export default function PropertyForm({
                     <Select value={formData.status} onValueChange={(v) => form.setValue("status", v)}>
                       <SelectTrigger className={FIELD}><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {(isAgent ? AGENT_STATUS_OPTIONS : STATUS_OPTIONS).map((s) => (
-                          <SelectItem key={s} value={s}>{t(s)}</SelectItem>
-                        ))}
+                        {isAgent ? (
+                          <SelectGroup>
+                            <SelectLabel>
+                              {t("Operational statuses")} — {t("Apply immediately — admin is notified")}
+                            </SelectLabel>
+                            {selectableStatuses.operational.map((s) => (
+                              <SelectItem key={s.key} value={s.key}>
+                                {propertyStatusLabel(s, language)}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ) : (
+                          <>
+                            <SelectGroup>
+                              <SelectLabel>{t("Operational statuses")}</SelectLabel>
+                              {selectableStatuses.operational.map((s) => (
+                                <SelectItem key={s.key} value={s.key}>
+                                  {propertyStatusLabel(s, language)}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                            <SelectGroup>
+                              <SelectLabel>{t("Final statuses")}</SelectLabel>
+                              {selectableStatuses.final.map((s) => (
+                                <SelectItem key={s.key} value={s.key}>
+                                  {propertyStatusLabel(s, language)}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
                     {isAgent ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
                         {t(
-                          "Final statuses (Sold/Rented/…) require admin approval via status update.",
+                          "For Sold / Rented / Unavailable / Archived / Cancelled, use Status & History on the property page — those need admin approval.",
                         )}
                       </p>
                     ) : null}
@@ -1710,19 +1744,27 @@ export default function PropertyForm({
                               <button type="button" className="w-full h-full" onClick={() => setActiveImageUrl(url)}>
                                 <img src={url} alt="" className="w-full h-full object-cover" />
                               </button>
-                              {!isExisting && (
-                                <button
-                                  type="button"
-                                  className="absolute top-1 end-1 h-6 w-6 rounded-full bg-black/60 text-white text-xs"
-                                  onClick={() =>
+                              <button
+                                type="button"
+                                aria-label={t("Remove image")}
+                                className="absolute top-1 end-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white text-xs hover:bg-destructive"
+                                onClick={() => {
+                                  if (isExisting) {
+                                    setExistingImageUrls((prev) =>
+                                      prev.filter((_, i) => i !== idx),
+                                    );
+                                  } else {
                                     setImagesFiles((prev) =>
-                                      prev.filter((_, i) => i !== idx - existingImageUrls.length),
-                                    )
+                                      prev.filter(
+                                        (_, i) =>
+                                          i !== idx - existingImageUrls.length,
+                                      ),
+                                    );
                                   }
-                                >
-                                  ×
-                                </button>
-                              )}
+                                }}
+                              >
+                                ×
+                              </button>
                             </div>
                           );
                         })}
@@ -1772,19 +1814,27 @@ export default function PropertyForm({
                       return (
                         <div key={`${url}-${idx}`} className="relative rounded-lg overflow-hidden border aspect-square">
                           <img src={url} alt="" className="w-full h-full object-cover" />
-                          {!isExisting && (
-                            <button
-                              type="button"
-                              className="absolute top-1 end-1 h-6 w-6 rounded-full bg-black/60 text-white text-xs"
-                              onClick={() =>
+                          <button
+                            type="button"
+                            aria-label={t("Remove image")}
+                            className="absolute top-1 end-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white text-xs hover:bg-destructive"
+                            onClick={() => {
+                              if (isExisting) {
+                                setExistingFloorPlanUrls((prev) =>
+                                  prev.filter((_, i) => i !== idx),
+                                );
+                              } else {
                                 setFloorPlanFiles((prev) =>
-                                  prev.filter((_, i) => i !== idx - existingFloorPlanUrls.length),
-                                )
+                                  prev.filter(
+                                    (_, i) =>
+                                      i !== idx - existingFloorPlanUrls.length,
+                                  ),
+                                );
                               }
-                            >
-                              ×
-                            </button>
-                          )}
+                            }}
+                          >
+                            ×
+                          </button>
                         </div>
                       );
                     })}

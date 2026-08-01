@@ -13,6 +13,8 @@ import {
   listPendingPropertyApprovals,
   cancelPropertyChangeRequest,
   getPendingChangeRequestForProperty,
+  getPendingStatusChangeRequestForProperty,
+  getPropertyReviewFeedback,
   classifyProperty,
   pauseProperty,
   unpauseProperty,
@@ -55,14 +57,51 @@ export function usePendingChangeRequestForProperty(
   });
 }
 
+export function usePendingStatusChangeRequestForProperty(
+  propertyId: string | undefined,
+  companyId: string | undefined,
+) {
+  return useQuery({
+    queryKey: ["pending-status-change-request", companyId, propertyId],
+    enabled: Boolean(propertyId && companyId),
+    queryFn: async () => {
+      const result = await getPendingStatusChangeRequestForProperty(
+        propertyId!,
+        companyId!,
+      );
+      if (result.error) throw new Error(result.error);
+      return result.data ?? null;
+    },
+  });
+}
+
+export function usePropertyReviewFeedback(
+  propertyId: string | undefined,
+  companyId: string | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["property-review-feedback", companyId, propertyId],
+    enabled: Boolean(propertyId && companyId && enabled),
+    queryFn: async () => {
+      const result = await getPropertyReviewFeedback(propertyId!, companyId!);
+      if (result.error) throw new Error(result.error);
+      return result.data ?? null;
+    },
+  });
+}
+
 export function usePropertyApprovalMutations(companyId: string | undefined) {
   const qc = useQueryClient();
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["pending-property-approvals", companyId] });
     void qc.invalidateQueries({ queryKey: ["properties"] });
     void qc.invalidateQueries({ queryKey: ["property"] });
-    void qc.invalidateQueries({ queryKey: ["pending-approvals-count", companyId] });
+    void qc.invalidateQueries({ queryKey: ["notifications", "pending-approvals", companyId] });
     void qc.invalidateQueries({ queryKey: ["notifications"] });
+    void qc.invalidateQueries({ queryKey: ["property-review-feedback", companyId] });
+    void qc.invalidateQueries({ queryKey: ["pending-change-request", companyId] });
+    void qc.invalidateQueries({ queryKey: ["pending-status-change-request", companyId] });
   };
 
   return {

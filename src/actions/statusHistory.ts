@@ -1,10 +1,10 @@
 "use server";
 
 import { getServerSupabase } from "@/lib/supabase/server";
-import { employeeDisplayName } from "@/lib/bilingualLabel";
 import { assertCompanyMember } from "@/actions/_access";
 import {
   canEditActivityHistory,
+  canManageEmployees,
   isSalesAgent,
 } from "@/lib/permissions";
 
@@ -31,6 +31,8 @@ export interface HistoryRecord {
 type CreatorProfile = {
   id: string;
   name: string | null;
+  name_en?: string | null;
+  name_ar?: string | null;
   employee:
     | {
         first_name_en?: string | null;
@@ -38,6 +40,12 @@ type CreatorProfile = {
         last_name_en?: string | null;
         last_name_ar?: string | null;
       }
+    | Array<{
+        first_name_en?: string | null;
+        first_name_ar?: string | null;
+        last_name_en?: string | null;
+        last_name_ar?: string | null;
+      }>
     | null;
 };
 
@@ -56,15 +64,25 @@ async function loadCreatorNames(
   const { data } = await supabase
     .from("profiles")
     .select(
-      "id, name, employee:employees!profiles_employee_id_fkey(first_name_en, first_name_ar, last_name_en, last_name_ar)",
+      "id, name, name_en, name_ar, employee:employees!profiles_employee_id_fkey(first_name_en, first_name_ar, last_name_en, last_name_ar)",
     )
     .in("id", creatorIds);
 
   for (const row of (data ?? []) as CreatorProfile[]) {
-    const emp = row.employee;
+    const empRaw = row.employee;
+    const emp = Array.isArray(empRaw) ? empRaw[0] : empRaw;
+    const empEn = emp
+      ? [emp.first_name_en, emp.last_name_en].filter(Boolean).join(" ").trim()
+      : "";
+    const empAr = emp
+      ? [emp.first_name_ar, emp.last_name_ar].filter(Boolean).join(" ").trim()
+      : "";
+    const profileEn = (row.name_en || "").trim();
+    const profileAr = (row.name_ar || "").trim();
     map.set(row.id, {
-      name_en: employeeDisplayName(emp, "en", row.name) || row.name || "",
-      name_ar: employeeDisplayName(emp, "ar", row.name) || row.name || "",
+      // Keep EN/AR slots pure — don't cross-fill, so the UI can fall back per language.
+      name_en: empEn || profileEn || row.name || "",
+      name_ar: empAr || profileAr || "",
       fallback: row.name,
     });
   }
@@ -102,8 +120,10 @@ export async function getStatusHistory(
     .order("created_at", { ascending: false })
     .limit(50);
 
-  // PDF: Sales Agent cannot view notes/follow-ups added by other employees.
-  if (isSalesAgent(access.data.role)) {
+  // Client/owner notes: sales agents only see their own interaction notes.
+  // Property pipeline status history must stay fully visible on the listing so
+  // agents see admin-approved final statuses (Sold/Archived/…) too.
+  if (isSalesAgent(access.data.role) && entityType !== "property") {
     query = query.eq("created_by", access.data.userId);
   }
 
@@ -135,7 +155,7 @@ export async function getStatusHistory(
       created_by_name_en:
         creator?.name_en || h.created_by_name || null,
       created_by_name_ar:
-        creator?.name_ar || h.created_by_name || null,
+        creator?.name_ar || null,
       note: h.note,
       status: h.status,
       status_name:
@@ -183,6 +203,8 @@ export interface EmployeeActivityRecord extends HistoryRecord {
   entity_type: HistoryEntityType;
   entity_id: string | null;
   entity_label: string | null;
+  entity_label_en?: string | null;
+  entity_label_ar?: string | null;
 }
 
 /** Status updates authored by this employee (profile id) across owners, clients, and properties. */
@@ -190,26 +212,32 @@ export async function getEmployeeActivity(
   profileId: string,
   companyId: string,
 ): Promise<ActionResult<EmployeeActivityRecord[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (!canManageEmployees(access.data.role)) {
+    return { error: "Only managers can view employee activity." };
+  }
+
   const supabase = await getServerSupabase();
 
   const [ownersRes, clientsRes, propertiesRes] = await Promise.all([
     supabase
       .from("owner_status_history")
-      .select("*, status_ref:owner_statuses(name_en, name_ar), owner:owners(id, name)")
+      .select("*, status_ref:owner_statuses(name_en, name_ar), owner:owners(id, name_en, name_ar, name)")
       .eq("company_id", companyId)
       .eq("created_by", profileId)
       .order("created_at", { ascending: false })
       .limit(40),
     supabase
       .from("client_status_history")
-      .select("*, status_ref:client_statuses(name_en, name_ar), client:clients(id, name)")
+      .select("*, status_ref:client_statuses(name_en, name_ar), client:clients(id, name_en, name_ar, name)")
       .eq("company_id", companyId)
       .or(`created_by.eq.${profileId},employee_id.eq.${profileId}`)
       .order("created_at", { ascending: false })
       .limit(40),
     supabase
       .from("property_status_history")
-      .select("*, property:properties(id, code, title)")
+      .select("*, property:properties(id, code, title, title_ar)")
       .eq("company_id", companyId)
       .eq("created_by", profileId)
       .order("created_at", { ascending: false })
@@ -232,7 +260,7 @@ export async function getEmployeeActivity(
     created_by: h.created_by,
     created_by_name: h.created_by_name,
     created_by_name_en: creator?.name_en || h.created_by_name || null,
-    created_by_name_ar: creator?.name_ar || h.created_by_name || null,
+    created_by_name_ar: creator?.name_ar || null,
     note: h.note,
     status: h.status,
     status_name: extras.entity_type === "property"
@@ -247,33 +275,47 @@ export async function getEmployeeActivity(
   });
 
   const fromOwners: EmployeeActivityRecord[] = (ownersRes.data ?? []).map(
-    (h: any) =>
-      withCreatorNames(h, {
+    (h: any) => {
+      const labelEn = h.owner?.name_en || h.owner?.name || null;
+      const labelAr = h.owner?.name_ar || null;
+      return withCreatorNames(h, {
         entity_type: "owner",
         entity_id: h.owner_id ?? h.owner?.id ?? null,
-        entity_label: h.owner?.name ?? null,
-      }),
+        entity_label: labelEn || labelAr,
+        entity_label_en: labelEn,
+        entity_label_ar: labelAr,
+      });
+    },
   );
 
   const fromClients: EmployeeActivityRecord[] = (clientsRes.data ?? []).map(
-    (h: any) =>
-      withCreatorNames(h, {
+    (h: any) => {
+      const labelEn = h.client?.name_en || h.client?.name || null;
+      const labelAr = h.client?.name_ar || null;
+      return withCreatorNames(h, {
         entity_type: "client",
         entity_id: h.client_id ?? h.client?.id ?? null,
-        entity_label: h.client?.name ?? null,
-      }),
+        entity_label: labelEn || labelAr,
+        entity_label_en: labelEn,
+        entity_label_ar: labelAr,
+      });
+    },
   );
 
   const fromProperties: EmployeeActivityRecord[] = (
     propertiesRes.data ?? []
-  ).map((h: any) =>
-    withCreatorNames(h, {
+  ).map((h: any) => {
+    const labelEn =
+      h.property?.title || h.property?.code || h.property_code || null;
+    const labelAr = h.property?.title_ar || null;
+    return withCreatorNames(h, {
       entity_type: "property",
       entity_id: h.property_id ?? h.property?.id ?? null,
-      entity_label:
-        h.property?.title || h.property?.code || h.property_code || null,
-    }),
-  );
+      entity_label: labelEn || labelAr,
+      entity_label_en: labelEn,
+      entity_label_ar: labelAr,
+    });
+  });
 
   const merged = [...fromOwners, ...fromClients, ...fromProperties].sort(
     (a, b) =>
@@ -315,7 +357,7 @@ export async function getCompanyActivityLog(
       .limit(30),
     supabase
       .from("property_status_history")
-      .select("*, property:properties(id, code, title)")
+      .select("*, property:properties(id, code, title, title_ar)")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(30),
@@ -338,16 +380,18 @@ export async function getCompanyActivityLog(
     h: any,
     entityType: "owner" | "client" | "property",
     entityId: string | null,
-    entityLabel: string | null,
+    labelEn: string | null,
+    labelAr: string | null,
   ): EmployeeActivityRecord => {
     const creator = h.created_by ? creators.get(h.created_by) : undefined;
+    const entityLabel = labelEn || labelAr || null;
     return {
       id: h.id,
       created_at: h.created_at,
       created_by: h.created_by,
       created_by_name: h.created_by_name,
       created_by_name_en: creator?.name_en || h.created_by_name || null,
-      created_by_name_ar: creator?.name_ar || h.created_by_name || null,
+      created_by_name_ar: creator?.name_ar || null,
       note: h.note,
       status: h.status,
       status_name:
@@ -361,6 +405,8 @@ export async function getCompanyActivityLog(
       entity_type: entityType,
       entity_id: entityId,
       entity_label: entityLabel,
+      entity_label_en: labelEn,
+      entity_label_ar: labelAr,
     };
   };
 
@@ -370,7 +416,8 @@ export async function getCompanyActivityLog(
         h,
         "owner",
         h.owner_id ?? h.owner?.id ?? null,
-        h.owner?.name_en || h.owner?.name_ar || h.owner?.name || null,
+        h.owner?.name_en || h.owner?.name || null,
+        h.owner?.name_ar || null,
       ),
     ),
     ...(clientsRes.data ?? []).map((h: any) =>
@@ -378,7 +425,8 @@ export async function getCompanyActivityLog(
         h,
         "client",
         h.client_id ?? h.client?.id ?? null,
-        h.client?.name_en || h.client?.name_ar || h.client?.name || null,
+        h.client?.name_en || h.client?.name || null,
+        h.client?.name_ar || null,
       ),
     ),
     ...(propertiesRes.data ?? []).map((h: any) =>
@@ -387,6 +435,7 @@ export async function getCompanyActivityLog(
         "property",
         h.property_id ?? h.property?.id ?? null,
         h.property?.title || h.property?.code || null,
+        h.property?.title_ar || null,
       ),
     ),
   ].sort(

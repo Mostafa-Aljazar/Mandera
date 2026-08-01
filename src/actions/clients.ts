@@ -11,6 +11,7 @@ import {
 } from "@/actions/_access";
 import {
   CLIENT_IDENTITY_FIELDS,
+  IDENTITY_FIELDS_LOCKED_ERROR,
   stripIdentityFields,
 } from "@/lib/identity";
 import {
@@ -196,11 +197,11 @@ export interface CreateClientInput {
   interested_properties?: string[];
   employee_id?: string;
   marketing_channel?: string | null;
-  campaign?: string | null;
   avatar?: File | null;
-  budget?: number | null;
+  budget_from?: number | null;
+  budget_to?: number | null;
+  interests?: string | null;
   preferred_area?: string | null;
-  investment_unit?: string | null;
 }
 
 export async function createClient(
@@ -243,13 +244,13 @@ export async function createClient(
       interested_properties: input.interested_properties ?? [],
       employee_id: employeeId,
       marketing_channel: input.marketing_channel || null,
-      campaign: input.campaign?.trim() || null,
       company_id: input.companyId,
       avatar_url: avatarUrl,
       is_locked: true,
-      budget: input.budget ?? null,
+      budget_from: input.budget_from ?? null,
+      budget_to: input.budget_to ?? null,
+      interests: input.interests?.trim() || null,
       preferred_area: input.preferred_area?.trim() || null,
-      investment_unit: input.investment_unit?.trim() || null,
     })
     .select()
     .single();
@@ -328,9 +329,10 @@ export async function convertOwnerToClient(input: {
       marketing_channel: owner.marketing_channel || null,
       company_id: input.companyId,
       is_locked: true,
+      budget_from: null,
+      budget_to: null,
+      interests: null,
       preferred_area: null,
-      budget: null,
-      investment_unit: null,
     })
     .select()
     .single();
@@ -350,12 +352,12 @@ export interface UpdateClientInput {
   interested_properties?: string[];
   employee_id: string;
   marketing_channel?: string | null;
-  campaign?: string | null;
   avatar?: File | null;
   removeAvatar?: boolean;
-  budget?: number | null;
+  budget_from?: number | null;
+  budget_to?: number | null;
+  interests?: string | null;
   preferred_area?: string | null;
-  investment_unit?: string | null;
 }
 
 export async function updateClient(
@@ -411,8 +413,7 @@ export async function updateClient(
 
   if (identityMismatch) {
     return {
-      error:
-        "Identity fields (name, phone, country) are locked after create. Only Master Admin can apply an exceptional correction with a full audit log.",
+      error: IDENTITY_FIELDS_LOCKED_ERROR,
     };
   }
 
@@ -421,10 +422,10 @@ export async function updateClient(
     interested_properties: input.interested_properties ?? [],
     employee_id: input.employee_id,
     marketing_channel: input.marketing_channel || null,
-    campaign: input.campaign?.trim() || null,
-    budget: input.budget ?? null,
+    budget_from: input.budget_from ?? null,
+    budget_to: input.budget_to ?? null,
+    interests: input.interests?.trim() || null,
     preferred_area: input.preferred_area?.trim() || null,
-    investment_unit: input.investment_unit?.trim() || null,
   };
 
   // Defense in depth: never write identity via this path.
@@ -648,13 +649,47 @@ export async function bulkCreateClients(
 export interface ClientsBySourceFilters {
   createdFrom: string;
   createdTo: string;
-  groupBy?: "source" | "campaign" | "employee";
+  groupBy?: "source" | "employee";
 }
+
+export interface ClientsBySourceRow {
+  /** Stable key (employee profile id, or source label). */
+  id: string;
+  /** Locale-agnostic fallback label (English / channel name). */
+  name: string;
+  name_en?: string | null;
+  name_ar?: string | null;
+  first_name_en?: string | null;
+  first_name_ar?: string | null;
+  last_name_en?: string | null;
+  last_name_ar?: string | null;
+  count: number;
+}
+
+type AssignedProfile = {
+  name?: string | null;
+  name_en?: string | null;
+  name_ar?: string | null;
+  details?:
+    | {
+        first_name_en?: string | null;
+        first_name_ar?: string | null;
+        last_name_en?: string | null;
+        last_name_ar?: string | null;
+      }
+    | Array<{
+        first_name_en?: string | null;
+        first_name_ar?: string | null;
+        last_name_en?: string | null;
+        last_name_ar?: string | null;
+      }>
+    | null;
+};
 
 export async function getClientsBySource(
   companyId: string,
   filters: ClientsBySourceFilters,
-): Promise<ActionResult<{ name: string; count: number }[]>> {
+): Promise<ActionResult<ClientsBySourceRow[]>> {
   const access = await assertCompanyMember(companyId);
   if (access.error || !access.data) return { error: access.error || "Access denied" };
   if (!canViewInsights(access.data.role)) {
@@ -667,35 +702,63 @@ export async function getClientsBySource(
   if (groupBy === "employee") {
     const { data, error } = await supabase
       .from("clients")
-      .select("employee_id, employee:profiles!clients_employee_id_fkey(name)")
+      .select(
+        "employee_id, employee:profiles!clients_employee_id_fkey(name, name_en, name_ar, details:employees!profiles_employee_id_fkey(first_name_en, first_name_ar, last_name_en, last_name_ar))",
+      )
       .eq("company_id", companyId)
       .gte("created_at", filters.createdFrom)
       .lte("created_at", filters.createdTo);
 
     if (error) return { error: error.message };
 
-    const counts = new Map<string, number>();
+    const counts = new Map<
+      string,
+      { count: number; row: Omit<ClientsBySourceRow, "count"> }
+    >();
+
     (data ?? []).forEach((c) => {
-      const emp = Array.isArray(c.employee) ? c.employee[0] : c.employee;
-      const label =
-        (emp as { name?: string | null } | null)?.name?.trim() ||
-        c.employee_id ||
-        "Unassigned";
-      counts.set(label, (counts.get(label) ?? 0) + 1);
+      const profile = (
+        Array.isArray(c.employee) ? c.employee[0] : c.employee
+      ) as AssignedProfile | null;
+      const detailsRaw = profile?.details;
+      const details = Array.isArray(detailsRaw) ? detailsRaw[0] : detailsRaw;
+      const id = c.employee_id || "unassigned";
+      const fallbackName =
+        profile?.name?.trim() ||
+        profile?.name_en?.trim() ||
+        (c.employee_id ? c.employee_id : "Unassigned");
+
+      const existing = counts.get(id);
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+
+      counts.set(id, {
+        count: 1,
+        row: {
+          id,
+          name: fallbackName,
+          name_en: profile?.name_en ?? profile?.name ?? null,
+          name_ar: profile?.name_ar ?? null,
+          first_name_en: details?.first_name_en ?? null,
+          first_name_ar: details?.first_name_ar ?? null,
+          last_name_en: details?.last_name_en ?? null,
+          last_name_ar: details?.last_name_ar ?? null,
+        },
+      });
     });
 
     return {
-      data: Array.from(counts.entries())
-        .map(([name, count]) => ({ name, count }))
+      data: Array.from(counts.values())
+        .map(({ count, row }) => ({ ...row, count }))
         .sort((a, b) => b.count - a.count),
     };
   }
 
-  const selectCols =
-    groupBy === "campaign" ? "campaign" : "marketing_channel";
   const { data, error } = await supabase
     .from("clients")
-    .select(selectCols)
+    .select("marketing_channel")
     .eq("company_id", companyId)
     .gte("created_at", filters.createdFrom)
     .lte("created_at", filters.createdTo);
@@ -704,16 +767,14 @@ export async function getClientsBySource(
 
   const counts = new Map<string, number>();
   (data ?? []).forEach((c) => {
-    const raw =
-      groupBy === "campaign"
-        ? (c as { campaign?: string | null }).campaign
-        : (c as { marketing_channel?: string | null }).marketing_channel;
-    const label = raw?.trim() || "Other";
+    const label =
+      (c as { marketing_channel?: string | null }).marketing_channel?.trim() ||
+      "Other";
     counts.set(label, (counts.get(label) ?? 0) + 1);
   });
 
   const result = Array.from(counts.entries())
-    .map(([name, count]) => ({ name, count }))
+    .map(([name, count]) => ({ id: name, name, count }))
     .sort((a, b) => b.count - a.count);
 
   return { data: result };
@@ -721,6 +782,9 @@ export async function getClientsBySource(
 
 export interface FollowUpClient extends ClientWithRelations {
   latest_status_name: string | null;
+  latest_status_name_en: string | null;
+  latest_status_name_ar: string | null;
+  status?: { id: string; name_en: string | null; name_ar: string | null } | null;
 }
 
 export async function getUpcomingFollowUps(
@@ -731,7 +795,9 @@ export async function getUpcomingFollowUps(
 
   let clientQuery = supabase
     .from("clients")
-    .select(`${CLIENTS_SELECT}, status:client_statuses(id, name_en, name_ar)`)
+    .select(
+      `*, employee:profiles!clients_employee_id_fkey(id, name, name_en, name_ar, employee:employees!profiles_employee_id_fkey(first_name_en, first_name_ar, last_name_en, last_name_ar)), status:client_statuses(id, name_en, name_ar)`,
+    )
     .eq("company_id", companyId)
     .not("follow_up_date", "is", null)
     .order("follow_up_date", { ascending: true });
@@ -744,11 +810,17 @@ export async function getUpcomingFollowUps(
 
   if (clientsError) return { error: clientsError.message };
 
-  const results: FollowUpClient[] = (clients ?? []).map((client: any) => ({
-    ...(client as ClientWithRelations),
-    latest_status_name:
-      client.status?.name_en ?? client.status?.name_ar ?? null,
-  }));
+  const results: FollowUpClient[] = (clients ?? []).map((client: any) => {
+    const nameEn = client.status?.name_en ?? null;
+    const nameAr = client.status?.name_ar ?? null;
+    return {
+      ...(client as ClientWithRelations),
+      status: client.status ?? null,
+      latest_status_name: nameEn ?? nameAr,
+      latest_status_name_en: nameEn,
+      latest_status_name_ar: nameAr,
+    };
+  });
 
   return { data: results };
 }

@@ -1,7 +1,11 @@
 "use server";
 
+import { assertCompanyMember } from "@/actions/_access";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { companyRolesFilter } from "@/lib/permissions";
+import {
+  canViewCompanySettings,
+  companyRolesFilter,
+} from "@/lib/permissions";
 import type {
   PropertyType,
   ClientStatus,
@@ -13,6 +17,41 @@ import type {
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
+async function assertSettingsManager(
+  companyId: string,
+): Promise<ActionResult<null>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (!canViewCompanySettings(access.data.role)) {
+    return { error: "Only managers can manage company settings" };
+  }
+  return { data: null };
+}
+
+async function assertSettingsManagerByRow(
+  table:
+    | "property_types"
+    | "client_statuses"
+    | "owner_statuses"
+    | "marketing_channels"
+    | "areas_districts",
+  id: string,
+): Promise<ActionResult<{ companyId: string }>> {
+  const supabase = await getServerSupabase();
+  const { data, error } = await supabase
+    .from(table)
+    .select("company_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data?.company_id) return { error: "Not found" };
+  const access = await assertSettingsManager(data.company_id);
+  if (access.error) return { error: access.error };
+  return { data: { companyId: data.company_id } };
+}
+
 // --- Property Types ---
 
 export async function createPropertyType(
@@ -20,6 +59,8 @@ export async function createPropertyType(
   nameEn: string,
   nameAr: string,
 ): Promise<ActionResult<PropertyType>> {
+  const access = await assertSettingsManager(companyId);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("property_types")
@@ -39,6 +80,8 @@ export async function updatePropertyType(
   nameEn: string,
   nameAr: string,
 ): Promise<ActionResult<PropertyType>> {
+  const access = await assertSettingsManagerByRow("property_types", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("property_types")
@@ -54,6 +97,8 @@ export async function updatePropertyType(
 }
 
 export async function deletePropertyType(id: string): Promise<ActionResult<null>> {
+  const access = await assertSettingsManagerByRow("property_types", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { error } = await supabase.from("property_types").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -68,6 +113,8 @@ export async function createClientStatus(
   nameAr: string,
   priorityOrder: number,
 ): Promise<ActionResult<ClientStatus>> {
+  const access = await assertSettingsManager(companyId);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("client_statuses")
@@ -89,6 +136,8 @@ export async function updateClientStatus(
   nameAr: string,
   priorityOrder: number,
 ): Promise<ActionResult<ClientStatus>> {
+  const access = await assertSettingsManagerByRow("client_statuses", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("client_statuses")
@@ -108,6 +157,8 @@ export async function updateClientStatusPriority(
   id: string,
   priorityOrder: number,
 ): Promise<ActionResult<ClientStatus>> {
+  const access = await assertSettingsManagerByRow("client_statuses", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("client_statuses")
@@ -120,6 +171,8 @@ export async function updateClientStatusPriority(
 }
 
 export async function deleteClientStatus(id: string): Promise<ActionResult<null>> {
+  const access = await assertSettingsManagerByRow("client_statuses", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { error } = await supabase.from("client_statuses").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -133,6 +186,8 @@ export async function createOwnerStatus(
   nameEn: string,
   nameAr: string,
 ): Promise<ActionResult<OwnerStatus>> {
+  const access = await assertSettingsManager(companyId);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("owner_statuses")
@@ -152,6 +207,8 @@ export async function updateOwnerStatus(
   nameEn: string,
   nameAr: string,
 ): Promise<ActionResult<OwnerStatus>> {
+  const access = await assertSettingsManagerByRow("owner_statuses", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("owner_statuses")
@@ -167,6 +224,8 @@ export async function updateOwnerStatus(
 }
 
 export async function deleteOwnerStatus(id: string): Promise<ActionResult<null>> {
+  const access = await assertSettingsManagerByRow("owner_statuses", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { error } = await supabase.from("owner_statuses").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -192,6 +251,8 @@ export async function createMarketingChannel(
   companyId: string,
   name: string,
 ): Promise<ActionResult<MarketingChannelRecord>> {
+  const access = await assertSettingsManager(companyId);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("marketing_channels")
@@ -206,6 +267,8 @@ export async function updateMarketingChannel(
   id: string,
   name: string,
 ): Promise<ActionResult<MarketingChannelRecord>> {
+  const access = await assertSettingsManagerByRow("marketing_channels", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("marketing_channels")
@@ -218,6 +281,8 @@ export async function updateMarketingChannel(
 }
 
 export async function deleteMarketingChannel(id: string): Promise<ActionResult<null>> {
+  const access = await assertSettingsManagerByRow("marketing_channels", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { error } = await supabase.from("marketing_channels").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -232,6 +297,8 @@ export async function createAreaDistrict(
   name: string,
   description?: string,
 ): Promise<ActionResult<AreaDistrict>> {
+  const access = await assertSettingsManager(companyId);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("areas_districts")
@@ -247,6 +314,8 @@ export async function updateAreaDistrict(
   name: string,
   description?: string,
 ): Promise<ActionResult<AreaDistrict>> {
+  const access = await assertSettingsManagerByRow("areas_districts", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("areas_districts")
@@ -259,6 +328,8 @@ export async function updateAreaDistrict(
 }
 
 export async function deleteAreaDistrict(id: string): Promise<ActionResult<null>> {
+  const access = await assertSettingsManagerByRow("areas_districts", id);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { error } = await supabase.from("areas_districts").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -270,6 +341,8 @@ export async function deleteAreaDistrict(id: string): Promise<ActionResult<null>
 export async function getCompanyEmployeesWithDetails(
   companyId: string,
 ): Promise<ActionResult<CompanyEmployeeWithDetails[]>> {
+  const access = await assertSettingsManager(companyId);
+  if (access.error) return { error: access.error };
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("profiles")
