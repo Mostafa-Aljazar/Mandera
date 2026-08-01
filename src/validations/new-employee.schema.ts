@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isValidPhoneNumber } from "react-phone-number-input";
 import type { TFunction } from "i18next";
 
-const JOB_TITLES = ["sales_agent", "admin", "manager"] as const;
+const JOB_TITLES = ["sales_agent", "administrator", "manager"] as const;
 
 export const NewEmployeeSchema = (t: TFunction) =>
   z.object({
@@ -22,6 +22,9 @@ export const NewEmployeeSchema = (t: TFunction) =>
       message: t("Please select a valid job title."),
     }),
     password: z.string().min(8, t("Minimum 8 characters")),
+    team_id: z.string().optional().or(z.literal("")),
+    reports_to_employee_id: z.string().optional().or(z.literal("")),
+    branch_id: z.string().optional().or(z.literal("")),
   });
 
 export type TNewEmployeeSchema = z.infer<ReturnType<typeof NewEmployeeSchema>>;

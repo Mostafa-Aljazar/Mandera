@@ -73,7 +73,10 @@ import { useClients } from "@/hooks/queries/useClients";
 import { useProperties } from "@/hooks/queries/useProperties";
 import { useRevenues } from "@/hooks/queries/useRevenues";
 import { useEmployeeActivity } from "@/hooks/queries/useStatusHistory";
-import { useCompanyTeams } from "@/hooks/queries/useCompanyExtendedSettings";
+import {
+  useCompanyBranches,
+  useCompanyTeams,
+} from "@/hooks/queries/useCompanyExtendedSettings";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
 import {
@@ -85,7 +88,7 @@ import {
   jobTitleForRole,
 } from "@/lib/permissions";
 
-const JOB_TITLES = ["sales_agent", "admin", "manager"] as const;
+const JOB_TITLES = ["sales_agent", "administrator", "manager"] as const;
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const ALLOWED_AVATAR_TYPES = new Set([
   "image/jpeg",
@@ -107,6 +110,7 @@ const EmployeeProfileSchema = (t: TFunction) =>
       role: z.enum(["sales_agent", "administrator", "manager"]),
       team_id: z.string().optional().or(z.literal("")),
       reports_to_employee_id: z.string().optional().or(z.literal("")),
+      branch_id: z.string().optional().or(z.literal("")),
     })
     .superRefine((data, ctx) => {
       if (data.phone && data.phone !== "N/A" && !isValidPhoneNumber(data.phone)) {
@@ -184,7 +188,7 @@ function jobTitleLabel(jobTitle: string | undefined, t: (key: string) => string)
   switch (jobTitle) {
     case "sales_agent":
       return t("Sales Agent");
-    case "admin":
+    case "administrator":
       return t("Administrator");
     case "manager":
       return t("Manager");
@@ -253,6 +257,9 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
   const { data: teamsData } = useCompanyTeams(
     canManageEmployees(currentUser?.role) ? company?.id : undefined,
   );
+  const { data: branchesData } = useCompanyBranches(
+    canManageEmployees(currentUser?.role) ? company?.id : undefined,
+  );
   const teammateOptions = useMemo(
     () =>
       (allEmployeesData ?? []).filter(
@@ -264,6 +271,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
     [allEmployeesData, employee?.employee_id],
   );
   const teams = teamsData ?? [];
+  const branches = branchesData ?? [];
   const { data: revenuesData, isFetching: loadingRevenues } = useRevenues(
     company?.id,
     revenueFilters,
@@ -319,6 +327,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
           team_id: employee.employee?.team_id || "",
           reports_to_employee_id:
             employee.employee?.reports_to_employee_id || "",
+          branch_id: employee.employee?.branch_id || "",
         }
       : undefined,
     defaultValues: {
@@ -332,6 +341,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
       role: "sales_agent",
       team_id: "",
       reports_to_employee_id: "",
+      branch_id: "",
     },
   });
 
@@ -434,6 +444,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
         role: formData.role,
         team_id: formData.team_id || null,
         reports_to_employee_id: formData.reports_to_employee_id || null,
+        branch_id: formData.branch_id || null,
         avatar: avatarFile,
         removeAvatar: removeAvatar && !avatarFile,
       });
@@ -982,7 +993,7 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                                   <SelectItem value="sales_agent">
                                     {t("Sales Agent")}
                                   </SelectItem>
-                                  <SelectItem value="admin">
+                                  <SelectItem value="administrator">
                                     {t("Administrator")}
                                   </SelectItem>
                                   <SelectItem value="manager">
@@ -1063,6 +1074,47 @@ export default function EmployeeDetailView({ profileId }: EmployeeDetailViewProp
                                   {teams.map((team) => (
                                     <SelectItem key={team.id} value={team.id}>
                                       {bilingualLabel(team, language)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="branch_id"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                {t("Branch")}
+                              </FormLabel>
+                              <Select
+                                value={field.value || "__none__"}
+                                onValueChange={(value) =>
+                                  field.onChange(
+                                    value === "__none__" ? "" : value,
+                                  )
+                                }
+                              >
+                                <FormControl>
+                                  <SelectTrigger className="bg-background h-10">
+                                    <SelectValue
+                                      placeholder={t("Select branch")}
+                                    />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="__none__">
+                                    {t("No branch")}
+                                  </SelectItem>
+                                  {branches.map((branch) => (
+                                    <SelectItem
+                                      key={branch.id}
+                                      value={branch.id}
+                                    >
+                                      {bilingualLabel(branch, language)}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>

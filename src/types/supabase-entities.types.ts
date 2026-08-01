@@ -465,7 +465,7 @@ export interface ClientWithRelations extends Client {
   employee?: { id: string; name: string | null } | null;
 }
 
-export type EmployeeJobTitle = 'sales_agent' | 'admin' | 'manager';
+export type EmployeeJobTitle = 'sales_agent' | 'administrator' | 'manager';
 
 export interface EmployeeRecord {
   id: string;
@@ -481,6 +481,7 @@ export interface EmployeeRecord {
   avatar_url: string | null;
   team_id?: string | null;
   reports_to_employee_id?: string | null;
+  branch_id?: string | null;
   created_at: string;
   updated_at: string;
 }

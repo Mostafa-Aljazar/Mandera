@@ -151,7 +151,7 @@ export default function EmployeeModal({ isOpen, onClose, onSave, employee, isSub
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="sales_agent">{t('Sales Agent')}</SelectItem>
-                        <SelectItem value="admin">{t('Administrator')}</SelectItem>
+                        <SelectItem value="administrator">{t('Administrator')}</SelectItem>
                         <SelectItem value="manager">{t('Manager')}</SelectItem>
                       </SelectContent>
                     </Select>

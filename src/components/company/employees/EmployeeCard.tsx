@@ -41,7 +41,7 @@ function jobTitleLabel(
   switch (jobTitle) {
     case "sales_agent":
       return t("Sales Agent");
-    case "admin":
+    case "administrator":
       return t("Administrator");
     case "manager":
       return t("Manager");

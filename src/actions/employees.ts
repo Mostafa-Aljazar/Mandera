@@ -216,6 +216,7 @@ export interface CreateEmployeeInput {
   avatar?: File | null;
   team_id?: string | null;
   reports_to_employee_id?: string | null;
+  branch_id?: string | null;
 }
 
 export async function createEmployee(
@@ -281,6 +282,7 @@ export async function createEmployee(
       avatar_url: avatarUrl,
       team_id: input.team_id ?? null,
       reports_to_employee_id: input.reports_to_employee_id ?? null,
+      branch_id: input.branch_id ?? null,
     })
     .select()
     .single();
@@ -322,6 +324,7 @@ export interface UpdateEmployeeInput {
   avatar?: File | null;
   team_id?: string | null;
   reports_to_employee_id?: string | null;
+  branch_id?: string | null;
   /** When true and no new file is provided, clear the existing photo. */
   removeAvatar?: boolean;
 }
@@ -361,11 +364,12 @@ export async function updateEmployee(
         last_name_ar: input.last_name_ar || input.last_name_en,
         email: input.email,
         phone: input.phone || "N/A",
-        job_title: input.job_title || "admin",
+        job_title: input.job_title || "administrator",
         company_id: input.companyId,
         disabled: false,
         team_id: input.team_id ?? null,
         reports_to_employee_id: input.reports_to_employee_id ?? null,
+        branch_id: input.branch_id ?? null,
       })
       .select("id")
       .single();
@@ -399,7 +403,7 @@ export async function updateEmployee(
       last_name_ar: input.last_name_ar || input.last_name_en,
       email: input.email,
       phone: input.phone || "N/A",
-      job_title: input.job_title || "admin",
+      job_title: input.job_title || "administrator",
     };
 
     if (input.avatar instanceof File && input.companyId) {
@@ -413,6 +417,7 @@ export async function updateEmployee(
     if (input.reports_to_employee_id !== undefined) {
       patch.reports_to_employee_id = input.reports_to_employee_id;
     }
+    if (input.branch_id !== undefined) patch.branch_id = input.branch_id;
 
     const { error: employeeError } = await admin
       .from("employees")

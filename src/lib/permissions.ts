@@ -254,7 +254,7 @@ export function canReopenArchivedProperty(
 
 export function jobTitleForRole(role: CompanyRole): string {
   if (role === "manager") return "manager";
-  if (role === "administrator") return "admin";
+  if (role === "administrator") return "administrator";
   return "sales_agent";
 }
 
@@ -262,7 +262,7 @@ export function roleFromJobTitle(
   jobTitle: string | null | undefined,
 ): CompanyRole {
   if (jobTitle === "manager") return "manager";
-  if (jobTitle === "admin") return "administrator";
+  if (jobTitle === "administrator") return "administrator";
   return "sales_agent";
 }
 

@@ -31,3 +31,6 @@ Thumbs.db
 .claude/LOCAL_DEV_CREDENTIALS.md
 .claude/bayut-dubizzle-video.mp4
 .claude/permissions.pdf
+
+# Demo-tenant credentials (real Supabase Auth passwords — never commit)
+docs/meridian-gate-demo-credentials.md

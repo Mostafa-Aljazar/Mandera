@@ -47,8 +47,8 @@ Query's own loading/error state handles it — don't add try/catch plumbing beyo
 
 | Client | Behavior | Use for |
 |---|---|---|
-| **`getServerSupabase()`** | Cookie-bound, RLS-enforcing | The default — every read, and writes where the RLS policy already permits the caller (e.g. `master_admin` writing `companies`, or a `company_super_admin` writing their own company-scoped tables) |
-| **`getSupabaseAdmin()`** | Service-role key, bypasses RLS entirely | Only when RLS genuinely can't grant the access needed (e.g. `company_super_admin` self-service writes to `companies`, which RLS restricts to `master_admin` only), and for `auth.admin.createUser`/`deleteUser`, which has no RLS-bound equivalent |
+| **`getServerSupabase()`** | Cookie-bound, RLS-enforcing | The default — every read, and writes where the RLS policy already permits the caller (e.g. `master_admin` writing `companies`, or a `manager` writing their own company-scoped tables) |
+| **`getSupabaseAdmin()`** | Service-role key, bypasses RLS entirely | Only when RLS genuinely can't grant the access needed (e.g. `manager` self-service writes to `companies`, which RLS restricts to `master_admin` only), and for `auth.admin.createUser`/`deleteUser`, which has no RLS-bound equivalent |
 
 **Reaching for the admin client without an explicit role check first is a real security bug, not
 just a style issue.** Every admin-client write path in this repo asserts the caller's
@@ -65,13 +65,20 @@ level, not just in the UI.
 | Role | Scope |
 |---|---|
 | `master_admin` | Platform operator, full access across all tenants |
-| `company_super_admin` | Full access within their own tenant, including revenue/commission data |
-| `company_employee` | Scoped to records explicitly assigned to them |
+| `manager` | Full access within their own tenant, including revenue/commission data, Employees, and Company Settings |
+| `administrator` | Company-wide read/manage access within their own tenant (clients, owners, properties, approvals), but no Revenue, Employees, or Company Settings |
+| `sales_agent` | Scoped to clients/owners/properties explicitly assigned to them; new properties they create start as `draft` and need `administrator`/`manager` approval |
+
+This four-role model (`master_admin`/`sales_agent`/`administrator`/`manager` on `profiles.role`)
+replaced an earlier two-tier `company_super_admin`/`company_employee` model — see
+`supabase/migrations/00000000000033_permissions_roles_and_workflows.sql` for the full RLS
+rewrite and `src/lib/permissions.ts` for the role predicates (`isSalesAgent`,
+`isAdministratorOrAbove`, `canAccessManagerModules`, etc.) used throughout the app layer.
 
 When adding a new table or action, check the RLS policy in
-`supabase/migrations/00000000000001_initial_schema.sql` (or the table's own migration) before
-assuming a client can write to it — plenty of tables only grant `company_super_admin` write
-access, not `company_employee`.
+`supabase/migrations/00000000000033_permissions_roles_and_workflows.sql` (or the table's own
+migration) before assuming a client can write to it — plenty of tables only grant `manager`
+write access, not `administrator`/`sales_agent`.
 
 ## Applying schema changes
 

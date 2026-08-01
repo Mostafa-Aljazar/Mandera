@@ -19,6 +19,7 @@ import {
   canChangeOwnerAssignment,
   canDeleteClientOrOwner,
   canImportClientsOrOwners,
+  canViewOwnerStatus,
   isManager,
   isMasterAdmin,
   isSalesAgent,
@@ -216,6 +217,11 @@ export async function getOwnerLatestStatus(
   ownerId: string,
   companyId: string,
 ): Promise<ActionResult<OwnerStatusHistory | null>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  // PDF: Sales Agent cannot view owner pipeline status.
+  if (!canViewOwnerStatus(access.data.role)) return { error: "Access denied" };
+
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("owner_status_history")
@@ -565,6 +571,11 @@ export interface OwnerStatusCountRow {
 export async function getOwnerStatusAndCounts(
   companyId: string,
 ): Promise<ActionResult<OwnerStatusCountRow[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  // PDF: Sales Agent cannot view owner pipeline status.
+  if (!canViewOwnerStatus(access.data.role)) return { error: "Access denied" };
+
   const supabase = await getServerSupabase();
 
   const [

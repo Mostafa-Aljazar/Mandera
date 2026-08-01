@@ -27,9 +27,15 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { canManageEmployees, roleFromJobTitle } from "@/lib/permissions";
+import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
 import { useEmployeeCount } from "@/hooks/useEmployeeCount";
-import { useCreateEmployee } from "@/hooks/queries/useEmployees";
+import { useCompanyEmployees, useCreateEmployee } from "@/hooks/queries/useEmployees";
+import {
+  useCompanyBranches,
+  useCompanyTeams,
+} from "@/hooks/queries/useCompanyExtendedSettings";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -93,8 +99,21 @@ const EmployeeFormPage = () => {
   const { t } = useTranslation();
   const router = useRouter();
   const { company, currentUser } = useCompanyAuth();
+  const { language } = useLanguage();
   const canManage = canManageEmployees(currentUser?.role);
   const { count: currentCount } = useEmployeeCount(canManage ? company?.id : undefined);
+  const { data: allEmployeesData } = useCompanyEmployees(
+    canManage ? company?.id : undefined,
+  );
+  const { data: teamsData } = useCompanyTeams(canManage ? company?.id : undefined);
+  const { data: branchesData } = useCompanyBranches(
+    canManage ? company?.id : undefined,
+  );
+  const teammateOptions = (allEmployeesData ?? []).filter(
+    (row) => row.employee_id && !row.employee?.disabled,
+  );
+  const teams = teamsData ?? [];
+  const branches = branchesData ?? [];
   const [loading, setLoading] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -122,6 +141,9 @@ const EmployeeFormPage = () => {
       phone: "",
       job_title: undefined,
       password: "",
+      team_id: "",
+      reports_to_employee_id: "",
+      branch_id: "",
     },
   });
 
@@ -194,6 +216,9 @@ const EmployeeFormPage = () => {
         role: roleFromJobTitle(formData.job_title),
         password: formData.password,
         avatar: avatarFile,
+        team_id: formData.team_id || null,
+        reports_to_employee_id: formData.reports_to_employee_id || null,
+        branch_id: formData.branch_id || null,
       });
       if (result.error) throw new Error(result.error);
 
@@ -539,12 +564,120 @@ const EmployeeFormPage = () => {
                             <SelectItem value="sales_agent">
                               {t("Sales Agent")}
                             </SelectItem>
-                            <SelectItem value="admin">
+                            <SelectItem value="administrator">
                               {t("Administrator")}
                             </SelectItem>
                             <SelectItem value="manager">
                               {t("Manager")}
                             </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="branch_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("Branch")}</FormLabel>
+                        <Select
+                          value={field.value || "__none__"}
+                          onValueChange={(value) =>
+                            field.onChange(value === "__none__" ? "" : value)
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger className="bg-background h-10">
+                              <SelectValue placeholder={t("Select branch")} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">
+                              {t("No branch")}
+                            </SelectItem>
+                            {branches.map((branch) => (
+                              <SelectItem key={branch.id} value={branch.id}>
+                                {bilingualLabel(branch, language)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="team_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("Team")}</FormLabel>
+                        <Select
+                          value={field.value || "__none__"}
+                          onValueChange={(value) =>
+                            field.onChange(value === "__none__" ? "" : value)
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger className="bg-background h-10">
+                              <SelectValue placeholder={t("Select team")} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">
+                              {t("No team")}
+                            </SelectItem>
+                            {teams.map((team) => (
+                              <SelectItem key={team.id} value={team.id}>
+                                {bilingualLabel(team, language)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="reports_to_employee_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t("Reports to (direct manager)")}
+                        </FormLabel>
+                        <Select
+                          value={field.value || "__none__"}
+                          onValueChange={(value) =>
+                            field.onChange(value === "__none__" ? "" : value)
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger className="bg-background h-10">
+                              <SelectValue placeholder={t("Select manager")} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">
+                              {t("No direct manager")}
+                            </SelectItem>
+                            {teammateOptions.map((row) => (
+                              <SelectItem
+                                key={row.employee_id!}
+                                value={row.employee_id!}
+                              >
+                                {employeeDisplayName(
+                                  row.employee,
+                                  language,
+                                  row.name,
+                                ) || row.name}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />

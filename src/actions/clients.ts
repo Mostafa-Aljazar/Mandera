@@ -757,6 +757,21 @@ export async function getClientStatusHistory(
   clientId: string,
 ): Promise<ActionResult<any[]>> {
   const supabase = await getServerSupabase();
+
+  const { data: client, error: clientError } = await supabase
+    .from("clients")
+    .select("id, company_id, employee_id")
+    .eq("id", clientId)
+    .maybeSingle();
+  if (clientError) return { error: clientError.message };
+  if (!client) return { error: "Client not found" };
+
+  const access = await assertCompanyMember(client.company_id);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+  if (isSalesAgent(access.data.role) && client.employee_id !== access.data.userId) {
+    return { error: "Access denied" };
+  }
+
   const { data, error } = await supabase
     .from("client_status_history")
     .select("*, status:client_statuses(id, name_en, name_ar)")
@@ -779,7 +794,22 @@ export interface AddClientStatusInput {
 export async function addClientStatus(
   input: AddClientStatusInput,
 ): Promise<ActionResult<null>> {
+  const access = await assertCompanyMember(input.companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
   const supabase = await getServerSupabase();
+
+  const { data: client, error: clientFetchError } = await supabase
+    .from("clients")
+    .select("id, employee_id")
+    .eq("id", input.clientId)
+    .eq("company_id", input.companyId)
+    .maybeSingle();
+  if (clientFetchError) return { error: clientFetchError.message };
+  if (!client) return { error: "Client not found" };
+  if (isSalesAgent(access.data.role) && client.employee_id !== access.data.userId) {
+    return { error: "Access denied" };
+  }
 
   const { error: historyError } = await supabase.from("client_status_history").insert({
     client_id: input.clientId,
