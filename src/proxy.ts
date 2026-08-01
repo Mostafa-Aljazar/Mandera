@@ -82,7 +82,7 @@ function mapLegacyPath(pathname: string) {
   return null;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const legacyPath = mapLegacyPath(request.nextUrl.pathname);
   if (legacyPath) {
     return redirectTo(request, legacyPath);

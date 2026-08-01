@@ -5,7 +5,7 @@ import type { Database } from '@/types/supabase.types';
 
 // Lazily construct a single Supabase client for the browser. @supabase/ssr
 // stores the session in cookies (not localStorage), so the same auth state
-// is readable server-side by middleware.ts and Server Actions.
+// is readable server-side by proxy.ts and Server Actions.
 let client: ReturnType<typeof createBrowserClient<Database>> | null = null;
 
 function getSupabaseClient() {
