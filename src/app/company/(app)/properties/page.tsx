@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import DocumentHead from "@/components/common/DocumentHead";
 import { useTranslation } from "react-i18next";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { canViewAllClients, isSalesAgent } from "@/lib/permissions";
+import { employeeDisplayName } from "@/lib/bilingualLabel";
 import {
   useProperties,
   useAreasDistrictsLookup,
+  useCompanyEmployeesLookup,
 } from "@/hooks/queries/useProperties";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import PropertyCard from "@/components/company/properties/PropertyCard";
@@ -21,6 +24,13 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Plus,
   Home,
@@ -58,6 +68,7 @@ interface PropertyFilterState {
   createdToDate: Date | null;
   updatedFromDate: Date | null;
   updatedToDate: Date | null;
+  employeeId: string | null;
 }
 
 function getPageNumbers(
@@ -166,6 +177,8 @@ function StatCard({
 
 const PropertiesPage = () => {
   const { company, currentUser } = useCompanyAuth();
+  const canViewAll = canViewAllClients(currentUser?.role);
+  const { language } = useLanguage();
   const { t } = useTranslation();
   const router = useRouter();
 
@@ -184,6 +197,7 @@ const PropertiesPage = () => {
     createdToDate: null,
     updatedFromDate: null,
     updatedToDate: null,
+    employeeId: null,
   });
   const [statusFilter, setStatusFilter] = useState("All");
 
@@ -198,8 +212,10 @@ const PropertiesPage = () => {
   };
 
   const propertyFilters = {
-    // Agents see company inventory (masked); assignment scoping is for clients/owners only.
-    employeeId: undefined as string | undefined,
+    // Agents see full company inventory (masked). Admin+ can filter by assigned agent.
+    employeeId: canViewAll
+      ? filterState.employeeId || undefined
+      : undefined,
     status: statusFilter && statusFilter !== "All" ? statusFilter : undefined,
     areaDistrictIds:
       filterState.areas.length > 0 ? filterState.areas : undefined,
@@ -217,6 +233,10 @@ const PropertiesPage = () => {
 
   const { data: allAreasData } = useAreasDistrictsLookup(company?.id);
   const allAreasDistricts = useMemo(() => allAreasData ?? [], [allAreasData]);
+  const { data: employeesData } = useCompanyEmployeesLookup(
+    canViewAll ? company?.id : undefined,
+  );
+  const employees = useMemo(() => employeesData ?? [], [employeesData]);
 
   const stats = useMemo(() => {
     const active = properties.filter(
@@ -250,10 +270,11 @@ const PropertiesPage = () => {
     if (filterState.createdToDate) count += 1;
     if (filterState.updatedFromDate) count += 1;
     if (filterState.updatedToDate) count += 1;
+    if (filterState.employeeId && canViewAll) count += 1;
     if (priceFilters.minPrice) count += 1;
     if (priceFilters.maxPrice) count += 1;
     return count;
-  }, [statusFilter, filterState, priceFilters]);
+  }, [statusFilter, filterState, priceFilters, canViewAll]);
 
   const filterProperties = (listType: string) =>
     properties.filter((p) => {
@@ -319,13 +340,15 @@ const PropertiesPage = () => {
     );
 
   const handleRemoveFilter = (
-    key: keyof PropertyFilterState,
+    key: keyof PropertyFilterState | string,
     valueToRemove?: string,
   ) => {
     setFilterState((prev) => {
       const newState: PropertyFilterState = { ...prev };
       if (key === "areas" && valueToRemove) {
         newState.areas = newState.areas.filter((id) => id !== valueToRemove);
+      } else if (key === "employeeId") {
+        newState.employeeId = null;
       } else {
         (newState as unknown as Record<string, unknown>)[key] = null;
       }
@@ -588,6 +611,39 @@ const PropertiesPage = () => {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+                  {canViewAll ? (
+                    <Select
+                      key={`employee-filter-${language}`}
+                      value={filterState.employeeId || "all"}
+                      onValueChange={(val) =>
+                        setFilterState((prev) => ({
+                          ...prev,
+                          employeeId: val === "all" ? null : val,
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="bg-background rounded-xl w-full lg:w-[210px] h-11">
+                        <SelectValue placeholder={t("All Employees")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          {t("All Employees")}
+                        </SelectItem>
+                        <SelectItem value="unassigned">
+                          {t("Unassigned")}
+                        </SelectItem>
+                        {employees.map((emp) => (
+                          <SelectItem key={emp.id} value={emp.id}>
+                            <span dir="auto">
+                              {employeeDisplayName(emp, language, emp.name) ||
+                                emp.id}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+
                   <Button
                     variant="outline"
                     onClick={() => setShowFilters(!showFilters)}
@@ -622,7 +678,8 @@ const PropertiesPage = () => {
                         }}
                         onPriceChange={setPriceFilters}
                         onApplyFilters={(filters) => {
-                          setFilterState({
+                          setFilterState((prev) => ({
+                            ...prev,
                             statusId:
                               (filters.statusId as string | null) ?? null,
                             areas: Array.isArray(filters.areas)
@@ -636,20 +693,21 @@ const PropertiesPage = () => {
                               (filters.updatedFromDate as Date | null) ?? null,
                             updatedToDate:
                               (filters.updatedToDate as Date | null) ?? null,
-                          });
+                          }));
                           setStatusFilter(
                             (filters.statusId as string) || "All",
                           );
                         }}
                         onClearFilters={() => {
-                          setFilterState({
+                          setFilterState((prev) => ({
+                            ...prev,
                             statusId: null,
                             areas: [],
                             createdFromDate: null,
                             createdToDate: null,
                             updatedFromDate: null,
                             updatedToDate: null,
-                          });
+                          }));
                           setStatusFilter("All");
                           setPriceFilters({ minPrice: "", maxPrice: "" });
                         }}
@@ -661,6 +719,7 @@ const PropertiesPage = () => {
                     activeFilters={filterState}
                     statuses={propertyStatuses}
                     areas={allAreasDistricts}
+                    employees={employees}
                     onRemoveFilter={handleRemoveFilter}
                   />
                 </div>

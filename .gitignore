@@ -29,6 +29,8 @@ Thumbs.db
 # Claude Code local session artifacts (keep architecture docs, ignore anything transient)
 .claude/scheduled_tasks.lock
 .claude/LOCAL_DEV_CREDENTIALS.md
+.claude/ALL_LOGIN_CREDENTIALS.md
+.claude/ALL_LOGIN_CREDENTIALS.txt
 .claude/bayut-dubizzle-video.mp4
 .claude/permissions.pdf
 

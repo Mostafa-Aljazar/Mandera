@@ -256,7 +256,11 @@ export async function getProperties(
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
 
-  if (filters.employeeId) query = query.eq("employee_id", filters.employeeId);
+  if (filters.employeeId === "unassigned") {
+    query = query.is("employee_id", null);
+  } else if (filters.employeeId) {
+    query = query.eq("employee_id", filters.employeeId);
+  }
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.areaDistrictIds?.length) {
     query = query.in("area_district", filters.areaDistrictIds);
