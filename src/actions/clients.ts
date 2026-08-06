@@ -800,7 +800,8 @@ export async function getUpcomingFollowUps(
     )
     .eq("company_id", companyId)
     .not("follow_up_date", "is", null)
-    .order("follow_up_date", { ascending: true });
+    .order("follow_up_date", { ascending: true })
+    .limit(21);
 
   if (restrictToEmployeeId) {
     clientQuery = clientQuery.eq("employee_id", restrictToEmployeeId);

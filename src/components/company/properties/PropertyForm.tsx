@@ -56,9 +56,24 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command";
+import {
   Loader2,
   UploadCloud,
   ChevronDown,
+  ChevronsUpDown,
+  Check,
   CheckCircle2,
   Circle,
   AlertCircle,
@@ -76,7 +91,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { employeeDisplayName } from "@/lib/bilingualLabel";
+import { bilingualLabel, employeeDisplayName } from "@/lib/bilingualLabel";
+import { countryLabel } from "@/lib/countries";
 
 const EMIRATES = [
   "Dubai",
@@ -595,6 +611,7 @@ export default function PropertyForm({
   const types = typesData ?? [];
   const { data: ownersData } = useOwnersLookup(company?.id);
   const owners = ownersData ?? [];
+  const [ownerComboOpen, setOwnerComboOpen] = useState(false);
   const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
   const employees = employeesData ?? [];
   const { data: areasData, isFetching: isLoadingAreas } = useAreasDistrictsLookup(
@@ -1324,17 +1341,94 @@ export default function PropertyForm({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FieldBlock label={t("Owner")} required error={errors.owner_id?.message}>
-                    <Select value={formData.owner_id} onValueChange={(v) => form.setValue("owner_id", v, { shouldValidate: true })}>
-                      <SelectTrigger className={FIELD}><SelectValue placeholder={t("Select Owner")} /></SelectTrigger>
-                      <SelectContent>
-                        {owners.map((o) => (
-                          <SelectItem key={o.id} value={o.id}>
-                            <span dir="auto">{o.name}</span>
-                            <span className="text-muted-foreground" dir="ltr"> ({o.phone})</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={ownerComboOpen} onOpenChange={setOwnerComboOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={ownerComboOpen}
+                          className={cn(FIELD, "w-full h-auto min-h-9 justify-between px-2 py-1 font-normal")}
+                        >
+                          {(() => {
+                            const selectedOwner = owners.find((o) => o.id === formData.owner_id);
+                            if (!selectedOwner) {
+                              return <span className="text-muted-foreground ps-1">{t("Select Owner")}</span>;
+                            }
+                            const label = bilingualLabel(selectedOwner, language) || selectedOwner.name;
+                            return (
+                              <span className="flex items-center gap-2 min-w-0">
+                                <span className="flex justify-center items-center shrink-0 rounded-full w-6 h-6 overflow-hidden font-outfit font-bold text-[10px] text-amber-700 dark:text-amber-400 bg-gradient-to-br from-amber-400/20 to-primary/20 ring-1 ring-amber-400/30">
+                                  {selectedOwner.avatar_url ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={selectedOwner.avatar_url} alt={label} className="w-full h-full object-cover" />
+                                  ) : (
+                                    label.charAt(0).toUpperCase()
+                                  )}
+                                </span>
+                                <span dir="auto" className="truncate">{label}</span>
+                                <span className="text-muted-foreground shrink-0 tabular-nums" dir="ltr">
+                                  {selectedOwner.phone}
+                                </span>
+                              </span>
+                            );
+                          })()}
+                          <ChevronsUpDown className="opacity-50 ms-2 w-4 h-4 shrink-0" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start">
+                        <Command>
+                          <CommandInput placeholder={t("Search owners...")} />
+                          <CommandList>
+                            <CommandEmpty>{t("No owners found")}</CommandEmpty>
+                            <CommandGroup>
+                              {owners.map((o) => {
+                                const label = bilingualLabel(o, language) || o.name;
+                                return (
+                                  <CommandItem
+                                    key={o.id}
+                                    className="items-start gap-2 py-2"
+                                    onSelect={() => {
+                                      form.setValue("owner_id", o.id, { shouldValidate: true });
+                                      setOwnerComboOpen(false);
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mt-1.5 w-4 h-4 shrink-0",
+                                        formData.owner_id === o.id ? "opacity-100" : "opacity-0",
+                                      )}
+                                    />
+                                    <span className="flex justify-center items-center shrink-0 rounded-full w-8 h-8 overflow-hidden font-outfit font-bold text-amber-700 dark:text-amber-400 text-sm bg-gradient-to-br from-amber-400/20 to-primary/20 ring-1 ring-amber-400/30">
+                                      {o.avatar_url ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={o.avatar_url} alt={label} className="w-full h-full object-cover" />
+                                      ) : (
+                                        label.charAt(0).toUpperCase()
+                                      )}
+                                    </span>
+                                    <span className="flex flex-col min-w-0 flex-1">
+                                      <span className="flex items-center justify-between gap-2">
+                                        <span className="truncate font-medium text-foreground" dir="auto">
+                                          {label}
+                                        </span>
+                                        <span className="text-muted-foreground text-xs shrink-0 tabular-nums" dir="ltr">
+                                          {o.phone}
+                                        </span>
+                                      </span>
+                                      <span className="text-muted-foreground text-xs truncate" dir="auto">
+                                        {countryLabel(o.country, language) || "—"}
+                                        {o.marketing_channel ? ` · ${o.marketing_channel}` : ""}
+                                      </span>
+                                    </span>
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   </FieldBlock>
 
                   <FieldBlock label={t("Assigned Agent")} required error={errors.employee_id?.message}>

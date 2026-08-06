@@ -165,7 +165,7 @@ const EmployeeListPage = () => {
   >("all");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "active" | "disabled"
-  >("all");
+  >("active");
   const [page, setPage] = useState(1);
   const [deleteDialog, setDeleteDialog] = useState<{
     open: boolean;
@@ -248,7 +248,7 @@ const EmployeeListPage = () => {
   );
   const pageNumbers = getPageNumbers(currentPage, totalPages);
 
-  const seatCount = employees.length;
+  const seatCount = stats.active;
   const seatLimit = company?.max_employee_count ?? 0;
   const atLimit = seatCount >= seatLimit;
 
@@ -311,6 +311,13 @@ const EmployeeListPage = () => {
         avatarUrl: emp.employee?.avatar_url || null,
       },
     });
+  };
+
+  const handleSwitchToDisable = (deletionTarget: DeletionTarget) => {
+    const emp = employees.find((e) => e.id === deletionTarget.id);
+    if (!emp) return;
+    setDeleteDialog({ open: false, employee: null });
+    setStatusDialog({ open: true, employee: emp });
   };
 
   if (!canManage) {
@@ -730,6 +737,7 @@ const EmployeeListPage = () => {
         employeeToDelete={deleteDialog.employee}
         onSuccess={() => refetch()}
         companyId={company?.id}
+        onSwitchToDisable={handleSwitchToDisable}
       />
     </>
   );

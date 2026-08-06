@@ -12,6 +12,8 @@ import {
   useProperties,
   useAreasDistrictsLookup,
   useCompanyEmployeesLookup,
+  usePropertyTypes,
+  useOwnersLookup,
 } from "@/hooks/queries/useProperties";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import PropertyCard from "@/components/company/properties/PropertyCard";
@@ -69,6 +71,10 @@ interface PropertyFilterState {
   updatedFromDate: Date | null;
   updatedToDate: Date | null;
   employeeId: string | null;
+  propertyTypeId: string | null;
+  classification: string | null;
+  ownerId: string | null;
+  createdBy: string | null;
 }
 
 function getPageNumbers(
@@ -198,6 +204,10 @@ const PropertiesPage = () => {
     updatedFromDate: null,
     updatedToDate: null,
     employeeId: null,
+    propertyTypeId: null,
+    classification: null,
+    ownerId: null,
+    createdBy: null,
   });
   const [statusFilter, setStatusFilter] = useState("All");
 
@@ -212,7 +222,8 @@ const PropertiesPage = () => {
   };
 
   const propertyFilters = {
-    // Agents see full company inventory (masked). Admin+ can filter by assigned agent.
+    // Agents see full company inventory (masked). Admin+ can filter by assigned agent,
+    // owner, or creator.
     employeeId: canViewAll
       ? filterState.employeeId || undefined
       : undefined,
@@ -223,6 +234,10 @@ const PropertiesPage = () => {
     createdTo: toIso(filterState.createdToDate, true),
     updatedFrom: toIso(filterState.updatedFromDate, false),
     updatedTo: toIso(filterState.updatedToDate, true),
+    propertyTypeId: filterState.propertyTypeId || undefined,
+    classification: filterState.classification || undefined,
+    ownerId: canViewAll ? filterState.ownerId || undefined : undefined,
+    createdBy: canViewAll ? filterState.createdBy || undefined : undefined,
   };
 
   const { data: propertiesData, isLoading } = useProperties(
@@ -237,6 +252,15 @@ const PropertiesPage = () => {
     canViewAll ? company?.id : undefined,
   );
   const employees = useMemo(() => employeesData ?? [], [employeesData]);
+  const { data: propertyTypesData } = usePropertyTypes(company?.id);
+  const propertyTypes = useMemo(
+    () => propertyTypesData ?? [],
+    [propertyTypesData],
+  );
+  const { data: ownersData } = useOwnersLookup(
+    canViewAll ? company?.id : undefined,
+  );
+  const owners = useMemo(() => ownersData ?? [], [ownersData]);
 
   const stats = useMemo(() => {
     const active = properties.filter(
@@ -273,6 +297,10 @@ const PropertiesPage = () => {
     if (filterState.employeeId && canViewAll) count += 1;
     if (priceFilters.minPrice) count += 1;
     if (priceFilters.maxPrice) count += 1;
+    if (filterState.propertyTypeId) count += 1;
+    if (filterState.classification) count += 1;
+    if (filterState.ownerId && canViewAll) count += 1;
+    if (filterState.createdBy && canViewAll) count += 1;
     return count;
   }, [statusFilter, filterState, priceFilters, canViewAll]);
 
@@ -671,6 +699,10 @@ const PropertiesPage = () => {
                         statuses={propertyStatuses}
                         areas={allAreasDistricts}
                         showPriceFilters={true}
+                        propertyTypes={propertyTypes}
+                        showClassificationFilter={true}
+                        owners={canViewAll ? owners : []}
+                        createdByUsers={canViewAll ? employees : []}
                         initialValues={{
                           ...filterState,
                           minPrice: priceFilters.minPrice,
@@ -693,6 +725,13 @@ const PropertiesPage = () => {
                               (filters.updatedFromDate as Date | null) ?? null,
                             updatedToDate:
                               (filters.updatedToDate as Date | null) ?? null,
+                            propertyTypeId:
+                              (filters.propertyTypeId as string | null) ?? null,
+                            classification:
+                              (filters.classification as string | null) ?? null,
+                            ownerId: (filters.ownerId as string | null) ?? null,
+                            createdBy:
+                              (filters.createdBy as string | null) ?? null,
                           }));
                           setStatusFilter(
                             (filters.statusId as string) || "All",
@@ -707,6 +746,10 @@ const PropertiesPage = () => {
                             createdToDate: null,
                             updatedFromDate: null,
                             updatedToDate: null,
+                            propertyTypeId: null,
+                            classification: null,
+                            ownerId: null,
+                            createdBy: null,
                           }));
                           setStatusFilter("All");
                           setPriceFilters({ minPrice: "", maxPrice: "" });
@@ -720,6 +763,8 @@ const PropertiesPage = () => {
                     statuses={propertyStatuses}
                     areas={allAreasDistricts}
                     employees={employees}
+                    propertyTypes={propertyTypes}
+                    owners={owners}
                     onRemoveFilter={handleRemoveFilter}
                   />
                 </div>

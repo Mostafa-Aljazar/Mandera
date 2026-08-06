@@ -9,7 +9,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import EmployeeLeaderboard from "@/components/company/dashboard/EmployeeLeaderboard";
 import FollowUpCalendarWidget from "@/components/company/dashboard/FollowUpCalendarWidget";
-import ClientPipelineWidget from "@/components/company/dashboard/ClientPipelineWidget";
 import ClientsBySourceWidget from "@/components/company/dashboard/ClientsBySourceWidget";
 import ResponseRatesWidget from "@/components/company/dashboard/ResponseRatesWidget";
 import RecentStatusChangesWidget from "@/components/company/dashboard/RecentStatusChangesWidget";
@@ -131,16 +130,12 @@ function ActionCard({
   title,
   description,
   icon: Icon,
-  count,
-  loading,
   tone = "primary",
 }: {
   href: string;
   title: string;
   description: string;
   icon: LucideIcon;
-  count?: number;
-  loading?: boolean;
   tone?: StatTone;
 }) {
   const { t } = useTranslation();
@@ -173,18 +168,9 @@ function ActionCard({
       </span>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <h3 className="font-outfit font-semibold text-foreground text-base tracking-tight truncate">
-            {title}
-          </h3>
-          {loading ? (
-            <Skeleton className="rounded-full w-8 h-5" />
-          ) : typeof count === "number" ? (
-            <span className="inline-flex items-center bg-muted/80 px-2 py-0.5 rounded-full font-medium text-muted-foreground text-xs tabular-nums">
-              {count}
-            </span>
-          ) : null}
-        </div>
+        <h3 className="font-outfit font-semibold text-foreground text-base tracking-tight truncate">
+          {title}
+        </h3>
         <p className="mt-1 text-muted-foreground text-sm line-clamp-1 sm:line-clamp-2 leading-relaxed">
           {description}
         </p>
@@ -311,10 +297,6 @@ export default function CompanyDashboardPage() {
 
         <div className="mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8 sm:space-y-10 container max-w-6xl">
           <section>
-            <ClientPipelineWidget />
-          </section>
-
-          <section>
             <h2 className="mb-4 sm:mb-5 font-outfit font-semibold text-foreground text-lg tracking-tight">
               {t("Operations overview")}
             </h2>
@@ -382,8 +364,6 @@ export default function CompanyDashboardPage() {
                     title={t("Manage Properties")}
                     description={t("company_action_properties_desc")}
                     icon={Home}
-                    count={stats.propertiesRent + stats.propertiesSale}
-                    loading={loading}
                     tone="emerald"
                   />
                   <ActionCard
@@ -391,8 +371,6 @@ export default function CompanyDashboardPage() {
                     title={t("Manage Clients")}
                     description={t("company_action_clients_desc")}
                     icon={Users}
-                    count={stats.clients}
-                    loading={loading}
                     tone="primary"
                   />
                   <ActionCard
@@ -400,8 +378,6 @@ export default function CompanyDashboardPage() {
                     title={t("Manage Owners")}
                     description={t("company_action_owners_desc")}
                     icon={Briefcase}
-                    count={stats.owners}
-                    loading={loading}
                     tone="amber"
                   />
                   {showManagerModules ? (
@@ -410,8 +386,6 @@ export default function CompanyDashboardPage() {
                       title={t("Manage Employees")}
                       description={t("company_action_employees_desc")}
                       icon={Building2}
-                      count={stats.employees}
-                      loading={loading}
                       tone="sky"
                     />
                   ) : null}

@@ -5,9 +5,11 @@ import React, {
   useContext,
   useState,
   useEffect,
+  useRef,
   ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import supabase from "@/lib/supabase/client";
 import type { AuthUser } from "@/types/supabase-entities.types";
 
@@ -35,9 +37,20 @@ export const MasterAuthProvider = ({ children }: { children: ReactNode }) => {
   const shouldInit = needsMasterAuth(pathname);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [initialLoading, setInitialLoading] = useState(shouldInit);
+  const queryClient = useQueryClient();
+  // See CompanyAuthContext's logout() for why this exists: it lets the
+  // next page skip getSession(), which would otherwise queue behind the
+  // in-flight signOut() network call and stall the login spinner.
+  const justLoggedOutRef = useRef(false);
 
   useEffect(() => {
     if (!shouldInit) {
+      setInitialLoading(false);
+      return;
+    }
+
+    if (justLoggedOutRef.current) {
+      justLoggedOutRef.current = false;
       setInitialLoading(false);
       return;
     }
@@ -105,8 +118,10 @@ export const MasterAuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const logout = () => {
-    supabase.auth.signOut();
+    justLoggedOutRef.current = true;
     setCurrentUser(null);
+    queryClient.cancelQueries();
+    supabase.auth.signOut({ scope: "local" });
   };
 
   const value: MasterAuthContextValue = {

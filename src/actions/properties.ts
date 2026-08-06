@@ -201,6 +201,11 @@ export interface PropertyFilters {
   createdTo?: string;
   updatedFrom?: string;
   updatedTo?: string;
+  propertyTypeId?: string;
+  classification?: string;
+  ownerId?: string;
+  /** Resolved via property_status_history's "Initial property creation" row — properties has no created_by column. */
+  createdBy?: string;
 }
 
 const PROPERTIES_SELECT = `
@@ -269,6 +274,25 @@ export async function getProperties(
   if (filters.createdTo) query = query.lte("created_at", filters.createdTo);
   if (filters.updatedFrom) query = query.gte("updated_at", filters.updatedFrom);
   if (filters.updatedTo) query = query.lte("updated_at", filters.updatedTo);
+  if (filters.propertyTypeId) query = query.eq("type", filters.propertyTypeId);
+  if (filters.classification) query = query.eq("classification", filters.classification);
+  if (filters.ownerId) query = query.eq("owner_id", filters.ownerId);
+
+  // `properties` has no created_by column — the creator is only recorded on the
+  // "Initial property creation" row written to property_status_history at insert time.
+  if (filters.createdBy) {
+    const { data: creationRows, error: creationError } = await supabase
+      .from("property_status_history")
+      .select("property_id")
+      .eq("company_id", companyId)
+      .eq("note", "Initial property creation")
+      .eq("created_by", filters.createdBy);
+    if (creationError) return { error: creationError.message };
+
+    const createdPropertyIds = (creationRows ?? []).map((r) => r.property_id);
+    if (createdPropertyIds.length === 0) return { data: [] };
+    query = query.in("id", createdPropertyIds);
+  }
 
   const { data, error } = await query;
   if (error) return { error: error.message };
@@ -378,7 +402,7 @@ export async function getOwnersForCompany(companyId: string) {
   let query = supabase
     .from("owners")
     .select(
-      "id, name, name_en, name_ar, phone, country, company_id, marketing_channel, assigned_employee_id, created_at, updated_at",
+      "id, name, name_en, name_ar, phone, country, avatar_url, company_id, marketing_channel, assigned_employee_id, created_at, updated_at",
     )
     .eq("company_id", companyId);
 

@@ -5,10 +5,12 @@ import React, {
   useContext,
   useState,
   useEffect,
+  useRef,
   ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import supabase from "@/lib/supabase/client";
 import type { AuthUser, Company } from "@/types/supabase-entities.types";
 import { isCompanyEmployeeLoginDisabled } from "@/actions/employee-auth";
@@ -77,9 +79,22 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
   const [initialLoading, setInitialLoading] = useState(shouldInit);
   const { i18n } = useTranslation();
+  const queryClient = useQueryClient();
+  // Set by logout() so the next page doesn't re-verify a session we already
+  // know is gone. Skipping this matters because getSession() shares the
+  // Supabase auth client's internal lock with the in-flight signOut() call —
+  // without this flag it queues behind that network round-trip and the
+  // login screen's spinner hangs until signOut() finishes.
+  const justLoggedOutRef = useRef(false);
 
   useEffect(() => {
     if (!shouldInit) {
+      setInitialLoading(false);
+      return;
+    }
+
+    if (justLoggedOutRef.current) {
+      justLoggedOutRef.current = false;
       setInitialLoading(false);
       return;
     }
@@ -256,9 +271,18 @@ export const CompanyAuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     console.log("[CompanyAuth] Logging out user...");
-    supabase.auth.signOut();
+    justLoggedOutRef.current = true;
     setCurrentUser(null);
     setCurrentCompany(null);
+    // Stop in-flight queries from the page being left (dashboard widgets,
+    // etc.) so they don't keep competing for network/CPU with the signOut
+    // call below while it's in flight.
+    queryClient.cancelQueries();
+    // Fire-and-forget: signOut always makes a network call to revoke the
+    // token server-side (even with scope: 'local'), so it's not worth
+    // blocking navigation on. justLoggedOutRef makes sure nothing else
+    // waits on it either.
+    supabase.auth.signOut({ scope: "local" });
   };
 
   const refreshCompany = async () => {

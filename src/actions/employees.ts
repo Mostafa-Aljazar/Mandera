@@ -260,14 +260,18 @@ export async function getEmployeeCount(companyId?: string): Promise<ActionResult
   const admin = getSupabaseAdmin();
   // Seat usage includes the company admin + employees (profiles), not only
   // rows in `employees` — admin is provisioned without an employees record.
-  const { count, error } = await admin
+  // Disabled employees free up their seat, so they're excluded here.
+  const { data, error } = await admin
     .from("profiles")
-    .select("id", { count: "exact", head: true })
+    .select("id, employee:employees!profiles_employee_id_fkey(disabled)")
     .eq("company_id", companyId)
     .in("role", companyRolesFilter());
 
   if (error) return { error: error.message };
-  return { data: count ?? 0 };
+  const activeCount = (data ?? []).filter(
+    (row) => !(row as unknown as { employee?: { disabled?: boolean } | null }).employee?.disabled,
+  ).length;
+  return { data: activeCount };
 }
 
 export async function createEmployee(
@@ -760,6 +764,52 @@ export async function deleteEmployeeWorkflow(
     return { error: "Choose a valid reassignment target." };
   }
 
+  // Historical records (revenues, client_status_history, owner_status_history,
+  // property_status_history) are intentionally NOT reassigned/deleted, to
+  // preserve historical data integrity — but that means a profile referenced
+  // by any of them can't be hard-deleted (the FK has no cascade/set-null).
+  // Catch that here with a clear message before mutating anything, instead of
+  // letting a raw Postgres FK-violation surface after a partial reassignment.
+  const [ownerHistory, clientHistory, propertyHistory, revenueHistory] =
+    await Promise.all([
+      admin
+        .from("owner_status_history")
+        .select("id", { count: "exact", head: true })
+        .eq("created_by", targetId),
+      admin
+        .from("client_status_history")
+        .select("id", { count: "exact", head: true })
+        .or(
+          `created_by.eq.${targetId},transferred_from_employee.eq.${targetId},transferred_to_employee.eq.${targetId},employee_id.eq.${targetId}`,
+        ),
+      admin
+        .from("property_status_history")
+        .select("id", { count: "exact", head: true })
+        .eq("created_by", targetId),
+      admin
+        .from("revenues")
+        .select("id", { count: "exact", head: true })
+        .eq("employee_id", targetId),
+    ]);
+  const historyCheckError =
+    ownerHistory.error ||
+    clientHistory.error ||
+    propertyHistory.error ||
+    revenueHistory.error;
+  if (historyCheckError) return { error: historyCheckError.message };
+  const hasHistory =
+    (ownerHistory.count ?? 0) +
+      (clientHistory.count ?? 0) +
+      (propertyHistory.count ?? 0) +
+      (revenueHistory.count ?? 0) >
+    0;
+  if (hasHistory) {
+    return {
+      error:
+        "This employee has historical activity records and cannot be permanently deleted. Disable the employee instead to block their access while keeping that history intact.",
+    };
+  }
+
   const { error: ownersError } = await admin
     .from("owners")
     .update({ assigned_employee_id: reassignTo })
@@ -777,9 +827,6 @@ export async function deleteEmployeeWorkflow(
     .update({ employee_id: reassignTo })
     .eq("employee_id", targetId);
   if (propertiesError) return { error: propertiesError.message };
-
-  // Historical records (revenues, client_status_history, owner_status_history)
-  // are intentionally NOT reassigned/deleted, to preserve historical data integrity.
 
   // Kick active sessions before tearing down the auth user.
   await syncAuthAccessForEmployee(admin, targetId, "revoke");

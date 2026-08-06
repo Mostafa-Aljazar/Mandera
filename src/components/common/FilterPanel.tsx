@@ -8,13 +8,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
-import { CalendarPlus as CalendarIcon, Filter, X, Check, SlidersHorizontal, Tag, MapPin, DollarSign, Clock } from 'lucide-react';
+import { CalendarPlus as CalendarIcon, Filter, X, Check, SlidersHorizontal, Tag, MapPin, DollarSign, Clock, User, Building2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { bilingualLabel, type BilingualName } from '@/lib/bilingualLabel';
+import {
+  bilingualLabel,
+  employeeDisplayName,
+  type BilingualName,
+  type EmployeeNameParts,
+} from '@/lib/bilingualLabel';
 
 interface DatePickerPopoverProps {
   date: Date | null;
@@ -58,6 +63,14 @@ interface FilterPanelProps {
   marketingChannels?: Array<{ id: string; name: string }>;
   areas?: Array<{ id: string; name: string }>;
   showPriceFilters?: boolean;
+  /** Property type lookup (property_types) — renders a "Property Type" select when non-empty. */
+  propertyTypes?: Array<{ id: string } & BilingualName>;
+  /** Renders a fixed A/B/C "Classification" select when true. */
+  showClassificationFilter?: boolean;
+  /** Owner lookup — renders a searchable "Owner" combobox when non-empty. */
+  owners?: Array<{ id: string } & BilingualName>;
+  /** Employee/company-user lookup — renders a "Created By" select when non-empty. */
+  createdByUsers?: Array<{ id: string; name?: string | null } & EmployeeNameParts>;
   /** Applied filter values used to hydrate the panel when it opens. */
   initialValues?: {
     statusId?: string | null;
@@ -69,6 +82,10 @@ interface FilterPanelProps {
     updatedToDate?: Date | null;
     minPrice?: string;
     maxPrice?: string;
+    propertyTypeId?: string | null;
+    classification?: string | null;
+    ownerId?: string | null;
+    createdBy?: string | null;
   };
   onApplyFilters: (filters: Record<string, unknown>) => void;
   onClearFilters: () => void;
@@ -80,6 +97,10 @@ export default function FilterPanel({
   marketingChannels = [],
   areas = [],
   showPriceFilters = false,
+  propertyTypes = [],
+  showClassificationFilter = false,
+  owners = [],
+  createdByUsers = [],
   initialValues,
   onApplyFilters,
   onClearFilters,
@@ -98,6 +119,11 @@ export default function FilterPanel({
   const [minPrice, setMinPrice] = useState(initialValues?.minPrice || '');
   const [maxPrice, setMaxPrice] = useState(initialValues?.maxPrice || '');
 
+  const [propertyTypeId, setPropertyTypeId] = useState(initialValues?.propertyTypeId || 'all');
+  const [classification, setClassification] = useState(initialValues?.classification || 'all');
+  const [ownerId, setOwnerId] = useState<string | null>(initialValues?.ownerId || null);
+  const [createdBy, setCreatedBy] = useState(initialValues?.createdBy || 'all');
+
   useEffect(() => {
     if (onPriceChange) {
       onPriceChange({ minPrice, maxPrice });
@@ -115,8 +141,12 @@ export default function FilterPanel({
     if (updatedToDate) count += 1;
     if (minPrice) count += 1;
     if (maxPrice) count += 1;
+    if (propertyTypeId && propertyTypeId !== 'all') count += 1;
+    if (classification && classification !== 'all') count += 1;
+    if (ownerId) count += 1;
+    if (createdBy && createdBy !== 'all') count += 1;
     return count;
-  }, [statusId, marketingChannel, selectedAreas, createdFromDate, createdToDate, updatedFromDate, updatedToDate, minPrice, maxPrice]);
+  }, [statusId, marketingChannel, selectedAreas, createdFromDate, createdToDate, updatedFromDate, updatedToDate, minPrice, maxPrice, propertyTypeId, classification, ownerId, createdBy]);
 
   const handleMinBlur = () => {
     if (minPrice && maxPrice && Number(minPrice) > Number(maxPrice)) {
@@ -141,6 +171,10 @@ export default function FilterPanel({
       updatedToDate,
       minPrice: minPrice || null,
       maxPrice: maxPrice || null,
+      propertyTypeId: propertyTypeId === 'all' || propertyTypeId === '' ? null : propertyTypeId,
+      classification: classification === 'all' || classification === '' ? null : classification,
+      ownerId: ownerId || null,
+      createdBy: createdBy === 'all' || createdBy === '' ? null : createdBy,
     });
   };
 
@@ -154,6 +188,10 @@ export default function FilterPanel({
     setUpdatedToDate(null);
     setMinPrice('');
     setMaxPrice('');
+    setPropertyTypeId('all');
+    setClassification('all');
+    setOwnerId(null);
+    setCreatedBy('all');
     onClearFilters();
   };
 
@@ -285,6 +323,131 @@ export default function FilterPanel({
                       </Command>
                     </PopoverContent>
                   </Popover>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Property Details section */}
+        {(propertyTypes.length > 0 || showClassificationFilter || owners.length > 0 || createdByUsers.length > 0) && (
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-3.5 h-3.5 text-primary/70" />
+              <h4 className="font-medium text-foreground text-xs uppercase tracking-wide">
+                {t('Property Details')}
+              </h4>
+            </div>
+            <div className="gap-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+              {propertyTypes.length > 0 && (
+                <div className="flex flex-col space-y-1.5">
+                  <Label className="font-medium text-muted-foreground text-xs">{t('Property Type')}</Label>
+                  <Select value={propertyTypeId || 'all'} onValueChange={setPropertyTypeId}>
+                    <SelectTrigger className="bg-background w-full h-10">
+                      <SelectValue placeholder={t('All Property Types')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('All Property Types')}</SelectItem>
+                      {propertyTypes.map(pt => (
+                        <SelectItem key={pt.id} value={pt.id}>
+                          {bilingualLabel(pt, language) || pt.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {showClassificationFilter && (
+                <div className="flex flex-col space-y-1.5">
+                  <Label className="font-medium text-muted-foreground text-xs">{t('Classification')}</Label>
+                  <Select value={classification || 'all'} onValueChange={setClassification}>
+                    <SelectTrigger className="bg-background w-full h-10">
+                      <SelectValue placeholder={t('All Classifications')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('All Classifications')}</SelectItem>
+                      <SelectItem value="A">A</SelectItem>
+                      <SelectItem value="B">B</SelectItem>
+                      <SelectItem value="C">C</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {owners.length > 0 && (
+                <div className="flex flex-col space-y-1.5">
+                  <Label className="font-medium text-muted-foreground text-xs">{t('Owner')}</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        className="justify-between bg-background w-full h-10 px-3 font-normal"
+                      >
+                        {ownerId ? (
+                          <span className="truncate" dir="auto">
+                            {bilingualLabel(owners.find(o => o.id === ownerId), language) || ownerId}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">{t('All Owners')}</span>
+                        )}
+                        <User className="ms-2 w-4 h-4 shrink-0 text-primary/70" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start">
+                      <Command>
+                        <CommandInput placeholder={t('Search owners...')} />
+                        <CommandList>
+                          <CommandEmpty>{t('No owners found')}</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem onSelect={() => setOwnerId(null)}>
+                              <Check
+                                className={cn(
+                                  "me-2 w-4 h-4",
+                                  !ownerId ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              {t('All Owners')}
+                            </CommandItem>
+                            {owners.map((owner) => (
+                              <CommandItem
+                                key={owner.id}
+                                onSelect={() => setOwnerId(owner.id)}
+                              >
+                                <Check
+                                  className={cn(
+                                    "me-2 w-4 h-4",
+                                    ownerId === owner.id ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                <span dir="auto">{bilingualLabel(owner, language) || owner.id}</span>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+
+              {createdByUsers.length > 0 && (
+                <div className="flex flex-col space-y-1.5">
+                  <Label className="font-medium text-muted-foreground text-xs">{t('Created By')}</Label>
+                  <Select value={createdBy || 'all'} onValueChange={setCreatedBy}>
+                    <SelectTrigger className="bg-background w-full h-10">
+                      <SelectValue placeholder={t('All Employees')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('All Employees')}</SelectItem>
+                      {createdByUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          <span dir="auto">{employeeDisplayName(u, language, u.name) || u.id}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
             </div>

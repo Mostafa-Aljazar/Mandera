@@ -20,7 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, Trash2, AlertTriangle } from "lucide-react";
+import { Loader2, Trash2, AlertTriangle, UserX } from "lucide-react";
 import { useEmployeeDeletion } from "@/hooks/useEmployeeDeletion";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -43,6 +43,8 @@ interface EmployeeDeletionDialogProps {
   employeeToDelete: EmployeeToDelete | null;
   onSuccess?: () => void;
   companyId?: string;
+  /** Called when the user chooses to disable instead, after a history-blocked delete attempt. */
+  onSwitchToDisable?: (employeeToDelete: EmployeeToDelete) => void;
 }
 
 export default function EmployeeDeletionDialog({
@@ -51,6 +53,7 @@ export default function EmployeeDeletionDialog({
   employeeToDelete,
   onSuccess,
   companyId: propCompanyId,
+  onSwitchToDisable,
 }: EmployeeDeletionDialogProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
@@ -61,6 +64,7 @@ export default function EmployeeDeletionDialog({
     isDeleting,
     deletionProgress,
     deletionError,
+    isHistoryBlocked,
   } = useEmployeeDeletion();
 
   const [reassignTo, setReassignTo] = useState("");
@@ -227,31 +231,43 @@ export default function EmployeeDeletionDialog({
           >
             {t("Cancel")}
           </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={() => void handleConfirm()}
-            disabled={
-              !isFormValid ||
-              isDeleting ||
-              deletionProgress === t("Deletion successful")
-            }
-            className="rounded-xl h-10 gap-2"
-          >
-            {isDeleting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {t("Deleting...")}
-              </>
-            ) : deletionError ? (
-              t("Retry")
-            ) : (
-              <>
-                <Trash2 className="w-4 h-4" />
-                {t("Confirm Delete")}
-              </>
-            )}
-          </Button>
+          {isHistoryBlocked && employeeToDelete && onSwitchToDisable ? (
+            <Button
+              type="button"
+              variant="default"
+              onClick={() => onSwitchToDisable(employeeToDelete)}
+              className="rounded-xl h-10 gap-2"
+            >
+              <UserX className="w-4 h-4" />
+              {t("Disable employee instead")}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleConfirm()}
+              disabled={
+                !isFormValid ||
+                isDeleting ||
+                deletionProgress === t("Deletion successful")
+              }
+              className="rounded-xl h-10 gap-2"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {t("Deleting...")}
+                </>
+              ) : deletionError ? (
+                t("Retry")
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4" />
+                  {t("Confirm Delete")}
+                </>
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
