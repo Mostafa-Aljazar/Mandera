@@ -40,6 +40,10 @@ interface OwnerCardProps {
   companyId?: string;
   isSelected?: boolean;
   onSelect?: (id: string) => void;
+  /** When provided from a batched list fetch, skips the per-card count query. */
+  propertyCount?: number;
+  /** When provided (including null), skips the per-card latest-status query. */
+  latestStatus?: { created_at: string } | null;
 }
 
 export default function OwnerCard({
@@ -48,6 +52,8 @@ export default function OwnerCard({
   companyId,
   isSelected = false,
   onSelect,
+  propertyCount: propertyCountProp,
+  latestStatus,
 }: OwnerCardProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
@@ -60,10 +66,17 @@ export default function OwnerCard({
   const [isDeleting, setIsDeleting] = useState(false);
   const dateLocale = isRtl ? ar : enUS;
 
-  const badge = useOwnerStatusBadge(owner.id, companyId, owner.created_at);
+  const badge = useOwnerStatusBadge(
+    owner.id,
+    companyId,
+    owner.created_at,
+    latestStatus !== undefined ? latestStatus : undefined,
+  );
 
-  const { data: propertyCountData } = useOwnerPropertyCount(owner.id);
-  const propertyCount = propertyCountData ?? 0;
+  const { data: propertyCountData } = useOwnerPropertyCount(
+    propertyCountProp === undefined ? owner.id : undefined,
+  );
+  const propertyCount = propertyCountProp ?? propertyCountData ?? 0;
 
   const cleanPhone = owner.phone?.replace(/\D/g, "") || "";
   const href = `/company/owners/${owner.id}`;

@@ -7,12 +7,6 @@ import {
   isAdministratorOrAbove,
   isMasterAdmin,
 } from "@/lib/permissions";
-import type {
-  Client,
-  Owner,
-  Property,
-} from "@/types/supabase-entities.types";
-
 type ActionResult<T> =
   | { data: T; error?: undefined }
   | { data?: undefined; error: string };
@@ -22,6 +16,33 @@ export interface DuplicateGroup<T> {
   reason: "phone" | "title_area" | "permit";
   records: T[];
 }
+
+/**
+ * The duplicate scans have no WHERE beyond company_id, so they read every row
+ * the company owns. Select only what the review panel renders and groups on —
+ * `select("*")` here pulls descriptions, image arrays and every portal column
+ * across the whole table.
+ */
+export interface DuplicatePersonRecord {
+  id: string;
+  name: string;
+  name_en: string;
+  name_ar: string;
+  phone: string;
+}
+
+export interface DuplicatePropertyRecord {
+  id: string;
+  code: string;
+  title: string;
+  advertising_permit_number: string | null;
+  area_district: string | null;
+  area: string | null;
+}
+
+const DUPLICATE_PERSON_SELECT = "id, name, name_en, name_ar, phone";
+const DUPLICATE_PROPERTY_SELECT =
+  "id, code, title, advertising_permit_number, area_district, area";
 
 async function assertDuplicateAccess(companyId: string) {
   const access = await assertCompanyMember(companyId);
@@ -61,51 +82,59 @@ function groupBy<T>(
 
 export async function findDuplicateClients(
   companyId: string,
-): Promise<ActionResult<DuplicateGroup<Client>[]>> {
+): Promise<ActionResult<DuplicateGroup<DuplicatePersonRecord>[]>> {
   const access = await assertDuplicateAccess(companyId);
   if (access.error) return { error: access.error };
 
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("clients")
-    .select("*")
+    .select(DUPLICATE_PERSON_SELECT)
     .eq("company_id", companyId);
   if (error) return { error: error.message };
   return {
-    data: groupBy((data ?? []) as Client[], (row) => normalizedPhone(row.phone), "phone"),
+    data: groupBy(
+      (data ?? []) as DuplicatePersonRecord[],
+      (row) => normalizedPhone(row.phone),
+      "phone",
+    ),
   };
 }
 
 export async function findDuplicateOwners(
   companyId: string,
-): Promise<ActionResult<DuplicateGroup<Owner>[]>> {
+): Promise<ActionResult<DuplicateGroup<DuplicatePersonRecord>[]>> {
   const access = await assertDuplicateAccess(companyId);
   if (access.error) return { error: access.error };
 
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("owners")
-    .select("*")
+    .select(DUPLICATE_PERSON_SELECT)
     .eq("company_id", companyId);
   if (error) return { error: error.message };
   return {
-    data: groupBy((data ?? []) as Owner[], (row) => normalizedPhone(row.phone), "phone"),
+    data: groupBy(
+      (data ?? []) as DuplicatePersonRecord[],
+      (row) => normalizedPhone(row.phone),
+      "phone",
+    ),
   };
 }
 
 export async function findDuplicateProperties(
   companyId: string,
-): Promise<ActionResult<DuplicateGroup<Property>[]>> {
+): Promise<ActionResult<DuplicateGroup<DuplicatePropertyRecord>[]>> {
   const access = await assertDuplicateAccess(companyId);
   if (access.error) return { error: access.error };
 
   const supabase = await getServerSupabase();
   const { data, error } = await supabase
     .from("properties")
-    .select("*")
+    .select(DUPLICATE_PROPERTY_SELECT)
     .eq("company_id", companyId);
   if (error) return { error: error.message };
-  const rows = (data ?? []) as Property[];
+  const rows = (data ?? []) as DuplicatePropertyRecord[];
   const permitGroups = groupBy(
     rows,
     (row) => row.advertising_permit_number?.trim().toLowerCase() ?? "",

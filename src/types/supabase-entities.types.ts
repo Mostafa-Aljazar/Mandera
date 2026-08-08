@@ -515,6 +515,18 @@ export interface LegalPage {
   updated_at: string;
 }
 
+export interface PlatformSettings {
+  id: string;
+  key: "default";
+  google_play_url: string | null;
+  app_store_url: string | null;
+  google_play_coming_soon: boolean;
+  app_store_coming_soon: boolean;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Revenue {
   id: string;
   property_code: string;

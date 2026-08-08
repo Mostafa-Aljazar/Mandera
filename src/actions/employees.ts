@@ -165,6 +165,16 @@ async function withAuthEmails(
   );
 }
 
+/** List views: never hit auth.admin per row — use employees.email only. */
+function withEmployeeTableEmails(
+  rows: CompanyEmployeeWithDetails[],
+): CompanyEmployeeWithDetails[] {
+  return rows.map((row) => ({
+    ...row,
+    email: row.employee?.email ?? row.email ?? undefined,
+  }));
+}
+
 export async function getCompanyEmployees(
   companyId: string,
 ): Promise<ActionResult<CompanyEmployeeWithDetails[]>> {
@@ -185,7 +195,8 @@ export async function getCompanyEmployees(
 
   if (error) return { error: error.message };
   const rows = (data ?? []) as unknown as CompanyEmployeeWithDetails[];
-  return { data: await withAuthEmails(rows) };
+  // Avoid N× auth.admin.getUserById on the list page — that was a major slowdown.
+  return { data: withEmployeeTableEmails(rows) };
 }
 
 export async function getCompanyEmployee(

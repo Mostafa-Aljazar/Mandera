@@ -29,6 +29,11 @@ import type {
   Property,
   PropertyWithRelations,
 } from "@/types/supabase-entities.types";
+import {
+  resolveRange,
+  sanitizeSearchTerm,
+  type PaginatedList,
+} from "@/lib/listQuery";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
@@ -206,7 +211,30 @@ export interface PropertyFilters {
   ownerId?: string;
   /** Resolved via property_status_history's "Initial property creation" row — properties has no created_by column. */
   createdBy?: string;
+  search?: string;
+  listingType?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  /** Active inventory tabs: approved or legacy-null only. */
+  approvedOnly?: boolean;
+  /** Agent drafts strip: non-approved rows for a specific employee. */
+  draftsForEmployeeId?: string;
+  page?: number;
+  pageSize?: number;
+  includeCounts?: boolean;
 }
+
+export interface PropertyListCounts {
+  total: number;
+  rent: number;
+  sale: number;
+  available: number;
+}
+
+export type PropertiesListResult = PaginatedList<PropertyWithRelations> & {
+  counts?: PropertyListCounts;
+  drafts?: PropertyWithRelations[];
+};
 
 const PROPERTIES_SELECT = `
   *,
@@ -312,6 +340,253 @@ export async function getProperties(
   );
 
   return { data: properties };
+}
+
+/**
+ * Paginated properties list for the Properties page.
+ * Keeps getProperties() intact for dropdowns / employee detail / deal form.
+ */
+export async function getPropertiesPage(
+  companyId: string,
+  filters: PropertyFilters = {},
+): Promise<ActionResult<PropertiesListResult>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
+  const page = filters.page && filters.page > 0 ? filters.page : 1;
+  const pageSize =
+    filters.pageSize && filters.pageSize > 0 ? Math.min(filters.pageSize, 50) : 9;
+  const range = resolveRange(page, pageSize)!;
+  const role = access.data.role;
+  const callerId = access.data.userId;
+  const agent = isSalesAgent(role);
+
+  const supabase = await getServerSupabase();
+
+  let createdPropertyIds: string[] | null = null;
+  if (filters.createdBy) {
+    const { data: creationRows, error: creationError } = await supabase
+      .from("property_status_history")
+      .select("property_id")
+      .eq("company_id", companyId)
+      .eq("note", "Initial property creation")
+      .eq("created_by", filters.createdBy);
+    if (creationError) return { error: creationError.message };
+    createdPropertyIds = (creationRows ?? []).map((r) => r.property_id);
+    if (createdPropertyIds.length === 0) {
+      return {
+        data: {
+          items: [],
+          total: 0,
+          counts: filters.includeCounts
+            ? { total: 0, rent: 0, sale: 0, available: 0 }
+            : undefined,
+          drafts: [],
+        },
+      };
+    }
+  }
+
+  let query = supabase
+    .from("properties")
+    .select(PROPERTIES_SELECT, { count: "exact" })
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .range(range.from, range.to);
+
+  query = applyPropertyFilters(query, filters, {
+    agent,
+    callerId,
+    createdPropertyIds,
+  });
+
+  const { data, error, count } = await query;
+  if (error) return { error: error.message };
+
+  let properties = (data ?? []) as PropertyWithRelations[];
+
+  if (agent) {
+    properties = await attachOwnersForSalesAgent(properties);
+    properties = properties.map((p) => maskPropertyOwner(p, callerId));
+  }
+
+  properties = properties.map((p) => stripCommissionIfNeeded(p, role));
+
+  const result: PropertiesListResult = {
+    items: properties,
+    total: count ?? 0,
+  };
+
+  if (filters.includeCounts) {
+    const counts = await getPropertyListCounts(supabase, companyId, filters, {
+      agent,
+      callerId,
+      createdPropertyIds,
+    });
+    if (counts.error) return { error: counts.error };
+    result.counts = counts.data;
+  }
+
+  if (agent) {
+    const drafts = await fetchAgentDrafts(supabase, companyId, callerId);
+    if (drafts.error) return { error: drafts.error };
+    let draftRows = drafts.data ?? [];
+    draftRows = await attachOwnersForSalesAgent(draftRows);
+    result.drafts = draftRows
+      .map((p) => maskPropertyOwner(p, callerId))
+      .map((p) => stripCommissionIfNeeded(p, role));
+  }
+
+  return { data: result };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyPropertyFilters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  filters: PropertyFilters,
+  ctx: {
+    agent: boolean;
+    callerId: string;
+    createdPropertyIds: string[] | null;
+  },
+) {
+  if (filters.employeeId === "unassigned") {
+    query = query.is("employee_id", null);
+  } else if (filters.employeeId) {
+    query = query.eq("employee_id", filters.employeeId);
+  }
+  if (filters.status) query = query.eq("status", filters.status);
+  if (filters.areaDistrictIds?.length) {
+    query = query.in("area_district", filters.areaDistrictIds);
+  }
+  if (filters.createdFrom) query = query.gte("created_at", filters.createdFrom);
+  if (filters.createdTo) query = query.lte("created_at", filters.createdTo);
+  if (filters.updatedFrom) query = query.gte("updated_at", filters.updatedFrom);
+  if (filters.updatedTo) query = query.lte("updated_at", filters.updatedTo);
+  if (filters.propertyTypeId) query = query.eq("type", filters.propertyTypeId);
+  if (filters.classification) {
+    query = query.eq("classification", filters.classification);
+  }
+  if (filters.ownerId) query = query.eq("owner_id", filters.ownerId);
+  if (filters.listingType) query = query.eq("listing_type", filters.listingType);
+  if (typeof filters.minPrice === "number" && filters.minPrice > 0) {
+    query = query.gte("price", filters.minPrice);
+  }
+  if (typeof filters.maxPrice === "number" && filters.maxPrice > 0) {
+    query = query.lte("price", filters.maxPrice);
+  }
+  if (ctx.createdPropertyIds) {
+    query = query.in("id", ctx.createdPropertyIds);
+  }
+
+  // Active inventory: hide drafts/pending/rejected.
+  if (filters.approvedOnly) {
+    query = query.or("approval_status.eq.approved,approval_status.is.null");
+  }
+
+  // Sales agents: approved inventory for everyone + own non-approved drafts.
+  // When approvedOnly is set (main tabs), drafts are excluded above — correct.
+  if (ctx.agent && !filters.approvedOnly && !filters.draftsForEmployeeId) {
+    query = query.or(
+      `approval_status.eq.approved,approval_status.is.null,employee_id.eq.${ctx.callerId}`,
+    );
+  }
+
+  if (filters.draftsForEmployeeId) {
+    query = query
+      .eq("employee_id", filters.draftsForEmployeeId)
+      .not("approval_status", "is", null)
+      .neq("approval_status", "approved");
+  }
+
+  const search = filters.search ? sanitizeSearchTerm(filters.search) : "";
+  if (search) {
+    query = query.or(
+      [
+        `code.ilike.%${search}%`,
+        `title.ilike.%${search}%`,
+        `title_ar.ilike.%${search}%`,
+        `note_en.ilike.%${search}%`,
+        `note_ar.ilike.%${search}%`,
+      ].join(","),
+    );
+  }
+
+  return query;
+}
+
+async function getPropertyListCounts(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  companyId: string,
+  filters: PropertyFilters,
+  ctx: {
+    agent: boolean;
+    callerId: string;
+    createdPropertyIds: string[] | null;
+  },
+): Promise<ActionResult<PropertyListCounts>> {
+  const base: PropertyFilters = {
+    ...filters,
+    listingType: undefined,
+    page: undefined,
+    pageSize: undefined,
+    includeCounts: undefined,
+    approvedOnly: true,
+  };
+
+  const headCount = async (extra?: Partial<PropertyFilters>) => {
+    let q = supabase
+      .from("properties")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId);
+    q = applyPropertyFilters(q, { ...base, ...extra }, ctx);
+    const { count, error } = await q;
+    if (error) return { error: error.message as string };
+    return { data: count ?? 0 };
+  };
+
+  const [total, rent, sale, available] = await Promise.all([
+    headCount(),
+    headCount({ listingType: "Rent" }),
+    headCount({ listingType: "Sale" }),
+    headCount({ status: "Available" }),
+  ]);
+
+  if (total.error) return { error: total.error };
+  if (rent.error) return { error: rent.error };
+  if (sale.error) return { error: sale.error };
+  if (available.error) return { error: available.error };
+
+  return {
+    data: {
+      total: total.data ?? 0,
+      rent: rent.data ?? 0,
+      sale: sale.data ?? 0,
+      available: available.data ?? 0,
+    },
+  };
+}
+
+async function fetchAgentDrafts(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  companyId: string,
+  employeeId: string,
+): Promise<ActionResult<PropertyWithRelations[]>> {
+  const { data, error } = await supabase
+    .from("properties")
+    .select(PROPERTIES_SELECT)
+    .eq("company_id", companyId)
+    .eq("employee_id", employeeId)
+    .not("approval_status", "is", null)
+    .neq("approval_status", "approved")
+    .order("created_at", { ascending: false })
+    .limit(24);
+
+  if (error) return { error: error.message };
+  return { data: (data ?? []) as PropertyWithRelations[] };
 }
 
 export async function getProperty(

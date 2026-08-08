@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getClient,
   getClients,
+  getClientsPage,
   getClientStatusesForCompany,
   createClient,
   updateClient,
@@ -42,6 +43,19 @@ export function useClients(companyId?: string, filters: ClientFilters = {}) {
     queryKey: ["clients", companyId, filters],
     queryFn: async () => {
       const result = await getClients(companyId!, filters);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!companyId,
+  });
+}
+
+/** Server-paginated list for the Clients page only. */
+export function useClientsPage(companyId?: string, filters: ClientFilters = {}) {
+  return useQuery({
+    queryKey: ["clients", "page", companyId, filters],
+    queryFn: async () => {
+      const result = await getClientsPage(companyId!, filters);
       if (result.error) throw new Error(result.error);
       return result.data;
     },

@@ -120,19 +120,41 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Server Action POSTs target the page route, so they pass through here too —
+  // whatever this function costs is paid again on every action the page fires.
+  // getClaims() verifies the token's ES256 signature locally against the cached
+  // JWKS (~1ms) instead of getUser()'s ~210ms round-trip to the auth server, and
+  // still refreshes an expired session via getSession(), so the rotated cookies
+  // land on `response` through setAll above.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
 
-  if (!user) {
+  if (!userId) {
     const loginPath = isMasterRoute ? MASTER_LOGIN : COMPANY_LOGIN;
     return NextResponse.redirect(new URL(loginPath, request.url));
   }
 
+  const isManagerOnlyPath =
+    pathname === "/company/revenue" ||
+    pathname.startsWith("/company/revenue/") ||
+    pathname === "/company/employees" ||
+    pathname.startsWith("/company/employees/") ||
+    pathname === "/company/settings" ||
+    pathname.startsWith("/company/settings/");
+
+  // `role` is not a JWT claim, so reading it costs a query. Only the routes that
+  // actually gate on role pay for it. General company routes don't need it: the
+  // four roles are master_admin plus the three company roles, and the action
+  // layer already admits master_admin to company data (see assertCompanyMember),
+  // so the old identity check redirected nobody it hadn't already authorized.
+  if (!isMasterRoute && !isManagerOnlyPath) {
+    return response;
+  }
+
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role, company_id")
-    .eq("id", user.id)
+    .select("role")
+    .eq("id", userId)
     .single();
 
   if (isMasterRoute) {
@@ -142,29 +164,8 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  if (isCompanyRoute) {
-    const isCompanyIdentity =
-      profile?.role === "sales_agent" ||
-      profile?.role === "administrator" ||
-      profile?.role === "manager";
-
-    if (!isCompanyIdentity) {
-      return NextResponse.redirect(new URL(COMPANY_LOGIN, request.url));
-    }
-
-    const isManagerOnlyPath =
-      pathname === "/company/revenue" ||
-      pathname.startsWith("/company/revenue/") ||
-      pathname === "/company/employees" ||
-      pathname.startsWith("/company/employees/") ||
-      pathname === "/company/settings" ||
-      pathname.startsWith("/company/settings/");
-
-    if (isManagerOnlyPath && profile?.role !== "manager") {
-      return NextResponse.redirect(new URL("/company/dashboard", request.url));
-    }
-
-    return response;
+  if (profile?.role !== "manager") {
+    return NextResponse.redirect(new URL("/company/dashboard", request.url));
   }
 
   return response;

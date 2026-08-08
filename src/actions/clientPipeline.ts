@@ -12,70 +12,55 @@ export interface PipelineStatus {
   count: number;
 }
 
+/**
+ * Dashboard pipeline counts via indexed HEAD counts — never downloads client rows.
+ */
 export async function getClientPipeline(
   companyId: string,
 ): Promise<ActionResult<{ statuses: PipelineStatus[]; totalClients: number }>> {
   const supabase = await getServerSupabase();
 
-  const [{ data: statusesData, error: statusesError }, { data: clientsData, error: clientsError }] =
-    await Promise.all([
-      supabase
-        .from("client_statuses")
-        .select("id, name_en, name_ar, priority_order")
-        .eq("company_id", companyId)
-        .order("priority_order"),
-      supabase.from("clients").select("id, status_id").eq("company_id", companyId),
-    ]);
+  const { data: statusesData, error: statusesError } = await supabase
+    .from("client_statuses")
+    .select("id, name_en, name_ar, priority_order")
+    .eq("company_id", companyId)
+    .order("priority_order");
 
   if (statusesError) return { error: statusesError.message };
-  if (clientsError) return { error: clientsError.message };
 
-  const statusCounts = new Map<string, number>();
-  let totalClients = 0;
+  const statusesRows = statusesData ?? [];
 
-  (clientsData ?? []).forEach((client) => {
-    if (!client.status_id) return;
-    statusCounts.set(client.status_id, (statusCounts.get(client.status_id) ?? 0) + 1);
-    totalClients++;
-  });
+  const [totalRes, ...perStatus] = await Promise.all([
+    supabase
+      .from("clients")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId),
+    ...statusesRows.map((status) =>
+      supabase
+        .from("clients")
+        .select("id", { count: "exact", head: true })
+        .eq("company_id", companyId)
+        .eq("status_id", status.id),
+    ),
+  ]);
 
-  // Legacy fallback for rows created before status_id was synced on clients.
-  const clientsMissingStatus = (clientsData ?? []).filter((client) => !client.status_id);
-  if (clientsMissingStatus.length > 0) {
-    const { data: historyData, error: historyError } = await supabase
-      .from("client_status_history")
-      .select("client_id, status_id")
-      .eq("company_id", companyId)
-      .in(
-        "client_id",
-        clientsMissingStatus.map((client) => client.id),
-      )
-      .order("created_at", { ascending: false });
-
-    if (historyError) return { error: historyError.message };
-
-    const latestStatusMap = new Map<string, string | null>();
-    (historyData ?? []).forEach((history) => {
-      if (!latestStatusMap.has(history.client_id)) {
-        latestStatusMap.set(history.client_id, history.status_id);
-      }
-    });
-
-    clientsMissingStatus.forEach((client) => {
-      const statusId = latestStatusMap.get(client.id);
-      if (!statusId) return;
-      statusCounts.set(statusId, (statusCounts.get(statusId) ?? 0) + 1);
-      totalClients++;
-    });
+  if (totalRes.error) return { error: totalRes.error.message };
+  for (const res of perStatus) {
+    if (res.error) return { error: res.error.message };
   }
 
-  const statuses: PipelineStatus[] = (statusesData ?? []).map((s) => ({
-    id: s.id,
-    name_en: s.name_en,
-    name_ar: s.name_ar,
-    priority_order: s.priority_order,
-    count: statusCounts.get(s.id) ?? 0,
+  const statuses: PipelineStatus[] = statusesRows.map((status, index) => ({
+    id: status.id,
+    name_en: status.name_en,
+    name_ar: status.name_ar,
+    priority_order: status.priority_order,
+    count: perStatus[index]?.count ?? 0,
   }));
 
-  return { data: { statuses, totalClients } };
+  return {
+    data: {
+      statuses,
+      totalClients: totalRes.count ?? 0,
+    },
+  };
 }

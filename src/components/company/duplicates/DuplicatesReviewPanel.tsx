@@ -2,26 +2,30 @@
 
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, GitMerge, Loader2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, GitMerge, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   useDuplicates,
   useMergeClients,
   useMergeOwners,
   useMergeProperties,
 } from "@/hooks/queries/useDuplicates";
-import type { DuplicateGroup } from "@/actions/duplicates";
-import type { Client, Owner, Property } from "@/types/supabase-entities.types";
+import type {
+  DuplicateGroup,
+  DuplicatePersonRecord,
+  DuplicatePropertyRecord,
+} from "@/actions/duplicates";
 
 interface DuplicatesReviewPanelProps {
   companyId: string;
   initialTab?: "clients" | "owners" | "properties";
 }
 
-type DuplicateRecord = Client | Owner | Property;
+type DuplicateRecord = DuplicatePersonRecord | DuplicatePropertyRecord;
 
 function recordLabel(record: DuplicateRecord) {
   if ("code" in record) return `${record.code} · ${record.title}`;
@@ -46,9 +50,24 @@ export default function DuplicatesReviewPanel({
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState(initialTab);
   const [keepByGroup, setKeepByGroup] = useState<Record<string, string>>({});
-  const clientsQuery = useDuplicates("clients", companyId);
-  const ownersQuery = useDuplicates("owners", companyId);
-  const propertiesQuery = useDuplicates("properties", companyId);
+  // Each scan reads every row the company owns, so nothing is fetched until the
+  // user opens the panel — and then only for the tab actually on screen.
+  const [isOpen, setIsOpen] = useState(false);
+  const clientsQuery = useDuplicates(
+    "clients",
+    companyId,
+    isOpen && activeTab === "clients",
+  );
+  const ownersQuery = useDuplicates(
+    "owners",
+    companyId,
+    isOpen && activeTab === "owners",
+  );
+  const propertiesQuery = useDuplicates(
+    "properties",
+    companyId,
+    isOpen && activeTab === "properties",
+  );
   const mergeClientsMutation = useMergeClients();
   const mergeOwnersMutation = useMergeOwners();
   const mergePropertiesMutation = useMergeProperties();
@@ -181,16 +200,39 @@ export default function DuplicatesReviewPanel({
 
   return (
     <section className="bg-card shadow-[var(--shadow-subtle)] p-4 sm:p-5 border border-border/60 rounded-2xl">
-      <div className="flex items-start gap-2.5 mb-4">
-        <AlertTriangle className="mt-0.5 w-5 h-5 text-amber-600 shrink-0" />
-        <div>
-          <h2 className="font-outfit font-semibold">{t("Duplicate review")}</h2>
-          <p className="text-muted-foreground text-xs">
-            {t("Review possible duplicates before merging records.")}
-          </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-start gap-2.5">
+          <AlertTriangle className="mt-0.5 w-5 h-5 text-amber-600 shrink-0" />
+          <div>
+            <h2 className="font-outfit font-semibold">
+              {t("Duplicate review")}
+            </h2>
+            <p className="text-muted-foreground text-xs">
+              {t("Review possible duplicates before merging records.")}
+            </p>
+          </div>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5 h-9 rounded-xl shrink-0"
+          onClick={() => setIsOpen((open) => !open)}
+          aria-expanded={isOpen}
+        >
+          {isOpen ? t("Hide duplicate review") : t("Check for duplicates")}
+          <ChevronDown
+            className={cn(
+              "w-3.5 h-3.5 transition-transform",
+              isOpen && "rotate-180",
+            )}
+          />
+        </Button>
       </div>
+
+      {!isOpen ? null : (
       <Tabs
+        className="mt-4"
         value={activeTab}
         onValueChange={(value) =>
           setActiveTab(value as "clients" | "owners" | "properties")
@@ -205,14 +247,14 @@ export default function DuplicatesReviewPanel({
           {renderGroups(
             "clients",
             clientsQuery.data as DuplicateGroup<DuplicateRecord>[] | undefined,
-            clientsQuery.isLoading,
+            clientsQuery.isPending,
           )}
         </TabsContent>
         <TabsContent value="owners" className="mt-4">
           {renderGroups(
             "owners",
             ownersQuery.data as DuplicateGroup<DuplicateRecord>[] | undefined,
-            ownersQuery.isLoading,
+            ownersQuery.isPending,
           )}
         </TabsContent>
         <TabsContent value="properties" className="mt-4">
@@ -221,10 +263,11 @@ export default function DuplicatesReviewPanel({
             propertiesQuery.data as
               | DuplicateGroup<DuplicateRecord>[]
               | undefined,
-            propertiesQuery.isLoading,
+            propertiesQuery.isPending,
           )}
         </TabsContent>
       </Tabs>
+      )}
     </section>
   );
 }

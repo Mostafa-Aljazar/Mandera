@@ -13,6 +13,10 @@ import {
 
 type DuplicateType = "clients" | "owners" | "properties";
 
+/**
+ * Full-table scan per call — pass `enabled` so only the tab actually on screen
+ * runs, and keep the result fresh for a while so tab-switching doesn't rescan.
+ */
 export function useDuplicates(
   type: DuplicateType,
   companyId?: string,
@@ -31,6 +35,7 @@ export function useDuplicates(
       return result.data;
     },
     enabled: enabled && !!companyId,
+    staleTime: 5 * 60_000,
   });
 }
 

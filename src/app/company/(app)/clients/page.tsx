@@ -15,11 +15,12 @@ import {
 import { useLanguage } from "@/contexts/LanguageContext";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
 import {
-  useClients,
+  useClientsPage,
   useClientStatuses,
   useBulkAssignClients,
   useBulkDeleteClients,
 } from "@/hooks/queries/useClients";
+import { getClients } from "@/actions/clients";
 import { useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
 import { useMarketingChannels } from "@/hooks/queries/useOwners";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -62,7 +63,6 @@ import {
   CalendarClock,
   Trash2,
 } from "lucide-react";
-import { isBefore } from "date-fns";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { ClientWithRelations as Client } from "@/types/supabase-entities.types";
@@ -206,6 +206,7 @@ const ClientsPage = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [exportRows, setExportRows] = useState<Client[]>([]);
   const [page, setPage] = useState(1);
 
   const clientFilters = {
@@ -243,13 +244,29 @@ const ClientsPage = () => {
           return d.toISOString();
         })()
       : undefined,
+    search: activeSearch || undefined,
+    interestType:
+      activeTab === "Sale" || activeTab === "Rent" ? activeTab : undefined,
+    page,
+    pageSize: PAGE_SIZE,
+    // Counts are filter-level, not page-level — only fetch on page 1.
+    includeCounts: page === 1,
   };
 
-  const { data: clientsData, isLoading } = useClients(
+  const { data: clientsPageData, isLoading } = useClientsPage(
     company?.id,
     clientFilters,
   );
-  const clients = useMemo(() => clientsData ?? [], [clientsData]);
+  const paginatedClients = useMemo(
+    () => clientsPageData?.items ?? [],
+    [clientsPageData],
+  );
+  const listTotal = clientsPageData?.total ?? 0;
+  const [cachedCounts, setCachedCounts] = useState(clientsPageData?.counts);
+  useEffect(() => {
+    if (clientsPageData?.counts) setCachedCounts(clientsPageData.counts);
+  }, [clientsPageData?.counts]);
+  const counts = clientsPageData?.counts ?? cachedCounts;
   const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
   const employees = useMemo(() => employeesData ?? [], [employeesData]);
   const { data: statusesData } = useClientStatuses(company?.id);
@@ -271,22 +288,15 @@ const ClientsPage = () => {
     }
   };
 
-  const stats = useMemo(() => {
-    const sale = clients.filter((c) => c.interest_type === "Sale");
-    const rent = clients.filter((c) => c.interest_type === "Rent");
-    const followUps = clients.filter((c) => {
-      if (!c.follow_up_date) return false;
-      const dateStr = c.follow_up_date.split(" ")[0];
-      const timeStr = c.follow_up_time || "00:00";
-      return !isBefore(new Date(`${dateStr}T${timeStr}:00`), new Date());
-    });
-    return {
-      total: clients.length,
-      sale: sale.length,
-      rent: rent.length,
-      followUps: followUps.length,
-    };
-  }, [clients]);
+  const stats = useMemo(
+    () => ({
+      total: counts?.all ?? 0,
+      sale: counts?.sale ?? 0,
+      rent: counts?.rent ?? 0,
+      followUps: counts?.followUps ?? 0,
+    }),
+    [counts],
+  );
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -305,59 +315,37 @@ const ClientsPage = () => {
     return count;
   }, [filterState, canViewAll]);
 
-  const matchesSearch = (c: Client) => {
-    if (!activeSearch) return true;
-    const q = activeSearch.toLowerCase();
-    const digits = q.replace(/\D/g, "");
-    const matchesName =
-      (c.name || "").toLowerCase().includes(q) ||
-      (c.name_en || "").toLowerCase().includes(q) ||
-      (c.name_ar || "").includes(activeSearch);
-    const matchesPhone =
-      digits.length > 0 &&
-      (c.phone || "").replace(/\D/g, "").includes(digits);
-    return matchesName || matchesPhone;
-  };
-
-  const allClients = useMemo(
-    () => clients.filter(matchesSearch),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clients, activeSearch],
-  );
-  const saleClients = useMemo(
-    () =>
-      clients.filter((c) => c.interest_type === "Sale" && matchesSearch(c)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clients, activeSearch],
-  );
-  const rentClients = useMemo(
-    () =>
-      clients.filter((c) => c.interest_type === "Rent" && matchesSearch(c)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clients, activeSearch],
-  );
-
-  const currentListings =
-    activeTab === "All"
-      ? allClients
-      : activeTab === "Sale"
-        ? saleClients
-        : rentClients;
-
   useEffect(() => {
     setPage(1);
   }, [activeSearch, filterState, activeTab]);
 
-  const totalPages = Math.max(1, Math.ceil(currentListings.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(listTotal / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageEnd = Math.min(pageStart + PAGE_SIZE, currentListings.length);
-  const paginatedClients = useMemo(
-    () => currentListings.slice(pageStart, pageEnd),
-    [currentListings, pageStart, pageEnd],
-  );
+  const pageStart = listTotal === 0 ? 0 : (currentPage - 1) * PAGE_SIZE;
+  const pageEnd = Math.min(pageStart + paginatedClients.length, listTotal);
   const pageNumbers = getPageNumbers(currentPage, totalPages);
 
+
+  const openExportDialog = async () => {
+    if (!company?.id) return;
+    if (selectedClientIds.length > 0) {
+      setExportRows(
+        paginatedClients.filter((c) => selectedClientIds.includes(c.id)),
+      );
+      setIsExportDialogOpen(true);
+      return;
+    }
+    // Full filtered export only when asked — avoids keeping all rows in memory.
+    const { page: _p, pageSize: _ps, includeCounts: _c, ...exportFilters } =
+      clientFilters;
+    const result = await getClients(company.id, exportFilters);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setExportRows(result.data ?? []);
+    setIsExportDialogOpen(true);
+  };
 
   const handleRemoveFilter = (key: keyof ClientFilterState) => {
     setFilterState((prev) => ({ ...prev, [key]: null }));
@@ -371,7 +359,7 @@ const ClientsPage = () => {
 
   const toggleSelectAll = (checked: boolean | "indeterminate") => {
     if (checked) {
-      setSelectedClientIds(currentListings.map((c) => c.id));
+      setSelectedClientIds(paginatedClients.map((c) => c.id));
     } else {
       setSelectedClientIds([]);
     }
@@ -438,7 +426,7 @@ const ClientsPage = () => {
     }
   };
 
-  const renderGrid = (listType: string, listings: Client[]) => {
+  const renderGrid = (listType: string) => {
     if (isLoading) {
       return (
         <div className="gap-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
@@ -459,7 +447,7 @@ const ClientsPage = () => {
       );
     }
 
-    if (listings.length === 0) {
+    if (paginatedClients.length === 0) {
       return (
         <div className="relative bg-card shadow-[var(--shadow-subtle)] px-5 sm:px-6 py-14 sm:py-20 border border-border border-dashed rounded-2xl text-center overflow-hidden">
           <div
@@ -511,7 +499,7 @@ const ClientsPage = () => {
               {t("Showing {{from}}–{{to}} of {{total}}", {
                 from: pageStart + 1,
                 to: pageEnd,
-                total: currentListings.length,
+                total: listTotal,
               })}
             </p>
             <div className="order-1 sm:order-2 flex items-center gap-1">
@@ -643,7 +631,7 @@ const ClientsPage = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setIsExportDialogOpen(true)}
+                    onClick={() => void openExportDialog()}
                     className="gap-2 rounded-xl h-10"
                   >
                     <Upload className="w-4 h-4" />
@@ -772,7 +760,7 @@ const ClientsPage = () => {
                   {canExport ? (
                     <Button
                       variant="outline"
-                      onClick={() => setIsExportDialogOpen(true)}
+                      onClick={() => void openExportDialog()}
                       className="sm:hidden rounded-xl h-11"
                     >
                       <Upload className="w-4 h-4" />
@@ -864,7 +852,7 @@ const ClientsPage = () => {
                         className="bg-muted/80 px-1.5 py-0.5 rounded-md font-medium text-[11px] tabular-nums"
                         dir="ltr"
                       >
-                        {allClients.length}
+                        {stats.total}
                       </span>
                     </TabsTrigger>
                     <TabsTrigger
@@ -877,7 +865,7 @@ const ClientsPage = () => {
                         className="bg-muted/80 px-1.5 py-0.5 rounded-md font-medium text-[11px] tabular-nums"
                         dir="ltr"
                       >
-                        {saleClients.length}
+                        {stats.sale}
                       </span>
                     </TabsTrigger>
                     <TabsTrigger
@@ -890,7 +878,7 @@ const ClientsPage = () => {
                         className="bg-muted/80 px-1.5 py-0.5 rounded-md font-medium text-[11px] tabular-nums"
                         dir="ltr"
                       >
-                        {rentClients.length}
+                        {stats.rent}
                       </span>
                     </TabsTrigger>
                   </TabsList>
@@ -901,8 +889,8 @@ const ClientsPage = () => {
                     <div className="flex items-center gap-2.5">
                       <Checkbox
                         checked={
-                          currentListings.length > 0 &&
-                          currentListings.every((c) =>
+                          paginatedClients.length > 0 &&
+                          paginatedClients.every((c) =>
                             selectedClientIds.includes(c.id),
                           )
                             ? true
@@ -954,27 +942,27 @@ const ClientsPage = () => {
                     )}
                   </div>
                   <p className="text-muted-foreground text-xs sm:text-sm tabular-nums">
-                    {currentListings.length === 0
+                    {listTotal === 0
                       ? t("clients_showing_count", { count: 0 })
                       : t("Showing {{from}}–{{to}} of {{total}}", {
                           from: pageStart + 1,
                           to: pageEnd,
-                          total: currentListings.length,
+                          total: listTotal,
                         })}
                   </p>
                 </div>
               </div>
 
               <TabsContent value="All" className="mt-0 space-y-4 outline-none">
-                {renderGrid("All", allClients)}
+                {renderGrid("All")}
               </TabsContent>
 
               <TabsContent value="Sale" className="mt-0 space-y-4 outline-none">
-                {renderGrid("Sale", saleClients)}
+                {renderGrid("Sale")}
               </TabsContent>
 
               <TabsContent value="Rent" className="mt-0 space-y-4 outline-none">
-                {renderGrid("Rent", rentClients)}
+                {renderGrid("Rent")}
               </TabsContent>
             </Tabs>
           </section>
@@ -1011,11 +999,7 @@ const ClientsPage = () => {
             <ExportClientsDialog
               isOpen={isExportDialogOpen}
               onClose={() => setIsExportDialogOpen(false)}
-              rows={
-                selectedClientIds.length > 0
-                  ? currentListings.filter((c) => selectedClientIds.includes(c.id))
-                  : currentListings
-              }
+              rows={exportRows}
               selectedCount={selectedClientIds.length}
               employees={employees}
               statuses={statuses}

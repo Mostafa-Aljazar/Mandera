@@ -3,6 +3,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { Smartphone, Check } from "lucide-react";
+import { usePlatformSettings } from "@/hooks/queries/usePlatformSettings";
 
 const highlights = ["Properties", "Clients", "Dashboard"] as const;
 
@@ -89,8 +90,73 @@ function PhoneMockup() {
   );
 }
 
+function StoreButton({
+  href,
+  comingSoon,
+  comingSoonLabel,
+  children,
+  liveClassName,
+}: {
+  href: string | null;
+  comingSoon: boolean;
+  comingSoonLabel: string;
+  children: React.ReactNode;
+  liveClassName: string;
+}) {
+  if (!comingSoon) {
+    const resolvedHref = href?.trim() || "#";
+    const opensExternal = resolvedHref !== "#";
+
+    return (
+      <a
+        href={resolvedHref}
+        {...(opensExternal
+          ? { target: "_blank", rel: "noopener noreferrer" }
+          : {})}
+        className={`${storeButtonClass} ${liveClassName}`}
+      >
+        {children}
+      </a>
+    );
+  }
+
+  return (
+    <div className="relative w-full sm:w-[172px] max-w-[172px]">
+      <span className="-top-2.5 z-10 absolute bg-background shadow-sm px-2 py-0.5 border border-border rounded-md font-semibold text-[10px] text-foreground end-2">
+        {comingSoonLabel}
+      </span>
+      <div
+        className={`${storeButtonClass} cursor-not-allowed border-white/10 bg-black/55 text-white opacity-85`}
+        aria-disabled="true"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function AndroidAppSection() {
   const { t } = useTranslation();
+  const { data } = usePlatformSettings();
+
+  const googlePlayLive = Boolean(data) && !data!.google_play_coming_soon;
+  const appStoreLive = Boolean(data) && !data!.app_store_coming_soon;
+
+  const headingKey =
+    googlePlayLive && appStoreLive
+      ? "Mobile Apps Available"
+      : appStoreLive && !googlePlayLive
+        ? "iOS App Available"
+        : googlePlayLive
+          ? "Android App Available"
+          : "Mobile Apps Coming Soon";
+
+  const descriptionKey =
+    googlePlayLive && appStoreLive
+      ? "Manage your CRM on the go with the dedicated mobile apps for Android and iOS."
+      : appStoreLive && !googlePlayLive
+        ? "Manage your CRM system on the go. Download the dedicated iOS app to access all features from your mobile device easily and efficiently."
+        : "Manage your CRM system on the go. Download the dedicated Android app to access all features from your mobile device easily and efficiently.";
 
   return (
     <section className="bg-background py-12 md:py-14">
@@ -108,13 +174,11 @@ export default function AndroidAppSection() {
               </span>
 
               <h2 className="mt-3 max-w-md font-bold lg:text-[1.65rem] text-xl sm:text-2xl text-balance tracking-tight">
-                {t("Android App Available")}
+                {t(headingKey)}
               </h2>
 
               <p className="mt-2 lg:max-w-md max-w-lg text-primary-foreground/85 text-xs sm:text-sm leading-relaxed">
-                {t(
-                  "Manage your CRM system on the go. Download the dedicated Android app to access all features from your mobile device easily and efficiently.",
-                )}
+                {t(descriptionKey)}
               </p>
 
               <ul className="flex flex-wrap justify-center rtl:md:justify-end md:justify-start gap-2 mt-4">
@@ -130,26 +194,26 @@ export default function AndroidAppSection() {
               </ul>
 
               <div className="flex sm:justify-center md:justify-start items-center gap-2.5 mt-5 w-full max-w-[360px] md:max-w-none">
-                <button
-                  type="button"
-                  className={`${storeButtonClass} border-white/25 bg-black text-white shadow-sm hover:scale-[1.02] hover:border-white/40 hover:bg-black/90 hover:shadow-md`}
+                <StoreButton
+                  href={data?.google_play_url ?? null}
+                  comingSoon={data?.google_play_coming_soon ?? true}
+                  comingSoonLabel={t("Coming Soon")}
+                  liveClassName="border-white/25 bg-black text-white shadow-sm hover:scale-[1.02] hover:border-white/40 hover:bg-black/90 hover:shadow-md"
                 >
                   <GooglePlayBadge label={t("GET IT ON")} title="Google Play" />
-                </button>
+                </StoreButton>
 
-                <div className="relative w-full sm:w-[172px] max-w-[172px]">
-                  <span className="-top-2.5 z-10 absolute bg-background shadow-sm px-2 py-0.5 border border-border rounded-md font-semibold text-[10px] text-foreground end-2">
-                    {t("Coming Soon")}
-                  </span>
-                  <div
-                    className={`${storeButtonClass} cursor-not-allowed border-white/10 bg-black/55 text-white opacity-85`}
-                  >
-                    <AppStoreBadge
-                      label={t("Download on the")}
-                      title="App Store"
-                    />
-                  </div>
-                </div>
+                <StoreButton
+                  href={data?.app_store_url ?? null}
+                  comingSoon={data?.app_store_coming_soon ?? true}
+                  comingSoonLabel={t("Coming Soon")}
+                  liveClassName="border-white/25 bg-black text-white shadow-sm hover:scale-[1.02] hover:border-white/40 hover:bg-black/90 hover:shadow-md"
+                >
+                  <AppStoreBadge
+                    label={t("Download on the")}
+                    title="App Store"
+                  />
+                </StoreButton>
               </div>
             </div>
 
@@ -161,4 +225,4 @@ export default function AndroidAppSection() {
       </div>
     </section>
   );
-};
+}

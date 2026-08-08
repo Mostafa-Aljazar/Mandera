@@ -3,7 +3,7 @@
 import React, { useMemo } from "react";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import { useClientPipeline } from "@/hooks/queries/useClientPipeline";
-import { TrendingUp, Loader2 } from "lucide-react";
+import { TrendingUp, Loader2, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { bilingualLabel } from "@/lib/bilingualLabel";
@@ -13,7 +13,7 @@ export default function ClientPipelineWidget() {
   const { company } = useCompanyAuth();
   const { t } = useTranslation();
   const { language } = useLanguage();
-  const { data, isLoading } = useClientPipeline(company?.id);
+  const { data, isLoading, isError, refetch } = useClientPipeline(company?.id);
 
   const pipelineData = useMemo(() => {
     const rows = data?.statuses ?? [];
@@ -31,6 +31,28 @@ export default function ClientPipelineWidget() {
     );
   }
 
+  // A failed fetch used to fall through to the empty check below and render
+  // nothing, so an outage looked identical to "no stages configured" — the
+  // widget just vanished with no way to tell which it was. Say so instead.
+  if (isError) {
+    return (
+      <section className="flex flex-wrap items-center gap-3 bg-card mb-6 p-4 border border-amber-500/25 rounded-2xl">
+        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+        <p className="flex-1 min-w-0 text-muted-foreground text-sm">
+          {t("Could not load the client pipeline.")}
+        </p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="px-3 py-1.5 border border-border/60 hover:bg-muted/60 rounded-lg font-medium text-sm transition-colors"
+        >
+          {t("Retry")}
+        </button>
+      </section>
+    );
+  }
+
+  // Genuinely nothing to show: this company has no client stages configured.
   if (pipelineData.length === 0) {
     return null;
   }

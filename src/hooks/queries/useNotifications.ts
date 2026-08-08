@@ -20,7 +20,7 @@ export function useMyNotifications(enabled = true) {
       return result.data ?? [];
     },
     enabled,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -33,7 +33,7 @@ export function useUnreadNotificationCount(enabled = true) {
       return result.data ?? 0;
     },
     enabled,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -55,11 +55,13 @@ export function usePendingApprovalsCount(companyId?: string, enabled = true) {
       );
     },
     enabled: !!companyId && enabled,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 }
 
-/** Run once per company session for Admin/Manager — notifies about stale drafts. */
+/** Run once per company session for Admin/Manager — notifies about stale drafts.
+ * Delayed so it never competes with the dashboard's first paint queries.
+ */
 export function useStaleDraftNotificationCheck(
   companyId: string | undefined,
   enabled: boolean,
@@ -72,12 +74,16 @@ export function useStaleDraftNotificationCheck(
     if (ranFor.current === companyId) return;
     ranFor.current = companyId;
 
-    void (async () => {
-      const result = await notifyStaleDraftProperties(companyId);
-      if (!result.error && (result.data?.notified ?? 0) > 0) {
-        void queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      }
-    })();
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const result = await notifyStaleDraftProperties(companyId);
+        if (!result.error && (result.data?.notified ?? 0) > 0) {
+          void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        }
+      })();
+    }, 4_000);
+
+    return () => window.clearTimeout(timer);
   }, [companyId, enabled, queryClient]);
 }
 

@@ -9,10 +9,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import EmployeeLeaderboard from "@/components/company/dashboard/EmployeeLeaderboard";
 import FollowUpCalendarWidget from "@/components/company/dashboard/FollowUpCalendarWidget";
+import ClientPipelineWidget from "@/components/company/dashboard/ClientPipelineWidget";
 import ClientsBySourceWidget from "@/components/company/dashboard/ClientsBySourceWidget";
 import ResponseRatesWidget from "@/components/company/dashboard/ResponseRatesWidget";
 import RecentStatusChangesWidget from "@/components/company/dashboard/RecentStatusChangesWidget";
 import CompanyActivityLogWidget from "@/components/company/dashboard/CompanyActivityLogWidget";
+import LazyMount from "@/components/common/LazyMount";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCompanyOperationsStats } from "@/hooks/queries/useProperties";
@@ -25,7 +27,7 @@ import {
   profileDisplayName,
 } from "@/lib/bilingualLabel";
 import { canViewInsights, isAdministratorOrAbove, canAccessManagerModules } from "@/lib/permissions";
-import { usePendingApprovalsCount, useStaleDraftNotificationCheck } from "@/hooks/queries/useNotifications";
+import { usePendingApprovalsCount } from "@/hooks/queries/useNotifications";
 import {
   Building2,
   Home,
@@ -208,7 +210,7 @@ export default function CompanyDashboardPage() {
     usePendingApprovalsCount(company?.id, showPendingApprovals);
   const pendingApprovalsCount = pendingApprovals?.total ?? 0;
 
-  useStaleDraftNotificationCheck(company?.id, showPendingApprovals);
+  // Stale-draft notify runs from CompanyAdminHeader once — don't duplicate here.
 
   const { data: statsData, isLoading: loading } = useCompanyOperationsStats(
     company?.id,
@@ -296,6 +298,10 @@ export default function CompanyDashboardPage() {
         </section>
 
         <div className="mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8 sm:space-y-10 container max-w-6xl">
+          <section>
+            <ClientPipelineWidget />
+          </section>
+
           <section>
             <h2 className="mb-4 sm:mb-5 font-outfit font-semibold text-foreground text-lg tracking-tight">
               {t("Operations overview")}
@@ -521,47 +527,57 @@ export default function CompanyDashboardPage() {
               <Skeleton className="rounded-2xl w-full h-[280px]" />
             </div>
           ) : canViewAdvancedStats && company?.id ? (
-            <section className="relative bg-muted/20 shadow-[var(--shadow-subtle)] p-5 sm:p-6 border border-border/60 rounded-2xl overflow-hidden">
-              <div
-                className="top-0 absolute inset-x-0 bg-gradient-to-b from-primary/[0.05] to-transparent h-24 pointer-events-none"
-                aria-hidden
-              />
+            <LazyMount
+              rootMargin="80px 0px"
+              fallback={
+                <div className="space-y-6">
+                  <Skeleton className="rounded-2xl w-full h-[280px]" />
+                  <Skeleton className="rounded-2xl w-full h-[200px]" />
+                </div>
+              }
+            >
+              <section className="relative bg-muted/20 shadow-[var(--shadow-subtle)] p-5 sm:p-6 border border-border/60 rounded-2xl overflow-hidden">
+                <div
+                  className="top-0 absolute inset-x-0 bg-gradient-to-b from-primary/[0.05] to-transparent h-24 pointer-events-none"
+                  aria-hidden
+                />
 
-              <div className="relative mb-5 sm:mb-6">
-                <h2 className="font-outfit font-semibold text-foreground text-lg sm:text-xl tracking-tight">
-                  {t("Insights")}
-                </h2>
-                <p className="mt-1.5 max-w-xl text-muted-foreground text-sm leading-relaxed">
-                  {t("company_insights_desc")}
-                </p>
-              </div>
+                <div className="relative mb-5 sm:mb-6">
+                  <h2 className="font-outfit font-semibold text-foreground text-lg sm:text-xl tracking-tight">
+                    {t("Insights")}
+                  </h2>
+                  <p className="mt-1.5 max-w-xl text-muted-foreground text-sm leading-relaxed">
+                    {t("company_insights_desc")}
+                  </p>
+                </div>
 
-              <div className="relative space-y-5 sm:space-y-6">
-                <div id="team-leaderboard">
-                  <EmployeeLeaderboard companyId={company.id} />
+                <div className="relative space-y-5 sm:space-y-6">
+                  <div id="team-leaderboard">
+                    <EmployeeLeaderboard companyId={company.id} />
+                  </div>
+                  <div id="clients-by-source">
+                    <ClientsBySourceWidget companyId={company.id} />
+                  </div>
+                  <div id="clients-by-employee">
+                    <ClientsBySourceWidget
+                      companyId={company.id}
+                      fixedGroupBy="employee"
+                      title={t("Clients by Employee")}
+                      description={t(
+                        "Distribution of acquired clients across assigned employees.",
+                      )}
+                    />
+                  </div>
+                  <RecentStatusChangesWidget companyId={company.id} />
+                  {showManagerModules ? (
+                    <CompanyActivityLogWidget companyId={company.id} />
+                  ) : null}
+                  <div id="employee-response-rates">
+                    <ResponseRatesWidget companyId={company.id} />
+                  </div>
                 </div>
-                <div id="clients-by-source">
-                  <ClientsBySourceWidget companyId={company.id} />
-                </div>
-                <div id="clients-by-employee">
-                  <ClientsBySourceWidget
-                    companyId={company.id}
-                    fixedGroupBy="employee"
-                    title={t("Clients by Employee")}
-                    description={t(
-                      "Distribution of acquired clients across assigned employees.",
-                    )}
-                  />
-                </div>
-                <RecentStatusChangesWidget companyId={company.id} />
-                {showManagerModules ? (
-                  <CompanyActivityLogWidget companyId={company.id} />
-                ) : null}
-                <div id="employee-response-rates">
-                  <ResponseRatesWidget companyId={company.id} />
-                </div>
-              </div>
-            </section>
+              </section>
+            </LazyMount>
           ) : null}
         </div>
       </main>

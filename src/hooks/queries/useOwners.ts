@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getOwner,
   getOwners,
+  getOwnersPage,
   getOwnerStatusesForCompany,
   getMarketingChannelsForCompany,
   getOwnerPropertyCount,
@@ -37,6 +38,19 @@ export function useOwners(companyId?: string, filters: OwnerFilters = {}) {
     queryKey: ["owners", companyId, filters],
     queryFn: async () => {
       const result = await getOwners(companyId!, filters);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!companyId,
+  });
+}
+
+/** Server-paginated list for the Owners page only. */
+export function useOwnersPage(companyId?: string, filters: OwnerFilters = {}) {
+  return useQuery({
+    queryKey: ["owners", "page", companyId, filters],
+    queryFn: async () => {
+      const result = await getOwnersPage(companyId!, filters);
       if (result.error) throw new Error(result.error);
       return result.data;
     },

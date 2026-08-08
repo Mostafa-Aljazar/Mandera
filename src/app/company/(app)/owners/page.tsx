@@ -15,12 +15,14 @@ import {
 import { useLanguage } from "@/contexts/LanguageContext";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
 import {
-  useOwners,
+  useOwnersPage,
   useOwnerStatuses,
   useMarketingChannels,
   useBulkReassignOwners,
   useBulkDeleteOwners,
 } from "@/hooks/queries/useOwners";
+import { getOwners } from "@/actions/owners";
+import type { Owner } from "@/types/supabase-entities.types";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useCompanyEmployeesLookup } from "@/hooks/queries/useProperties";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
@@ -199,9 +201,12 @@ const OwnersPage = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [exportRows, setExportRows] = useState<Owner[]>([]);
   const [isReassigning, setIsReassigning] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [page, setPage] = useState(1);
+
+  const activeSearch = debouncedSearch.length >= 3 ? debouncedSearch : "";
 
   const ownerFilters = {
     assignedEmployeeId:
@@ -238,10 +243,26 @@ const OwnersPage = () => {
           return d.toISOString();
         })()
       : undefined,
+    search: activeSearch || undefined,
+    page,
+    pageSize: PAGE_SIZE,
+    includeCounts: page === 1,
   };
 
-  const { data: ownersData, isLoading } = useOwners(company?.id, ownerFilters);
-  const owners = useMemo(() => ownersData ?? [], [ownersData]);
+  const { data: ownersPageData, isLoading } = useOwnersPage(
+    company?.id,
+    ownerFilters,
+  );
+  const paginatedOwners = useMemo(
+    () => ownersPageData?.items ?? [],
+    [ownersPageData],
+  );
+  const listTotal = ownersPageData?.total ?? 0;
+  const [cachedCounts, setCachedCounts] = useState(ownersPageData?.counts);
+  useEffect(() => {
+    if (ownersPageData?.counts) setCachedCounts(ownersPageData.counts);
+  }, [ownersPageData?.counts]);
+  const counts = ownersPageData?.counts ?? cachedCounts;
   const { data: statusesData } = useOwnerStatuses(company?.id);
   const statuses = useMemo(() => statusesData ?? [], [statusesData]);
   const { data: employeesData } = useCompanyEmployeesLookup(company?.id);
@@ -255,47 +276,25 @@ const OwnersPage = () => {
   const bulkReassignMutation = useBulkReassignOwners();
   const bulkDeleteMutation = useBulkDeleteOwners();
 
-  const activeSearch = debouncedSearch.length >= 3 ? debouncedSearch : "";
-
-  const filteredOwners = useMemo(() => {
-    if (!activeSearch) return owners;
-    const q = activeSearch.toLowerCase();
-    const digits = q.replace(/\D/g, "");
-    return owners.filter((o) => {
-      const matchesName =
-        (o.name || "").toLowerCase().includes(q) ||
-        (o.name_en || "").toLowerCase().includes(q) ||
-        (o.name_ar || "").includes(activeSearch);
-      const matchesPhone =
-        digits.length > 0 && o.phone.replace(/\D/g, "").includes(digits);
-      return matchesName || matchesPhone;
-    });
-  }, [owners, activeSearch]);
-
   useEffect(() => {
     setPage(1);
   }, [activeSearch, filterState]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredOwners.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(listTotal / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageEnd = Math.min(pageStart + PAGE_SIZE, filteredOwners.length);
-  const paginatedOwners = useMemo(
-    () => filteredOwners.slice(pageStart, pageEnd),
-    [filteredOwners, pageStart, pageEnd],
-  );
+  const pageStart = listTotal === 0 ? 0 : (currentPage - 1) * PAGE_SIZE;
+  const pageEnd = Math.min(pageStart + paginatedOwners.length, listTotal);
   const pageNumbers = getPageNumbers(currentPage, totalPages);
 
-  const stats = useMemo(() => {
-    const assigned = owners.filter((o) => o.assigned_employee_id).length;
-    const withChannel = owners.filter((o) => o.marketing_channel).length;
-    return {
-      total: owners.length,
-      assigned,
-      unassigned: owners.length - assigned,
-      withChannel,
-    };
-  }, [owners]);
+  const stats = useMemo(
+    () => ({
+      total: counts?.total ?? 0,
+      assigned: counts?.assigned ?? 0,
+      unassigned: counts?.unassigned ?? 0,
+      withChannel: counts?.withChannel ?? 0,
+    }),
+    [counts],
+  );
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -364,10 +363,30 @@ const OwnersPage = () => {
 
   const toggleSelectAll = (checked: boolean | "indeterminate") => {
     if (checked) {
-      setSelectedOwners(filteredOwners.map((o) => o.id));
+      setSelectedOwners(paginatedOwners.map((o) => o.id));
     } else {
       setSelectedOwners([]);
     }
+  };
+
+  const openExportDialog = async () => {
+    if (!company?.id) return;
+    if (selectedOwners.length > 0) {
+      setExportRows(
+        paginatedOwners.filter((o) => selectedOwners.includes(o.id)),
+      );
+      setIsExportDialogOpen(true);
+      return;
+    }
+    const { page: _p, pageSize: _ps, includeCounts: _c, ...exportFilters } =
+      ownerFilters;
+    const result = await getOwners(company.id, exportFilters);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setExportRows(result.data ?? []);
+    setIsExportDialogOpen(true);
   };
 
   const toggleSelectOwner = (id: string) => {
@@ -449,7 +468,7 @@ const OwnersPage = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setIsExportDialogOpen(true)}
+                    onClick={() => void openExportDialog()}
                     className="gap-2 rounded-xl h-10"
                   >
                     <Upload className="w-4 h-4" />
@@ -583,7 +602,7 @@ const OwnersPage = () => {
                   {canExport ? (
                     <Button
                       variant="outline"
-                      onClick={() => setIsExportDialogOpen(true)}
+                      onClick={() => void openExportDialog()}
                       className="sm:hidden rounded-xl h-11"
                     >
                       <Upload className="w-4 h-4" />
@@ -661,8 +680,8 @@ const OwnersPage = () => {
               <div className="flex items-center gap-2.5">
                 <Checkbox
                   checked={
-                    filteredOwners.length > 0 &&
-                    filteredOwners.every((o) => selectedOwners.includes(o.id))
+                    paginatedOwners.length > 0 &&
+                    paginatedOwners.every((o) => selectedOwners.includes(o.id))
                       ? true
                       : selectedOwners.length > 0
                         ? "indeterminate"
@@ -712,12 +731,12 @@ const OwnersPage = () => {
               )}
             </div>
             <p className="tabular-nums text-muted-foreground text-xs sm:text-sm">
-              {filteredOwners.length === 0
+              {paginatedOwners.length === 0
                 ? t("owners_showing_count", { count: 0 })
                 : t("Showing {{from}}–{{to}} of {{total}}", {
                     from: pageStart + 1,
                     to: pageEnd,
-                    total: filteredOwners.length,
+                    total: listTotal,
                   })}
             </p>
           </div>
@@ -738,7 +757,7 @@ const OwnersPage = () => {
                 </div>
               ))}
             </div>
-          ) : filteredOwners.length === 0 ? (
+          ) : paginatedOwners.length === 0 ? (
             <div className="relative bg-card shadow-[var(--shadow-subtle)] px-5 sm:px-6 py-14 sm:py-20 border border-border border-dashed rounded-2xl overflow-hidden text-center">
               <div
                 className="top-0 absolute inset-x-0 bg-gradient-to-b from-amber-500/[0.06] to-transparent h-24 pointer-events-none"
@@ -774,6 +793,15 @@ const OwnersPage = () => {
                     companyId={company?.id}
                     isSelected={selectedOwners.includes(owner.id)}
                     onSelect={toggleSelectOwner}
+                    propertyCount={
+                      ownersPageData?.propertyCountsByOwnerId?.[owner.id] ?? 0
+                    }
+                    latestStatus={
+                      ownersPageData?.latestStatusByOwnerId
+                        ? (ownersPageData.latestStatusByOwnerId[owner.id] ??
+                          null)
+                        : undefined
+                    }
                   />
                 ))}
               </div>
@@ -784,7 +812,7 @@ const OwnersPage = () => {
                     {t("Showing {{from}}–{{to}} of {{total}}", {
                       from: pageStart + 1,
                       to: pageEnd,
-                      total: filteredOwners.length,
+                      total: listTotal,
                     })}
                   </p>
                   <div className="flex items-center gap-1 order-1 sm:order-2">
@@ -872,11 +900,7 @@ const OwnersPage = () => {
             <ExportOwnersDialog
               isOpen={isExportDialogOpen}
               onClose={() => setIsExportDialogOpen(false)}
-              rows={
-                selectedOwners.length > 0
-                  ? filteredOwners.filter((o) => selectedOwners.includes(o.id))
-                  : filteredOwners
-              }
+              rows={exportRows}
               selectedCount={selectedOwners.length}
               employees={employees}
               companyId={company.id}

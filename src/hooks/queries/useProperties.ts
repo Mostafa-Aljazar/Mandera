@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getProperties,
+  getPropertiesPage,
   getProperty,
   getPropertiesForOwner,
   createProperty,
@@ -25,6 +26,22 @@ export function useProperties(companyId?: string, filters: PropertyFilters = {})
     queryKey: ["properties", companyId, filters],
     queryFn: async () => {
       const result = await getProperties(companyId!, filters);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!companyId,
+  });
+}
+
+/** Server-paginated list for the Properties page only. */
+export function usePropertiesPage(
+  companyId?: string,
+  filters: PropertyFilters = {},
+) {
+  return useQuery({
+    queryKey: ["properties", "page", companyId, filters],
+    queryFn: async () => {
+      const result = await getPropertiesPage(companyId!, filters);
       if (result.error) throw new Error(result.error);
       return result.data;
     },

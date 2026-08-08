@@ -9,12 +9,13 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { canViewAllClients, isSalesAgent } from "@/lib/permissions";
 import { employeeDisplayName } from "@/lib/bilingualLabel";
 import {
-  useProperties,
+  usePropertiesPage,
   useAreasDistrictsLookup,
   useCompanyEmployeesLookup,
   usePropertyTypes,
   useOwnersLookup,
 } from "@/hooks/queries/useProperties";
+import { useDebounce } from "@/hooks/useDebounce";
 import CompanyAdminHeader from "@/components/company/CompanyAdminHeader";
 import PropertyCard from "@/components/company/properties/PropertyCard";
 import PendingApprovalsBanner from "@/components/company/approvals/PendingApprovalsBanner";
@@ -191,6 +192,7 @@ const PropertiesPage = () => {
   const [activeTab, setActiveTab] = useState("Rent");
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery.trim(), 400);
   const [priceFilters, setPriceFilters] = useState({
     minPrice: "",
     maxPrice: "",
@@ -221,9 +223,16 @@ const PropertiesPage = () => {
     return d.toISOString();
   };
 
+  const minPriceNum = Number(priceFilters.minPrice) || 0;
+  const maxPriceNum = Number(priceFilters.maxPrice) || 0;
+  let effectiveMin = minPriceNum;
+  let effectiveMax = maxPriceNum;
+  if (minPriceNum && maxPriceNum && minPriceNum > maxPriceNum) {
+    effectiveMin = maxPriceNum;
+    effectiveMax = minPriceNum;
+  }
+
   const propertyFilters = {
-    // Agents see full company inventory (masked). Admin+ can filter by assigned agent,
-    // owner, or creator.
     employeeId: canViewAll
       ? filterState.employeeId || undefined
       : undefined,
@@ -238,13 +247,38 @@ const PropertiesPage = () => {
     classification: filterState.classification || undefined,
     ownerId: canViewAll ? filterState.ownerId || undefined : undefined,
     createdBy: canViewAll ? filterState.createdBy || undefined : undefined,
+    search: debouncedSearch || undefined,
+    listingType: activeTab === "Sale" || activeTab === "Rent" ? activeTab : undefined,
+    minPrice: effectiveMin > 0 ? effectiveMin : undefined,
+    maxPrice: effectiveMax > 0 ? effectiveMax : undefined,
+    approvedOnly: true,
+    page,
+    pageSize: PAGE_SIZE,
+    includeCounts: page === 1,
   };
 
-  const { data: propertiesData, isLoading } = useProperties(
+  const { data: propertiesPageData, isLoading } = usePropertiesPage(
     company?.id,
     propertyFilters,
   );
-  const properties = useMemo(() => propertiesData ?? [], [propertiesData]);
+  const paginatedListings = useMemo(
+    () => propertiesPageData?.items ?? [],
+    [propertiesPageData],
+  );
+  const listTotal = propertiesPageData?.total ?? 0;
+  const [cachedCounts, setCachedCounts] = useState(propertiesPageData?.counts);
+  const [cachedDrafts, setCachedDrafts] = useState(propertiesPageData?.drafts);
+  useEffect(() => {
+    if (propertiesPageData?.counts) setCachedCounts(propertiesPageData.counts);
+  }, [propertiesPageData?.counts]);
+  useEffect(() => {
+    if (propertiesPageData?.drafts) setCachedDrafts(propertiesPageData.drafts);
+  }, [propertiesPageData?.drafts]);
+  const counts = propertiesPageData?.counts ?? cachedCounts;
+  const myDrafts = useMemo(
+    () => propertiesPageData?.drafts ?? cachedDrafts ?? [],
+    [propertiesPageData?.drafts, cachedDrafts],
+  );
 
   const { data: allAreasData } = useAreasDistrictsLookup(company?.id);
   const allAreasDistricts = useMemo(() => allAreasData ?? [], [allAreasData]);
@@ -262,29 +296,15 @@ const PropertiesPage = () => {
   );
   const owners = useMemo(() => ownersData ?? [], [ownersData]);
 
-  const stats = useMemo(() => {
-    const active = properties.filter(
-      (p) => !p.approval_status || p.approval_status === "approved",
-    );
-    const rent = active.filter((p) => p.listing_type === "Rent");
-    const sale = active.filter((p) => p.listing_type === "Sale");
-    return {
-      total: active.length,
-      rent: rent.length,
-      sale: sale.length,
-      available: active.filter((p) => p.status === "Available").length,
-    };
-  }, [properties]);
-
-  const myDrafts = useMemo(() => {
-    if (!isSalesAgent(currentUser?.role)) return [];
-    return properties.filter(
-      (p) =>
-        p.employee_id === currentUser?.id &&
-        p.approval_status &&
-        p.approval_status !== "approved",
-    );
-  }, [properties, currentUser?.id, currentUser?.role]);
+  const stats = useMemo(
+    () => ({
+      total: counts?.total ?? 0,
+      rent: counts?.rent ?? 0,
+      sale: counts?.sale ?? 0,
+      available: counts?.available ?? 0,
+    }),
+    [counts],
+  );
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -304,60 +324,14 @@ const PropertiesPage = () => {
     return count;
   }, [statusFilter, filterState, priceFilters, canViewAll]);
 
-  const filterProperties = (listType: string) =>
-    properties.filter((p) => {
-      // PDF: Draft / pending / rejected stay out of active inventory lists.
-      if (p.approval_status && p.approval_status !== "approved") return false;
-      if (p.listing_type !== listType) return false;
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase().trim();
-        const matches =
-          p.code?.toLowerCase().includes(q) ||
-          p.title?.toLowerCase().includes(q) ||
-          p.title_ar?.toLowerCase().includes(q) ||
-          p.note_en?.toLowerCase().includes(q) ||
-          p.note_ar?.toLowerCase().includes(q);
-        if (!matches) return false;
-      }
-      const propPrice = Number(p.price) || 0;
-      const minP = Number(priceFilters.minPrice);
-      const maxP = Number(priceFilters.maxPrice);
-      let effectiveMin = minP;
-      let effectiveMax = maxP;
-      if (minP && maxP && minP > maxP) {
-        effectiveMin = maxP;
-        effectiveMax = minP;
-      }
-      if (effectiveMin > 0 && propPrice < effectiveMin) return false;
-      if (effectiveMax > 0 && propPrice > effectiveMax) return false;
-      return true;
-    });
-
-  const rentListings = useMemo(
-    () => filterProperties("Rent"),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [properties, searchQuery, priceFilters],
-  );
-  const saleListings = useMemo(
-    () => filterProperties("Sale"),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [properties, searchQuery, priceFilters],
-  );
-
-  const currentListings = activeTab === "Rent" ? rentListings : saleListings;
-
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, priceFilters, filterState, statusFilter, activeTab]);
+  }, [debouncedSearch, priceFilters, filterState, statusFilter, activeTab]);
 
-  const totalPages = Math.max(1, Math.ceil(currentListings.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(listTotal / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageEnd = Math.min(pageStart + PAGE_SIZE, currentListings.length);
-  const paginatedListings = useMemo(
-    () => currentListings.slice(pageStart, pageEnd),
-    [currentListings, pageStart, pageEnd],
-  );
+  const pageStart = listTotal === 0 ? 0 : (currentPage - 1) * PAGE_SIZE;
+  const pageEnd = Math.min(pageStart + paginatedListings.length, listTotal);
   const pageNumbers = getPageNumbers(currentPage, totalPages);
 
   const goToProperty = (p: Property) =>
@@ -407,7 +381,7 @@ const PropertiesPage = () => {
       );
     }
 
-    if (currentListings.length === 0) {
+    if (listTotal === 0) {
       return (
         <div className="relative bg-card shadow-[var(--shadow-subtle)] px-5 sm:px-6 py-14 sm:py-20 border border-border border-dashed rounded-2xl text-center overflow-hidden">
           <div
@@ -453,7 +427,7 @@ const PropertiesPage = () => {
               {t("Showing {{from}}–{{to}} of {{total}}", {
                 from: pageStart + 1,
                 to: pageEnd,
-                total: currentListings.length,
+                total: listTotal,
               })}
             </p>
             <div className="order-1 sm:order-2 flex items-center gap-1">
@@ -790,7 +764,7 @@ const PropertiesPage = () => {
                       className="bg-muted/80 px-1.5 py-0.5 rounded-md font-medium text-[11px] tabular-nums"
                       dir="ltr"
                     >
-                      {rentListings.length}
+                      {stats.rent}
                     </span>
                   </TabsTrigger>
                   <TabsTrigger
@@ -803,18 +777,18 @@ const PropertiesPage = () => {
                       className="bg-muted/80 px-1.5 py-0.5 rounded-md font-medium text-[11px] tabular-nums"
                       dir="ltr"
                     >
-                      {saleListings.length}
+                      {stats.sale}
                     </span>
                   </TabsTrigger>
                 </TabsList>
 
                 <p className="text-muted-foreground text-xs sm:text-sm tabular-nums">
-                  {currentListings.length === 0
+                  {listTotal === 0
                     ? t("properties_showing_count", { count: 0 })
                     : t("Showing {{from}}–{{to}} of {{total}}", {
                         from: pageStart + 1,
                         to: pageEnd,
-                        total: currentListings.length,
+                        total: listTotal,
                       })}
                 </p>
               </div>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import DocumentHead from "@/components/common/DocumentHead";
 import MasterAdminHeader from "@/components/master/MasterAdminHeader";
+import MobileAppsSettingsTab from "@/components/master/MobileAppsSettingsTab";
 import SectionBadge from "@/components/common/SectionBadge";
 import { useMasterAuth } from "@/contexts/MasterAuthContext";
 import { updateMasterProfile } from "@/actions/masterProfile";
@@ -12,12 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Camera,
   Eye,
   EyeOff,
   KeyRound,
   Loader2,
+  Smartphone,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -70,7 +73,7 @@ function PasswordField({
   );
 }
 
-export default function MasterSettingsPage() {
+function AccountSettingsTab() {
   const { t } = useTranslation();
   const { currentUser, setCurrentUser } = useMasterAuth();
 
@@ -207,6 +210,170 @@ export default function MasterSettingsPage() {
     }
   };
 
+  return (
+    <form onSubmit={handleSubmit} className="space-y-8">
+      <section className="bg-card shadow-[var(--shadow-subtle)] p-5 sm:p-6 border border-border/60 rounded-2xl space-y-5">
+        <div className="flex items-center gap-2">
+          <UserRound className="w-4 h-4 text-primary" />
+          <h2 className="font-outfit font-semibold text-foreground text-lg tracking-tight">
+            {t("master_settings_profile_section")}
+          </h2>
+        </div>
+
+        <div className="flex sm:flex-row flex-col items-start sm:items-center gap-4">
+          <Avatar className="border border-border/60 rounded-2xl w-20 h-20">
+            {currentAvatarUrl ? (
+              <AvatarImage
+                src={currentAvatarUrl}
+                alt={nameEn || nameAr}
+                className="object-cover"
+              />
+            ) : null}
+            <AvatarFallback className="bg-primary/10 rounded-2xl font-semibold text-primary text-xl">
+              {initials || "?"}
+            </AvatarFallback>
+          </Avatar>
+
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => onPickAvatar(e.target.files?.[0] ?? null)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl h-10"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Camera className="w-4 h-4" />
+              {avatarFile || currentAvatarUrl
+                ? t("Change photo")
+                : t("Upload photo")}
+            </Button>
+            {(avatarFile || currentUser?.avatar_url) && !removeAvatar ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-xl h-10 text-rose-600 hover:text-rose-700"
+                onClick={() => {
+                  clearAvatarSelection();
+                  if (currentUser?.avatar_url) setRemoveAvatar(true);
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+                {t("master_settings_remove_photo")}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="gap-4 grid sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="name_en">{t("English")}</Label>
+            <Input
+              id="name_en"
+              value={nameEn}
+              onChange={(e) => setNameEn(e.target.value)}
+              className="rounded-xl h-11"
+              placeholder={t("master_settings_name_en_placeholder")}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="name_ar">{t("Arabic")}</Label>
+            <Input
+              id="name_ar"
+              value={nameAr}
+              onChange={(e) => setNameAr(e.target.value)}
+              className="rounded-xl h-11"
+              dir="rtl"
+              placeholder={t("master_settings_name_ar_placeholder")}
+              required
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="email">{t("Email")}</Label>
+          <Input
+            id="email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="rounded-xl h-11"
+            required
+          />
+        </div>
+      </section>
+
+      <section className="bg-card shadow-[var(--shadow-subtle)] p-5 sm:p-6 border border-border/60 rounded-2xl space-y-5">
+        <div className="flex items-center gap-2">
+          <KeyRound className="w-4 h-4 text-primary" />
+          <h2 className="font-outfit font-semibold text-foreground text-lg tracking-tight">
+            {t("master_settings_security_section")}
+          </h2>
+        </div>
+        <p className="text-muted-foreground text-sm">
+          {t("master_settings_security_hint")}
+        </p>
+
+        <PasswordField
+          id="current_password"
+          label={t("master_settings_current_password")}
+          value={currentPassword}
+          onChange={setCurrentPassword}
+          autoComplete="current-password"
+          showLabel={t("Show password")}
+          hideLabel={t("Hide password")}
+        />
+
+        <div className="gap-4 grid sm:grid-cols-2">
+          <PasswordField
+            id="new_password"
+            label={t("master_settings_new_password")}
+            value={newPassword}
+            onChange={setNewPassword}
+            autoComplete="new-password"
+            showLabel={t("Show password")}
+            hideLabel={t("Hide password")}
+          />
+          <PasswordField
+            id="confirm_password"
+            label={t("master_settings_confirm_password")}
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            autoComplete="new-password"
+            showLabel={t("Show password")}
+            hideLabel={t("Hide password")}
+          />
+        </div>
+      </section>
+
+      <div className="flex justify-end">
+        <Button
+          type="submit"
+          disabled={saving}
+          className="rounded-xl h-11 font-semibold min-w-[9rem]"
+        >
+          {saving ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {t("Saving...")}
+            </>
+          ) : (
+            t("Save changes")
+          )}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export default function MasterSettingsPage() {
+  const { t } = useTranslation();
   const documentTitle = `${t("platformName")} - ${t("master_nav_settings")}`;
 
   return (
@@ -228,172 +395,38 @@ export default function MasterSettingsPage() {
               {t("master_settings_title")}
             </h1>
             <p className="mt-2 max-w-xl text-muted-foreground text-sm sm:text-base leading-relaxed">
-              {t("master_settings_subtitle")}
+              {t("master_settings_page_subtitle")}
             </p>
           </div>
         </section>
 
         <div className="mx-auto px-4 sm:px-6 py-8 sm:py-10 container max-w-6xl">
-          <form onSubmit={handleSubmit} className="space-y-8">
-            <section className="bg-card shadow-[var(--shadow-subtle)] p-5 sm:p-6 border border-border/60 rounded-2xl space-y-5">
-              <div className="flex items-center gap-2">
-                <UserRound className="w-4 h-4 text-primary" />
-                <h2 className="font-outfit font-semibold text-foreground text-lg tracking-tight">
-                  {t("master_settings_profile_section")}
-                </h2>
-              </div>
-
-              <div className="flex sm:flex-row flex-col items-start sm:items-center gap-4">
-                <Avatar className="border border-border/60 rounded-2xl w-20 h-20">
-                  {currentAvatarUrl ? (
-                    <AvatarImage
-                      src={currentAvatarUrl}
-                      alt={nameEn || nameAr}
-                      className="object-cover"
-                    />
-                  ) : null}
-                  <AvatarFallback className="bg-primary/10 rounded-2xl font-semibold text-primary text-xl">
-                    {initials || "?"}
-                  </AvatarFallback>
-                </Avatar>
-
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    onChange={(e) =>
-                      onPickAvatar(e.target.files?.[0] ?? null)
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-xl h-10"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Camera className="w-4 h-4" />
-                    {avatarFile || currentAvatarUrl
-                      ? t("Change photo")
-                      : t("Upload photo")}
-                  </Button>
-                  {(avatarFile || currentUser?.avatar_url) && !removeAvatar ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="rounded-xl h-10 text-rose-600 hover:text-rose-700"
-                      onClick={() => {
-                        clearAvatarSelection();
-                        if (currentUser?.avatar_url) setRemoveAvatar(true);
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {t("master_settings_remove_photo")}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="gap-4 grid sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="name_en">{t("English")}</Label>
-                  <Input
-                    id="name_en"
-                    value={nameEn}
-                    onChange={(e) => setNameEn(e.target.value)}
-                    className="rounded-xl h-11"
-                    placeholder={t("master_settings_name_en_placeholder")}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="name_ar">{t("Arabic")}</Label>
-                  <Input
-                    id="name_ar"
-                    value={nameAr}
-                    onChange={(e) => setNameAr(e.target.value)}
-                    className="rounded-xl h-11"
-                    dir="rtl"
-                    placeholder={t("master_settings_name_ar_placeholder")}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="email">{t("Email")}</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="rounded-xl h-11"
-                  required
-                />
-              </div>
-            </section>
-
-            <section className="bg-card shadow-[var(--shadow-subtle)] p-5 sm:p-6 border border-border/60 rounded-2xl space-y-5">
-              <div className="flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-primary" />
-                <h2 className="font-outfit font-semibold text-foreground text-lg tracking-tight">
-                  {t("master_settings_security_section")}
-                </h2>
-              </div>
-              <p className="text-muted-foreground text-sm">
-                {t("master_settings_security_hint")}
-              </p>
-
-              <PasswordField
-                id="current_password"
-                label={t("master_settings_current_password")}
-                value={currentPassword}
-                onChange={setCurrentPassword}
-                autoComplete="current-password"
-                showLabel={t("Show password")}
-                hideLabel={t("Hide password")}
-              />
-
-              <div className="gap-4 grid sm:grid-cols-2">
-                <PasswordField
-                  id="new_password"
-                  label={t("master_settings_new_password")}
-                  value={newPassword}
-                  onChange={setNewPassword}
-                  autoComplete="new-password"
-                  showLabel={t("Show password")}
-                  hideLabel={t("Hide password")}
-                />
-                <PasswordField
-                  id="confirm_password"
-                  label={t("master_settings_confirm_password")}
-                  value={confirmPassword}
-                  onChange={setConfirmPassword}
-                  autoComplete="new-password"
-                  showLabel={t("Show password")}
-                  hideLabel={t("Hide password")}
-                />
-              </div>
-            </section>
-
-            <div className="flex justify-end">
-              <Button
-                type="submit"
-                disabled={saving}
-                className="rounded-xl h-11 font-semibold min-w-[9rem]"
+          <Tabs defaultValue="account" className="space-y-6">
+            <TabsList className="bg-muted/60 p-1 border border-border/60 rounded-xl h-auto w-full sm:w-auto">
+              <TabsTrigger
+                value="account"
+                className="gap-1.5 data-[state=active]:bg-background px-4 rounded-lg h-10"
               >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    {t("Saving...")}
-                  </>
-                ) : (
-                  t("Save changes")
-                )}
-              </Button>
-            </div>
-          </form>
+                <UserRound className="w-4 h-4 shrink-0" />
+                {t("master_settings_tab_account")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="mobile-apps"
+                className="gap-1.5 data-[state=active]:bg-background px-4 rounded-lg h-10"
+              >
+                <Smartphone className="w-4 h-4 shrink-0" />
+                {t("master_settings_tab_mobile_apps")}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="account" className="mt-0 outline-none">
+              <AccountSettingsTab />
+            </TabsContent>
+
+            <TabsContent value="mobile-apps" className="mt-0 outline-none">
+              <MobileAppsSettingsTab />
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
     </>

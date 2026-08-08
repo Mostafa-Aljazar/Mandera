@@ -25,6 +25,11 @@ import {
   isMasterAdmin,
   isSalesAgent,
 } from "@/lib/permissions";
+import {
+  resolveRange,
+  sanitizeSearchTerm,
+  type PaginatedList,
+} from "@/lib/listQuery";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
@@ -70,7 +75,32 @@ export interface OwnerFilters {
   createdTo?: string;
   updatedFrom?: string;
   updatedTo?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+  includeCounts?: boolean;
 }
+
+export interface OwnerListCounts {
+  total: number;
+  assigned: number;
+  unassigned: number;
+  withChannel: number;
+}
+
+export type OwnersListResult = PaginatedList<Owner> & {
+  counts?: OwnerListCounts;
+  /** Batched extras for the current page — kills per-card N+1 queries. */
+  propertyCountsByOwnerId?: Record<string, number>;
+  latestStatusByOwnerId?: Record<
+    string,
+    {
+      status_id: string | null;
+      created_at: string;
+      status?: { id: string; name_en: string; name_ar: string } | null;
+    } | null
+  >;
+};
 
 export async function getOwner(
   ownerId: string,
@@ -115,66 +145,284 @@ export async function getOwners(
 
   const supabase = await getServerSupabase();
 
+  const statusIdsResult = await resolveOwnerIdsForStatus(
+    supabase,
+    companyId,
+    effectiveFilters.statusId,
+  );
+  if (statusIdsResult.error) return { error: statusIdsResult.error };
+  const statusOwnerIds = statusIdsResult.data;
+  if (statusOwnerIds && statusOwnerIds.length === 0) return { data: [] };
+
   let query = supabase
     .from("owners")
     .select("*")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
 
-  if (effectiveFilters.assignedEmployeeId === "unassigned") {
-    query = query.is("assigned_employee_id", null);
-  } else if (effectiveFilters.assignedEmployeeId) {
-    query = query.eq(
-      "assigned_employee_id",
-      effectiveFilters.assignedEmployeeId,
-    );
-  }
-  if (effectiveFilters.marketingChannel) {
-    query = query.eq("marketing_channel", effectiveFilters.marketingChannel);
-  }
-  if (effectiveFilters.createdFrom) {
-    query = query.gte("created_at", effectiveFilters.createdFrom);
-  }
-  if (effectiveFilters.createdTo) {
-    query = query.lte("created_at", effectiveFilters.createdTo);
-  }
-  if (effectiveFilters.updatedFrom) {
-    query = query.gte("updated_at", effectiveFilters.updatedFrom);
-  }
-  if (effectiveFilters.updatedTo) {
-    query = query.lte("updated_at", effectiveFilters.updatedTo);
-  }
-
-  // Current status = latest owner_status_history row only (not any past status).
-  if (effectiveFilters.statusId) {
-    const { data: histMatches, error: histError } = await supabase
-      .from("owner_status_history")
-      .select("owner_id, status_id")
-      .eq("company_id", companyId)
-      .order("created_at", { ascending: false });
-
-    if (histError) return { error: histError.message };
-
-    const latestStatusMap = new Map<string, string | null>();
-    (histMatches ?? []).forEach(
-      (h: { owner_id: string; status_id: string | null }) => {
-        if (!latestStatusMap.has(h.owner_id)) {
-          latestStatusMap.set(h.owner_id, h.status_id);
-        }
-      },
-    );
-
-    const matchedOwnerIds = [...latestStatusMap.entries()]
-      .filter(([, statusId]) => statusId === effectiveFilters.statusId)
-      .map(([ownerId]) => ownerId);
-
-    if (matchedOwnerIds.length === 0) return { data: [] };
-    query = query.in("id", matchedOwnerIds);
-  }
+  query = applyOwnerFilters(query, effectiveFilters, statusOwnerIds);
 
   const { data, error } = await query;
   if (error) return { error: error.message };
   return { data: data ?? [] };
+}
+
+/**
+ * Paginated owners list for the Owners page.
+ * Keeps getOwners() intact for lookups / export / employee detail.
+ */
+export async function getOwnersPage(
+  companyId: string,
+  filters: OwnerFilters = {},
+): Promise<ActionResult<OwnersListResult>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
+  const effectiveFilters = { ...filters };
+  if (isSalesAgent(access.data.role)) {
+    effectiveFilters.assignedEmployeeId = access.data.userId;
+  }
+
+  const page = effectiveFilters.page && effectiveFilters.page > 0 ? effectiveFilters.page : 1;
+  const pageSize =
+    effectiveFilters.pageSize && effectiveFilters.pageSize > 0
+      ? Math.min(effectiveFilters.pageSize, 50)
+      : 9;
+  const range = resolveRange(page, pageSize)!;
+
+  const supabase = await getServerSupabase();
+
+  const statusIdsResult = await resolveOwnerIdsForStatus(
+    supabase,
+    companyId,
+    effectiveFilters.statusId,
+  );
+  if (statusIdsResult.error) return { error: statusIdsResult.error };
+  const statusOwnerIds = statusIdsResult.data;
+  if (statusOwnerIds && statusOwnerIds.length === 0) {
+    const empty: OwnersListResult = { items: [], total: 0 };
+    if (effectiveFilters.includeCounts) {
+      empty.counts = { total: 0, assigned: 0, unassigned: 0, withChannel: 0 };
+    }
+    return { data: empty };
+  }
+
+  let query = supabase
+    .from("owners")
+    .select("*", { count: "exact" })
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .range(range.from, range.to);
+
+  query = applyOwnerFilters(query, effectiveFilters, statusOwnerIds);
+
+  const { data, error, count } = await query;
+  if (error) return { error: error.message };
+
+  const result: OwnersListResult = {
+    items: data ?? [],
+    total: count ?? 0,
+  };
+
+  const pageIds = result.items.map((o) => o.id);
+  if (pageIds.length > 0) {
+    const [propsRes, histRes] = await Promise.all([
+      supabase
+        .from("properties")
+        .select("owner_id")
+        .eq("company_id", companyId)
+        .in("owner_id", pageIds),
+      canViewOwnerStatus(access.data.role)
+        ? supabase
+            .from("owner_status_history")
+            .select(
+              "owner_id, status_id, created_at, status:owner_statuses(id, name_en, name_ar)",
+            )
+            .eq("company_id", companyId)
+            .in("owner_id", pageIds)
+            .order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (propsRes.error) return { error: propsRes.error.message };
+    if (histRes.error) return { error: histRes.error.message };
+
+    const propertyCountsByOwnerId: Record<string, number> = {};
+    for (const id of pageIds) propertyCountsByOwnerId[id] = 0;
+    for (const row of propsRes.data ?? []) {
+      if (!row.owner_id) continue;
+      propertyCountsByOwnerId[row.owner_id] =
+        (propertyCountsByOwnerId[row.owner_id] ?? 0) + 1;
+    }
+    result.propertyCountsByOwnerId = propertyCountsByOwnerId;
+
+    if (canViewOwnerStatus(access.data.role)) {
+      const latestStatusByOwnerId: NonNullable<
+        OwnersListResult["latestStatusByOwnerId"]
+      > = {};
+      for (const row of histRes.data ?? []) {
+        if (latestStatusByOwnerId[row.owner_id] !== undefined) continue;
+        latestStatusByOwnerId[row.owner_id] = {
+          status_id: row.status_id,
+          created_at: row.created_at,
+          status: Array.isArray(row.status) ? row.status[0] ?? null : row.status,
+        };
+      }
+      for (const id of pageIds) {
+        if (latestStatusByOwnerId[id] === undefined) {
+          latestStatusByOwnerId[id] = null;
+        }
+      }
+      result.latestStatusByOwnerId = latestStatusByOwnerId;
+    }
+  }
+
+  if (effectiveFilters.includeCounts) {
+    const counts = await getOwnerListCounts(
+      supabase,
+      companyId,
+      effectiveFilters,
+      statusOwnerIds,
+    );
+    if (counts.error) return { error: counts.error };
+    result.counts = counts.data;
+  }
+
+  return { data: result };
+}
+
+/**
+ * Latest-status owner ids for a given status.
+ * Only runs when a status filter is active — avoids the full history scan on normal list loads.
+ */
+async function resolveOwnerIdsForStatus(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  companyId: string,
+  statusId?: string,
+): Promise<ActionResult<string[] | null>> {
+  if (!statusId) return { data: null };
+
+  const { data: histMatches, error: histError } = await supabase
+    .from("owner_status_history")
+    .select("owner_id, status_id")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false });
+
+  if (histError) return { error: histError.message };
+
+  const latestStatusMap = new Map<string, string | null>();
+  (histMatches ?? []).forEach(
+    (h: { owner_id: string; status_id: string | null }) => {
+      if (!latestStatusMap.has(h.owner_id)) {
+        latestStatusMap.set(h.owner_id, h.status_id);
+      }
+    },
+  );
+
+  return {
+    data: [...latestStatusMap.entries()]
+      .filter(([, sid]) => sid === statusId)
+      .map(([ownerId]) => ownerId),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyOwnerFilters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  filters: OwnerFilters,
+  statusOwnerIds: string[] | null,
+) {
+  if (filters.assignedEmployeeId === "unassigned") {
+    query = query.is("assigned_employee_id", null);
+  } else if (filters.assignedEmployeeId) {
+    query = query.eq("assigned_employee_id", filters.assignedEmployeeId);
+  }
+  if (filters.marketingChannel) {
+    query = query.eq("marketing_channel", filters.marketingChannel);
+  }
+  if (filters.createdFrom) {
+    query = query.gte("created_at", filters.createdFrom);
+  }
+  if (filters.createdTo) {
+    query = query.lte("created_at", filters.createdTo);
+  }
+  if (filters.updatedFrom) {
+    query = query.gte("updated_at", filters.updatedFrom);
+  }
+  if (filters.updatedTo) {
+    query = query.lte("updated_at", filters.updatedTo);
+  }
+  if (statusOwnerIds) {
+    query = query.in("id", statusOwnerIds);
+  }
+  const search = filters.search ? sanitizeSearchTerm(filters.search) : "";
+  if (search) {
+    const digits = search.replace(/\D/g, "");
+    const parts = [
+      `name_en.ilike.%${search}%`,
+      `name_ar.ilike.%${search}%`,
+      `name.ilike.%${search}%`,
+      `phone.ilike.%${search}%`,
+    ];
+    if (digits.length >= 3) {
+      parts.push(`phone.ilike.%${digits}%`);
+    }
+    query = query.or(parts.join(","));
+  }
+  return query;
+}
+
+async function getOwnerListCounts(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  companyId: string,
+  filters: OwnerFilters,
+  statusOwnerIds: string[] | null,
+): Promise<ActionResult<OwnerListCounts>> {
+  const base: OwnerFilters = {
+    ...filters,
+    page: undefined,
+    pageSize: undefined,
+    includeCounts: undefined,
+  };
+
+  const headCount = async (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tweak: (q: any) => any,
+  ) => {
+    let q = supabase
+      .from("owners")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId);
+    q = applyOwnerFilters(q, base, statusOwnerIds);
+    q = tweak(q);
+    const { count, error } = await q;
+    if (error) return { error: error.message as string };
+    return { data: count ?? 0 };
+  };
+
+  const [total, assigned, unassigned, withChannel] = await Promise.all([
+    headCount((q) => q),
+    headCount((q) => q.not("assigned_employee_id", "is", null)),
+    headCount((q) => q.is("assigned_employee_id", null)),
+    headCount((q) => q.not("marketing_channel", "is", null)),
+  ]);
+
+  if (total.error) return { error: total.error };
+  if (assigned.error) return { error: assigned.error };
+  if (unassigned.error) return { error: unassigned.error };
+  if (withChannel.error) return { error: withChannel.error };
+
+  return {
+    data: {
+      total: total.data ?? 0,
+      assigned: assigned.data ?? 0,
+      unassigned: unassigned.data ?? 0,
+      withChannel: withChannel.data ?? 0,
+    },
+  };
 }
 
 export async function getOwnerStatusesForCompany(

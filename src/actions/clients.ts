@@ -24,6 +24,11 @@ import {
   isSalesAgent,
 } from "@/lib/permissions";
 import { pickEmployeeByDistributionRules } from "@/actions/distributionRules";
+import {
+  resolveRange,
+  sanitizeSearchTerm,
+  type PaginatedList,
+} from "@/lib/listQuery";
 
 type ActionResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
@@ -71,7 +76,26 @@ export interface ClientFilters {
   createdTo?: string;
   updatedFrom?: string;
   updatedTo?: string;
+  /** Free-text name / phone search (min length enforced by callers). */
+  search?: string;
+  /** Sale | Rent — omit for all. */
+  interestType?: string;
+  page?: number;
+  pageSize?: number;
+  /** When true, also return tab/stat counts under the same filters. */
+  includeCounts?: boolean;
 }
+
+export interface ClientListCounts {
+  all: number;
+  sale: number;
+  rent: number;
+  followUps: number;
+}
+
+export type ClientsListResult = PaginatedList<ClientWithRelations> & {
+  counts?: ClientListCounts;
+};
 
 export async function getClient(
   clientId: string,
@@ -122,56 +146,157 @@ export async function getClients(
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
 
-  if (effectiveFilters.employeeId) {
-    query = query.eq("employee_id", effectiveFilters.employeeId);
-  }
-  if (effectiveFilters.marketingChannel) {
-    query = query.eq("marketing_channel", effectiveFilters.marketingChannel);
-  }
-  if (effectiveFilters.createdFrom) {
-    query = query.gte("created_at", effectiveFilters.createdFrom);
-  }
-  if (effectiveFilters.createdTo) {
-    query = query.lte("created_at", effectiveFilters.createdTo);
-  }
-  if (effectiveFilters.updatedFrom) {
-    query = query.gte("updated_at", effectiveFilters.updatedFrom);
-  }
-  if (effectiveFilters.updatedTo) {
-    query = query.lte("updated_at", effectiveFilters.updatedTo);
-  }
+  query = applyClientFilters(query, effectiveFilters);
 
   const { data, error } = await query;
   if (error) return { error: error.message };
-  let clients = (data ?? []) as unknown as ClientWithRelations[];
+  return { data: (data ?? []) as unknown as ClientWithRelations[] };
+}
 
-  if (effectiveFilters.statusId) {
-    // Prefer the synced clients.status_id column; fall back to latest
-    // history entry for legacy rows where status_id was never set.
-    const { data: histMatches, error: histError } = await supabase
-      .from("client_status_history")
-      .select("client_id, status_id")
-      .eq("company_id", companyId)
-      .order("created_at", { ascending: false });
+/**
+ * Paginated clients list for the Clients page.
+ * Does not replace getClients() — dropdowns / export / employee detail keep the full-list helper.
+ */
+export async function getClientsPage(
+  companyId: string,
+  filters: ClientFilters = {},
+): Promise<ActionResult<ClientsListResult>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
 
-    if (histError) return { error: histError.message };
-
-    const latestFromHistory = new Map<string, string | null>();
-    (histMatches ?? []).forEach(
-      (h: { client_id: string; status_id: string | null }) => {
-        if (!latestFromHistory.has(h.client_id)) {
-          latestFromHistory.set(h.client_id, h.status_id);
-        }
-      },
-    );
-
-    clients = clients.filter((c) => {
-      const currentStatus = c.status_id ?? latestFromHistory.get(c.id) ?? null;
-      return currentStatus === effectiveFilters.statusId;
-    });
+  const effectiveFilters = { ...filters };
+  if (isSalesAgent(access.data.role)) {
+    effectiveFilters.employeeId = access.data.userId;
   }
 
-  return { data: clients };
+  const page = effectiveFilters.page && effectiveFilters.page > 0 ? effectiveFilters.page : 1;
+  const pageSize =
+    effectiveFilters.pageSize && effectiveFilters.pageSize > 0
+      ? Math.min(effectiveFilters.pageSize, 50)
+      : 9;
+  const range = resolveRange(page, pageSize)!;
+
+  const supabase = await getServerSupabase();
+
+  let query = supabase
+    .from("clients")
+    .select(CLIENTS_SELECT, { count: "exact" })
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .range(range.from, range.to);
+
+  query = applyClientFilters(query, effectiveFilters);
+
+  const { data, error, count } = await query;
+  if (error) return { error: error.message };
+
+  const result: ClientsListResult = {
+    items: (data ?? []) as unknown as ClientWithRelations[],
+    total: count ?? 0,
+  };
+
+  if (effectiveFilters.includeCounts) {
+    const counts = await getClientListCounts(supabase, companyId, effectiveFilters);
+    if (counts.error) return { error: counts.error };
+    result.counts = counts.data;
+  }
+
+  return { data: result };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyClientFilters(query: any, filters: ClientFilters) {
+  if (filters.employeeId) {
+    query = query.eq("employee_id", filters.employeeId);
+  }
+  if (filters.marketingChannel) {
+    query = query.eq("marketing_channel", filters.marketingChannel);
+  }
+  if (filters.createdFrom) {
+    query = query.gte("created_at", filters.createdFrom);
+  }
+  if (filters.createdTo) {
+    query = query.lte("created_at", filters.createdTo);
+  }
+  if (filters.updatedFrom) {
+    query = query.gte("updated_at", filters.updatedFrom);
+  }
+  if (filters.updatedTo) {
+    query = query.lte("updated_at", filters.updatedTo);
+  }
+  // Prefer the synced column — do not scan client_status_history.
+  if (filters.statusId) {
+    query = query.eq("status_id", filters.statusId);
+  }
+  if (filters.interestType) {
+    query = query.eq("interest_type", filters.interestType);
+  }
+  const search = filters.search ? sanitizeSearchTerm(filters.search) : "";
+  if (search) {
+    const digits = search.replace(/\D/g, "");
+    const parts = [
+      `name_en.ilike.%${search}%`,
+      `name_ar.ilike.%${search}%`,
+      `name.ilike.%${search}%`,
+      `phone.ilike.%${search}%`,
+    ];
+    if (digits.length >= 3) {
+      parts.push(`phone.ilike.%${digits}%`);
+    }
+    query = query.or(parts.join(","));
+  }
+  return query;
+}
+
+async function getClientListCounts(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  companyId: string,
+  filters: ClientFilters,
+): Promise<ActionResult<ClientListCounts>> {
+  const base = { ...filters, interestType: undefined, page: undefined, pageSize: undefined };
+
+  const countFor = async (extra?: Partial<ClientFilters>) => {
+    let q = supabase
+      .from("clients")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId);
+    q = applyClientFilters(q, { ...base, ...extra });
+    const { count, error } = await q;
+    if (error) return { error: error.message as string };
+    return { data: count ?? 0 };
+  };
+
+  const [all, sale, rent, followUps] = await Promise.all([
+    countFor(),
+    countFor({ interestType: "Sale" }),
+    countFor({ interestType: "Rent" }),
+    (async () => {
+      let q = supabase
+        .from("clients")
+        .select("id", { count: "exact", head: true })
+        .eq("company_id", companyId)
+        .gte("follow_up_date", new Date().toISOString().slice(0, 10));
+      q = applyClientFilters(q, base);
+      const { count, error } = await q;
+      if (error) return { error: error.message as string };
+      return { data: count ?? 0 };
+    })(),
+  ]);
+
+  if (all.error) return { error: all.error };
+  if (sale.error) return { error: sale.error };
+  if (rent.error) return { error: rent.error };
+  if (followUps.error) return { error: followUps.error };
+
+  return {
+    data: {
+      all: all.data ?? 0,
+      sale: sale.data ?? 0,
+      rent: rent.data ?? 0,
+      followUps: followUps.data ?? 0,
+    },
+  };
 }
 
 export async function getClientStatusesForCompany(
@@ -796,7 +921,9 @@ export async function getUpcomingFollowUps(
   let clientQuery = supabase
     .from("clients")
     .select(
-      `*, employee:profiles!clients_employee_id_fkey(id, name, name_en, name_ar, employee:employees!profiles_employee_id_fkey(first_name_en, first_name_ar, last_name_en, last_name_ar)), status:client_statuses(id, name_en, name_ar)`,
+      `id, name, name_en, name_ar, phone, country_code, interest_type, follow_up_date, follow_up_time, employee_id, status_id, company_id, created_at, updated_at,
+       employee:profiles!clients_employee_id_fkey(id, name, name_en, name_ar, employee:employees!profiles_employee_id_fkey(first_name_en, first_name_ar, last_name_en, last_name_ar)),
+       status:client_statuses(id, name_en, name_ar)`,
     )
     .eq("company_id", companyId)
     .not("follow_up_date", "is", null)

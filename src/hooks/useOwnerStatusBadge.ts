@@ -64,28 +64,34 @@ function freshnessBadge(
  * Rule: Updated if last status (or owner created_at fallback) is within 30 days;
  * otherwise Outdated. New owners with no status history use created_at so they
  * are not marked Outdated immediately.
+ *
+ * Pass `preloadedLatest` from a batched list fetch to skip the per-card query.
  */
 export const useOwnerStatusBadge = (
   ownerId?: string,
   companyId?: string,
   fallbackDate?: string | null,
+  preloadedLatest?: { created_at: string } | null,
 ): OwnerStatusBadge => {
   const { t } = useTranslation();
+  const hasPreload = preloadedLatest !== undefined;
   const { data: latest, isLoading, isError } = useOwnerLatestStatus(
-    ownerId,
-    companyId,
+    hasPreload ? undefined : ownerId,
+    hasPreload ? undefined : companyId,
   );
 
-  if (isLoading) {
+  if (!hasPreload && isLoading) {
     return { ...BADGE.loading, text: t("Checking...") };
   }
 
-  if (isError) {
+  if (!hasPreload && isError) {
     return { ...BADGE.unknown, text: t("Unknown") };
   }
 
-  if (latest?.created_at) {
-    return freshnessBadge(new Date(latest.created_at), t);
+  const resolved = hasPreload ? preloadedLatest : latest;
+
+  if (resolved?.created_at) {
+    return freshnessBadge(new Date(resolved.created_at), t);
   }
 
   if (fallbackDate) {
