@@ -2,6 +2,7 @@
 // POST /v1/listings request body. See docs/portals/propertyfinder-api-reference.md
 // & docs/portals/propertyfinder-openapi.json.
 
+import { filterPfAmenities } from "@/lib/portals/amenities";
 import type {
   PortalCredentials,
   PropertyWithRelations,
@@ -104,7 +105,24 @@ function mapBedrooms(bedrooms: string | null): string | undefined {
   const b = normalize(bedrooms);
   if (b === "studio" || b === "0") return "studio";
   const n = parseInt(b, 10);
-  return Number.isNaN(n) ? undefined : String(n);
+  if (Number.isNaN(n)) return undefined;
+  if (n <= 0) return "studio";
+  return String(Math.min(n, 30));
+}
+
+/**
+ * PF `bathrooms` enum accepts "none" or "1".."20" — a plain "0" (which the
+ * CRM form happily stores) is rejected with a 400, so map it to "none" and
+ * clamp anything above the enum's ceiling.
+ */
+function mapBathrooms(bathrooms: string | null): string | undefined {
+  if (!bathrooms) return undefined;
+  const b = normalize(bathrooms);
+  if (b === "none") return "none";
+  const n = parseInt(b, 10);
+  if (Number.isNaN(n)) return undefined;
+  if (n <= 0) return "none";
+  return String(Math.min(n, 20));
 }
 
 function mapEmirate(emirate: string | null): string | undefined {
@@ -123,6 +141,8 @@ export function mapPropertyToPfListing(
   cred: PortalCredentials,
 ): Record<string, unknown> {
   const typeName = property.property_type?.name_en || property.type;
+  const category = mapCategory(typeName);
+  const pfType = mapType(typeName);
   const priceType = mapPriceType(property.listing_type, property.rent_frequency);
   const amount = Math.round(property.price);
 
@@ -136,8 +156,8 @@ export function mapPropertyToPfListing(
 
   const body: Record<string, unknown> = {
     reference: property.code,
-    category: mapCategory(typeName),
-    type: mapType(typeName),
+    category,
+    type: pfType,
     title: {
       en: property.title || undefined,
       ar: property.title_ar || undefined,
@@ -148,13 +168,14 @@ export function mapPropertyToPfListing(
     },
     price: { type: priceType, amounts: { [priceType]: amount } },
     size: property.building_area ?? property.land_area ?? undefined,
-    amenities: property.amenities ?? [],
+    amenities: filterPfAmenities(property.amenities, category, pfType),
     media: firstVideo ? { images, videos: { default: firstVideo } } : { images },
   };
 
   const bedrooms = mapBedrooms(property.bedrooms);
   if (bedrooms) body.bedrooms = bedrooms;
-  if (property.bathrooms) body.bathrooms = property.bathrooms;
+  const bathrooms = mapBathrooms(property.bathrooms);
+  if (bathrooms) body.bathrooms = bathrooms;
   if (property.furnishing) body.furnishingType = property.furnishing;
   if (property.project_status) body.projectStatus = property.project_status;
   if (property.available_from) body.availableFrom = property.available_from;
@@ -170,7 +191,13 @@ export function mapPropertyToPfListing(
 
   if (cred.pf_public_profile_id) {
     const id = Number(cred.pf_public_profile_id);
-    body.createdBy = { id: Number.isNaN(id) ? cred.pf_public_profile_id : id };
+    const profile = { id: Number.isNaN(id) ? cred.pf_public_profile_id : id };
+    body.createdBy = profile;
+    // PF rejects the create with "/assigned_to: This field is required." when
+    // no agent is assigned. We have no per-employee PF public-profile id yet,
+    // so the company's configured profile owns every listing — reassign on the
+    // PF side, or add a per-agent id later if agents need their own byline.
+    body.assignedTo = profile;
   }
 
   const permitType = mapPermitType(property.permit_type);

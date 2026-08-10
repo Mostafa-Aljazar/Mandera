@@ -5,12 +5,16 @@ import { assertCompanyMember } from "@/actions/_access";
 import { canApproveProperties, canPublishToPortals, canViewCompanySettings } from "@/lib/permissions";
 import {
   createListing,
+  updateListing,
+  findListingByReference,
   publishListing,
   unpublishListing,
   getCompliance,
   searchLocations,
+  listUsers,
   diagnosePfConnection,
   type PfLocation,
+  type PfUser,
   type ConnectionDiagnosticStep,
   PropertyFinderError,
 } from "@/lib/portals/propertyfinder/client";
@@ -22,6 +26,7 @@ import type {
   PortalCredentials,
   PortalPublicConfig,
   PropertyPublication,
+  PropertyPublicationStatus,
   PropertyWithRelations,
 } from "@/types/supabase-entities.types";
 
@@ -173,6 +178,98 @@ export async function upsertPortalCredentials(
 
   if (error) return { error: error.message };
   return { data: data as PortalCredentials };
+}
+
+/**
+ * Re-check a pending PropertyFinder publication against PF's live state.
+ *
+ * The publish-time poll gives up after a few seconds, so a listing PF rejects
+ * later would otherwise sit on "pending" forever. The publish dialog calls this
+ * on open, which is the only moment anyone is actually looking at the status.
+ *
+ * No-ops unless there's a pending PF row — nothing to correct otherwise.
+ */
+export async function refreshPfPublicationStatus(
+  propertyId: string,
+): Promise<ActionResult<PropertyPublication | null>> {
+  const property = await fetchPropertyWithRelations(propertyId);
+  if (!property) return { error: "Property not found" };
+
+  const access = await assertCompanyMember(property.company_id);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  // Refreshing writes to property_publications, which RLS restricts the same
+  // way publishing is — for everyone else this is simply a no-op.
+  if (!canPublishToPortals(access.data.role)) return { data: null };
+
+  const supabase = await getServerSupabase();
+  const { data: pub } = await supabase
+    .from("property_publications")
+    .select("status, external_id")
+    .eq("property_id", propertyId)
+    .eq("platform", "propertyfinder")
+    .maybeSingle();
+  if (!pub || pub.status !== "pending") return { data: null };
+
+  const cred = await loadCredential(property.company_id, "propertyfinder");
+  if (!cred || !cred.api_key || !cred.api_secret) return { data: null };
+
+  try {
+    const listing = await findListingByReference(cred, property.code);
+    const stateType = listing?.state?.type;
+    if (stateType === "live") {
+      return upsertPublication(propertyId, property.company_id, "propertyfinder", {
+        status: "published",
+        last_error: null,
+        published_at: new Date().toISOString(),
+        last_synced_at: new Date().toISOString(),
+      });
+    }
+    if (stateType && /failed|rejected/.test(stateType)) {
+      const reason =
+        (listing?.state?.reasons ?? [])
+          .map((r) => r.en || r.ar)
+          .filter(Boolean)
+          .join(" | ") || stateType;
+      return upsertPublication(propertyId, property.company_id, "propertyfinder", {
+        status: "failed",
+        last_error: reason,
+        last_synced_at: new Date().toISOString(),
+      });
+    }
+    return { data: null }; // still in flight — leave it pending
+  } catch (err) {
+    // A failed status check must never look like a publishing failure.
+    console.warn(
+      `[PropertyFinder] status refresh failed for ${property.code}:`,
+      (err as Error).message,
+    );
+    return { data: null };
+  }
+}
+
+/** The PF agents this company's key may assign listings to — populates the
+ *  public-profile picker in Settings → Portal Integrations. Manager-only, same
+ *  gate as the credentials themselves. */
+export async function listPfUsers(companyId: string): Promise<ActionResult<PfUser[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) {
+    return { error: access.error || "Access denied" };
+  }
+  if (!canViewCompanySettings(access.data.role)) {
+    return { error: "Only managers can manage portal credentials." };
+  }
+
+  const cred = await loadCredential(companyId, "propertyfinder");
+  if (!cred || !cred.api_key || !cred.api_secret) {
+    return { error: "Enter and save the PropertyFinder API key and secret first." };
+  }
+  try {
+    return { data: await listUsers(cred) };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
 }
 
 /** Search PropertyFinder locations for the manual location picker in the form.
@@ -427,21 +524,88 @@ export async function setPortalPublication(
       }
 
       const body = mapPropertyToPfListing(property, cred);
-      const created = await createListing(cred, body);
-      const listingId = String(created.id);
+
+      // PF keys listings by our `reference` and rejects a second create with
+      // the same one ("A Catalog with this reference already exists for this
+      // client"). A listing can therefore exist on PF while we hold no
+      // external_id — an earlier run whose bookkeeping row never landed, or a
+      // publish that failed on PF's side after the create succeeded. Adopt it
+      // and update in place instead of dead-ending on a duplicate reference.
+      const supabase = await getServerSupabase();
+      const { data: existing } = await supabase
+        .from("property_publications")
+        .select("external_id")
+        .eq("property_id", propertyId)
+        .eq("platform", portal)
+        .maybeSingle();
+
+      let listingId = (existing?.external_id as string | null) ?? null;
+      if (!listingId) {
+        const found = await findListingByReference(cred, property.code);
+        listingId = found?.id ?? null;
+      }
+
+      if (listingId) {
+        await updateListing(cred, listingId, body);
+      } else {
+        listingId = String((await createListing(cred, body)).id);
+      }
       await publishListing(cred, listingId);
 
+      // Publishing is asynchronous on PF's side. Compliance rejections
+      // (invalid/expired permit, permit at capacity) settle in a second or
+      // two, but NOT instantly — reading the state back immediately races the
+      // publish and reports a stale "draft", which is how a rejected listing
+      // ended up displayed as "pending" indefinitely. Poll a few times and
+      // stop as soon as the state is terminal; if it is still in flight when
+      // the budget runs out, leave it pending as before.
+      let status: PropertyPublicationStatus = "pending";
+      let lastError: string | null = null;
+      try {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 1500 : 2000));
+          const after = await findListingByReference(cred, property.code);
+          const stateType = after?.state?.type;
+          if (stateType === "live") {
+            status = "published";
+            break;
+          }
+          if (stateType && /failed|rejected/.test(stateType)) {
+            status = "failed";
+            lastError =
+              (after?.state?.reasons ?? [])
+                .map((r) => r.en || r.ar)
+                .filter(Boolean)
+                .join(" | ") || stateType;
+            break;
+          }
+        }
+      } catch (readBackErr) {
+        // Best-effort only — the publish request itself already succeeded.
+        console.warn(
+          `[PropertyFinder] could not read back listing state for ${property.code}:`,
+          (readBackErr as Error).message,
+        );
+      }
+
       return upsertPublication(propertyId, property.company_id, portal, {
-        status: "pending",
+        status,
         external_id: listingId,
-        last_error: null,
+        last_error: lastError,
         last_synced_at: new Date().toISOString(),
+        ...(status === "published" ? { published_at: new Date().toISOString() } : {}),
       });
     } catch (err) {
-      const message =
-        err instanceof PropertyFinderError
-          ? `${err.message}: ${typeof err.body === "string" ? err.body : ""}`.trim()
-          : (err as Error).message;
+      const message = (err as Error).message;
+      if (err instanceof PropertyFinderError) {
+        // The trimmed message goes to the UI/`last_error`; keep the raw
+        // envelope in the server log so a rejected field can be traced
+        // without re-running the publish.
+        console.error(
+          `[PropertyFinder] publish failed for property ${propertyId}:`,
+          JSON.stringify(err.body),
+        );
+      }
       await upsertPublication(propertyId, property.company_id, portal, {
         status: "failed",
         last_error: message,
@@ -467,7 +631,15 @@ export async function setPortalPublication(
   } catch (err) {
     const message =
       err instanceof PropertyFinderError ? err.message : (err as Error).message;
-    return { error: message };
+    // "catalog is not live" — the listing never made it live (still a draft, or
+    // its publish was rejected), so there is nothing to pull down. That's the
+    // outcome the caller asked for, not a failure: fall through and record it
+    // as unpublished instead of leaving the toggle stuck on.
+    const alreadyNotLive =
+      err instanceof PropertyFinderError &&
+      err.status === 422 &&
+      /not\s+live/i.test(message);
+    if (!alreadyNotLive) return { error: message };
   }
 
   return upsertPublication(propertyId, property.company_id, portal, {

@@ -9,6 +9,8 @@ import {
   regenerateFeedToken,
   setPortalPublication,
   testPfConnection,
+  listPfUsers,
+  refreshPfPublicationStatus,
   type UpsertPortalCredentialsInput,
 } from "@/actions/portalPublishing";
 import type { Portal } from "@/types/supabase-entities.types";
@@ -93,6 +95,36 @@ export function useRegenerateFeedToken() {
       if (result.error) return;
       queryClient.invalidateQueries({ queryKey: ["portal_credentials", companyId] });
     },
+  });
+}
+
+/** Re-check a pending PropertyFinder publication against PF's live state.
+ *  Called when the publish dialog opens — PF can reject a listing minutes after
+ *  the publish request, long after the publish-time poll gave up. */
+export function useRefreshPfPublicationStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (propertyId: string) => refreshPfPublicationStatus(propertyId),
+    onSuccess: (result, propertyId) => {
+      if (result.error || !result.data) return; // nothing changed
+      queryClient.invalidateQueries({ queryKey: ["property_publications", propertyId] });
+    },
+  });
+}
+
+/** PF agents available for the public-profile picker. Only fetched once the
+ *  company has saved API credentials — the call needs them. */
+export function usePfUsers(companyId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["pf_users", companyId],
+    queryFn: async () => {
+      const result = await listPfUsers(companyId!);
+      if (result.error) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: !!companyId && enabled,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 }
 

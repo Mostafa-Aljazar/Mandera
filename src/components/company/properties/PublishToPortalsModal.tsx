@@ -7,10 +7,12 @@ import {
   usePropertyPublications,
   usePortalPublicConfig,
   useSetPortalPublication,
+  useRefreshPfPublicationStatus,
 } from "@/hooks/queries/usePortalPublishing";
 import { useCompanyAuth } from "@/contexts/CompanyAuthContext";
 import { canPublishToPortals } from "@/lib/permissions";
 import { validatePropertyForPortal } from "@/lib/portals/validate";
+import { portalErrorI18n } from "@/lib/portals/portalErrorMessage";
 import type {
   Portal,
   PortalPublicConfig,
@@ -63,8 +65,30 @@ export default function PublishToPortalsModal({ property, isOpen, onClose }: Pro
   const { data: pubs } = usePropertyPublications(property?.id);
   const { data: configs } = usePortalPublicConfig(property?.company_id);
   const setPublication = useSetPortalPublication();
+  const refreshStatus = useRefreshPfPublicationStatus();
 
   const [pendingPortal, setPendingPortal] = React.useState<Portal | null>(null);
+
+  // Portal errors arrive as raw English from PF. Show the Arabic copy for the
+  // ones we've mapped, and PF's own wording for anything new — an untranslated
+  // English reason beats a vague generic one.
+  const translatePortalError = React.useCallback(
+    (raw: string) => {
+      const mapped = portalErrorI18n(raw);
+      return mapped ? t(mapped.key, mapped.values) : raw;
+    },
+    [t],
+  );
+
+  // PF can reject a listing after our publish-time poll has given up, leaving
+  // the row stuck on "pending". Opening this dialog is the one moment someone
+  // is actually looking at the status, so re-check once per open. The action
+  // no-ops server-side unless there is a pending PropertyFinder row.
+  const propertyId = property?.id;
+  const refreshMutate = refreshStatus.mutate;
+  React.useEffect(() => {
+    if (isOpen && propertyId) refreshMutate(propertyId);
+  }, [isOpen, propertyId, refreshMutate]);
 
   if (!property) return null;
 
@@ -103,7 +127,8 @@ export default function PublishToPortalsModal({ property, isOpen, onClose }: Pro
         enabled ? t("Publishing requested") : t("Unpublished"),
       );
     } catch (err) {
-      toast.error((err as Error).message || t("Failed to update publication"));
+      const raw = (err as Error).message;
+      toast.error(raw ? translatePortalError(raw) : t("Failed to update publication"));
     } finally {
       setPendingPortal(null);
     }
@@ -192,7 +217,9 @@ export default function PublishToPortalsModal({ property, isOpen, onClose }: Pro
                 )}
 
                 {pub?.status === "failed" && pub.last_error && (
-                  <p className="text-xs text-red-700 break-words">{pub.last_error}</p>
+                  <p className="text-xs text-red-700 break-words">
+                    {translatePortalError(pub.last_error)}
+                  </p>
                 )}
 
                 {key === "bayut" || key === "dubizzle" ? (

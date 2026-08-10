@@ -42,6 +42,59 @@ function bodySnippet(data: unknown, max = 200): string {
   return text.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+/** PF's JSON error envelope: `{type, title, detail, errors: [{detail, pointer}]}`. */
+interface PfErrorEnvelope {
+  type?: string;
+  title?: string;
+  detail?: string;
+  errors?: Array<{ detail?: string; title?: string; pointer?: string }>;
+}
+
+function tryParseJson(text: string): unknown {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) return undefined;
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Turn a PF error body into the one line that actually says what's wrong.
+ *
+ * Two shapes show up in practice: a flat envelope whose `errors[]` carry a
+ * JSON-pointer per offending field, and — on `POST /v1/listings` — an envelope
+ * whose `detail` is the *stringified* inner envelope ("failed to create
+ * listing: ... request failed: {...}"). Without unwrapping that, the caller
+ * only ever sees the useless outer wrapper, so recurse into embedded JSON.
+ */
+function describePfError(data: unknown, depth = 0): string {
+  if (data == null || depth > 5) return "";
+
+  if (typeof data === "string") {
+    const embedded = tryParseJson(data);
+    const inner = embedded ? describePfError(embedded, depth + 1) : "";
+    return inner || data.replace(/\s+/g, " ").trim();
+  }
+
+  if (typeof data !== "object") return String(data);
+
+  const env = data as PfErrorEnvelope;
+  const fieldErrors = (env.errors ?? [])
+    .map((e) =>
+      [e.pointer?.replace(/^\//, ""), e.detail || e.title].filter(Boolean).join(": "),
+    )
+    .filter(Boolean);
+  if (fieldErrors.length) return fieldErrors.join(" | ");
+
+  const fromDetail = env.detail ? describePfError(env.detail, depth + 1) : "";
+  if (fromDetail) return fromDetail;
+
+  return env.title ?? bodySnippet(data);
+}
+
 async function requestToken(apiKey: string, apiSecret: string): Promise<{
   accessToken: string;
   expiresIn: number;
@@ -114,10 +167,10 @@ async function apiFetch<T>(
   }
 
   if (res.status < 200 || res.status >= 300) {
-    // Surface a short snippet of the response body in the message itself —
-    // callers that just log/display `err.message` (rather than `err.body`)
-    // still get the real reason instead of a bare status code.
-    const snippet = bodySnippet(res.data);
+    // Surface the real reason in the message itself — callers that just
+    // log/display `err.message` (rather than `err.body`) still get the
+    // offending field instead of a bare status code or a truncated envelope.
+    const snippet = describePfError(res.data).slice(0, 600) || bodySnippet(res.data);
     const suffix = snippet ? `: ${snippet}` : "";
     throw new PropertyFinderError(
       `PropertyFinder ${method} ${path} failed (${res.status})${suffix}`,
@@ -150,6 +203,42 @@ export async function searchLocations(
   return res?.data ?? [];
 }
 
+export interface PfUser {
+  /** The user's public-profile id — this is what `createdBy`/`assignedTo` take,
+   *  NOT the user id, and not the broker/client id shown in PF's own UI. */
+  publicProfileId: number;
+  name: string;
+  email?: string;
+  status?: string;
+}
+
+interface PfUserRow {
+  id?: number;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  status?: string;
+  publicProfile?: { id?: number; name?: string };
+}
+
+/** GET /v1/users — the agents this API key may assign listings to. */
+export async function listUsers(cred: PortalCredentials): Promise<PfUser[]> {
+  const res = await apiFetch<{ data: PfUserRow[] }>(cred, `/v1/users?perPage=100`);
+  return (res?.data ?? [])
+    .filter((u) => typeof u.publicProfile?.id === "number")
+    .map((u) => ({
+      publicProfileId: u.publicProfile?.id as number,
+      name:
+        u.publicProfile?.name ||
+        u.name ||
+        [u.firstName, u.lastName].filter(Boolean).join(" ") ||
+        `Profile ${u.publicProfile?.id}`,
+      email: u.email,
+      status: u.status,
+    }));
+}
+
 /** GET /v1/compliances/{permitNumber}/{licenseNumber} — DLD permit validation. */
 export async function getCompliance(
   cred: PortalCredentials,
@@ -168,6 +257,53 @@ export async function createListing(
   body: Record<string, unknown>,
 ): Promise<{ id: number | string }> {
   return apiFetch(cred, `/v1/listings`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export interface PfListingSummary {
+  id: string;
+  reference: string;
+  /** `{stage, type, reasons[]}` — `type` is where publishing_failed shows up. */
+  state?: {
+    stage?: string;
+    type?: string;
+    reasons?: Array<{ en?: string; ar?: string }>;
+  };
+}
+
+/**
+ * GET /v1/listings?filter[reference]= — find a listing by our own reference.
+ *
+ * Two traps: the collection is returned under `results` (NOT `data`, which is
+ * what /v1/users uses), and `draft` defaults to false, so a listing that never
+ * went live is invisible unless it is passed explicitly. Search drafts first —
+ * that is where a listing whose publish failed sits.
+ */
+export async function findListingByReference(
+  cred: PortalCredentials,
+  reference: string,
+): Promise<PfListingSummary | null> {
+  const path = `/v1/listings?filter[reference]=${encodeURIComponent(reference)}&perPage=5`;
+  for (const draft of [true, false]) {
+    const res = await apiFetch<{ results?: PfListingSummary[] }>(
+      cred,
+      `${path}&draft=${draft}`,
+    );
+    const match = (res?.results ?? []).find((l) => l.reference === reference);
+    if (match) return match;
+  }
+  return null;
+}
+
+/** PUT /v1/listings/{id} — replace an existing listing (same body as create). */
+export async function updateListing(
+  cred: PortalCredentials,
+  listingId: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  await apiFetch(cred, `/v1/listings/${encodeURIComponent(listingId)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 /** POST /v1/listings/{id}/publish — request publication (async; confirmed via webhook). */

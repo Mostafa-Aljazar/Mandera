@@ -11,12 +11,20 @@ import {
   useUpsertPortalCredentials,
   useRegenerateFeedToken,
   useTestPfConnection,
+  usePfUsers,
 } from "@/hooks/queries/usePortalPublishing";
 import SettingsSection from "@/components/company/settings/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Accordion,
   AccordionContent,
@@ -35,6 +43,7 @@ import {
   ClipboardCopy,
   HelpCircle,
   AlertTriangle,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ConnectionDiagnosticStep } from "@/lib/portals/propertyfinder/client";
@@ -82,6 +91,17 @@ export default function PortalIntegrationsTab() {
       });
     }
   }, [pf]);
+
+  // The agent picker needs saved credentials — PF's Users endpoint is what
+  // resolves a name to the public-profile id that `assignedTo` requires.
+  const pfHasSavedCredentials = !!pf?.api_key && !!pf?.api_secret;
+  const pfUsersQuery = usePfUsers(companyId, pfHasSavedCredentials);
+  const savedProfileId = pfForm.pf_public_profile_id;
+  const staleProfileId =
+    savedProfileId &&
+    pfUsersQuery.data?.every((u) => String(u.publicProfileId) !== savedProfileId)
+      ? savedProfileId
+      : null;
 
   if (!companyId) return null;
 
@@ -288,14 +308,65 @@ export default function PortalIntegrationsTab() {
             />
           </div>
           <div className="space-y-2">
-            <Label>{t("Public Profile ID")}</Label>
-            <Input
-              dir="ltr"
-              value={pfForm.pf_public_profile_id}
-              onChange={(e) =>
-                setPfForm((f) => ({ ...f, pf_public_profile_id: e.target.value }))
-              }
-            />
+            <Label>{t("Listing Agent (Public Profile)")}</Label>
+            {pfUsersQuery.isSuccess && (pfUsersQuery.data?.length ?? 0) > 0 ? (
+              <Select
+                value={pfForm.pf_public_profile_id || undefined}
+                onValueChange={(v) =>
+                  setPfForm((f) => ({ ...f, pf_public_profile_id: v }))
+                }
+              >
+                <SelectTrigger dir="ltr">
+                  <SelectValue placeholder={t("Select an agent")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {pfUsersQuery.data?.map((u) => (
+                    <SelectItem key={u.publicProfileId} value={String(u.publicProfileId)}>
+                      {u.name} · {u.publicProfileId}
+                    </SelectItem>
+                  ))}
+                  {/* A previously-saved id that PF no longer returns would make
+                      the Select look empty — keep it selectable, but flag it as
+                      the reason publishing rejects the listing. */}
+                  {staleProfileId ? (
+                    <SelectItem value={staleProfileId}>
+                      {staleProfileId} — {t("not an agent in this PropertyFinder account")}
+                    </SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
+            ) : null}
+            {pfUsersQuery.isSuccess && (pfUsersQuery.data?.length ?? 0) > 0 ? (
+              // The list isn't ours to edit — say where it comes from, so a
+              // missing agent is understood as "add them on PropertyFinder",
+              // not "this field is broken".
+              <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <Download className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>
+                  {t(
+                    "This list is loaded live from your PropertyFinder account. To add or rename an agent, do it there.",
+                  )}
+                </span>
+              </p>
+            ) : (
+              <>
+                <Input
+                  dir="ltr"
+                  value={pfForm.pf_public_profile_id}
+                  onChange={(e) =>
+                    setPfForm((f) => ({ ...f, pf_public_profile_id: e.target.value }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  {!pfHasSavedCredentials
+                    ? t("Save the API key and secret first to pick an agent from the list.")
+                    : pfUsersQuery.isPending
+                      ? t("Loading agents from PropertyFinder…")
+                      : (pfUsersQuery.error as Error | null)?.message ||
+                        t("No agents returned by PropertyFinder for this API key.")}
+                </p>
+              </>
+            )}
           </div>
           <div className="space-y-2">
             <Label>{t("License Number")}</Label>
