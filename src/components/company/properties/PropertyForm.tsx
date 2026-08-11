@@ -2025,7 +2025,7 @@ export default function PropertyForm({
                     label={t("Advertising Permit Number")}
                     required
                     error={errors.advertising_permit_number?.message}
-                    hint={t("RERA / Trakheesi / ADREC permit")}
+                    hint={t("The permit issued for this specific listing — Madhmoun in Abu Dhabi, Trakheesi in Dubai. Not the brokerage licence number.")}
                   >
                     <Input
                       dir="ltr"
@@ -2039,7 +2039,7 @@ export default function PropertyForm({
 
                   <FieldBlock
                     label={t("License Number")}
-                    hint={t("Optional here — company default is set in Settings")}
+                    hint={t("The brokerage licence. Optional here — company default is set in Settings.")}
                   >
                     <Input
                       dir="ltr"

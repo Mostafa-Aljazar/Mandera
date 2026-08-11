@@ -44,6 +44,8 @@ import {
   HelpCircle,
   AlertTriangle,
   Download,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ConnectionDiagnosticStep } from "@/lib/portals/propertyfinder/client";
@@ -60,6 +62,7 @@ export default function PortalIntegrationsTab() {
   const testConnection = useTestPfConnection();
   const [diagnostics, setDiagnostics] = useState<ConnectionDiagnosticStep[] | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [showApiSecret, setShowApiSecret] = useState(false);
 
   const bayut = creds?.find((c) => c.platform === "bayut_dubizzle") ?? null;
   const pf = creds?.find((c) => c.platform === "propertyfinder") ?? null;
@@ -300,12 +303,37 @@ export default function PortalIntegrationsTab() {
           </div>
           <div className="space-y-2">
             <Label>{t("API Secret")}</Label>
-            <Input
-              dir="ltr"
-              type="password"
-              value={pfForm.api_secret}
-              onChange={(e) => setPfForm((f) => ({ ...f, api_secret: e.target.value }))}
-            />
+            {/*
+              Keep the whole control LTR: the secret is Latin text, and
+              pe/end must agree with the input's direction or the eye
+              overlaps the masked value in Arabic (RTL) UI.
+            */}
+            <div className="relative" dir="ltr">
+              <Input
+                dir="ltr"
+                type={showApiSecret ? "text" : "password"}
+                className="pe-11"
+                value={pfForm.api_secret}
+                onChange={(e) =>
+                  setPfForm((f) => ({ ...f, api_secret: e.target.value }))
+                }
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiSecret((v) => !v)}
+                className="top-1/2 absolute end-1.5 flex justify-center items-center hover:bg-muted rounded-lg w-8 h-8 text-muted-foreground hover:text-foreground transition-colors -translate-y-1/2"
+                aria-label={
+                  showApiSecret ? t("Hide password") : t("Show password")
+                }
+              >
+                {showApiSecret ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
           </div>
           <div className="space-y-2">
             <Label>{t("Listing Agent (Public Profile)")}</Label>
@@ -369,7 +397,7 @@ export default function PortalIntegrationsTab() {
             )}
           </div>
           <div className="space-y-2">
-            <Label>{t("License Number")}</Label>
+            <Label>{t("Brokerage Licence Number")}</Label>
             <Input
               dir="ltr"
               value={pfForm.license_number}
@@ -377,6 +405,15 @@ export default function PortalIntegrationsTab() {
                 setPfForm((f) => ({ ...f, license_number: e.target.value }))
               }
             />
+            {/* Abu Dhabi listings carry three lookalike numbers — brokerage
+                licence, per-listing permit, and the agent's own licence.
+                Putting the wrong one here makes PF reject every publish with
+                an opaque "parent permit is invalid", so name the right one. */}
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "The brokerage licence issued to your company by ADREC / RERA (digits only, e.g. 20250000615558) — not the agent CN-… licence, and not a property permit number.",
+              )}
+            </p>
           </div>
           <div className="md:col-span-2">
             <Accordion type="single" collapsible className="rounded-xl border border-border/60 bg-muted/20 px-4">
