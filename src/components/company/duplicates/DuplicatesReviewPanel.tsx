@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import {
   useDuplicates,
@@ -71,6 +72,38 @@ export default function DuplicatesReviewPanel({
   const mergeClientsMutation = useMergeClients();
   const mergeOwnersMutation = useMergeOwners();
   const mergePropertiesMutation = useMergeProperties();
+
+  /** Merging rewrites related rows onto the kept record and deletes the rest,
+   *  so it gets a confirmation naming the survivor and the count going away. */
+  const [pendingMerge, setPendingMerge] = useState<{
+    type: "clients" | "owners" | "properties";
+    keepId: string;
+    keepLabel: string;
+    mergeIds: string[];
+  } | null>(null);
+
+  const mergePending =
+    mergeClientsMutation.isPending ||
+    mergeOwnersMutation.isPending ||
+    mergePropertiesMutation.isPending;
+
+  const confirmMerge = async () => {
+    if (!pendingMerge) return;
+    const input = {
+      companyId,
+      keepId: pendingMerge.keepId,
+      mergeIds: pendingMerge.mergeIds,
+    };
+    const result =
+      pendingMerge.type === "clients"
+        ? await mergeClientsMutation.mutateAsync(input)
+        : pendingMerge.type === "owners"
+          ? await mergeOwnersMutation.mutateAsync(input)
+          : await mergePropertiesMutation.mutateAsync(input);
+    setPendingMerge(null);
+    if (result.error) toast.error(result.error);
+    else toast.success(t("Duplicate records merged."));
+  };
 
   const renderGroups = (
     type: "clients" | "owners" | "properties",
@@ -155,33 +188,19 @@ export default function DuplicatesReviewPanel({
                   variant="outline"
                   className="gap-1.5 h-8"
                   disabled={isMerging}
-                  onClick={async () => {
-                    if (
-                      !window.confirm(
-                        t("Merge these records into the selected record?"),
-                      )
-                    ) {
-                      return;
-                    }
-                    const input = {
-                      companyId,
+                  onClick={() =>
+                    setPendingMerge({
+                      type,
                       keepId,
+                      keepLabel: recordLabel(
+                        group.records.find((record) => record.id === keepId) ??
+                          group.records[0],
+                      ),
                       mergeIds: group.records
                         .map((record) => record.id)
                         .filter((id) => id !== keepId),
-                    };
-                    const result =
-                      type === "clients"
-                        ? await mergeClientsMutation.mutateAsync(input)
-                        : type === "owners"
-                          ? await mergeOwnersMutation.mutateAsync(input)
-                          : await mergePropertiesMutation.mutateAsync(input);
-                    if (result.error) {
-                      toast.error(result.error);
-                    } else {
-                      toast.success(t("Duplicate records merged."));
-                    }
-                  }}
+                    })
+                  }
                 >
                   {isMerging ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -268,6 +287,25 @@ export default function DuplicatesReviewPanel({
         </TabsContent>
       </Tabs>
       )}
+
+      <ConfirmDialog
+        open={pendingMerge !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingMerge(null);
+        }}
+        tone="warning"
+        icon={<GitMerge className="w-5 h-5" />}
+        title={t("Merge these records?")}
+        description={t(
+          "{{count}} duplicate records will be merged into the one you selected and then deleted. This cannot be undone.",
+          { count: pendingMerge?.mergeIds.length ?? 0 },
+        )}
+        detailLabel={t("Record kept")}
+        detailValue={pendingMerge?.keepLabel}
+        confirmLabel={t("Merge records")}
+        isSubmitting={mergePending}
+        onConfirm={confirmMerge}
+      />
     </section>
   );
 }

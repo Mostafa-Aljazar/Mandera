@@ -35,6 +35,11 @@ import {
 } from "@/hooks/queries/usePropertyApprovals";
 import { PropertySchema, type TPropertySchema } from "@/validations/property.schema";
 import { PF_AMENITIES, amenityI18nKey } from "@/lib/portals/amenities";
+import {
+  createPropertyUploadTickets,
+  discardPropertyUploads,
+} from "@/actions/properties";
+import { uploadAllToSignedUrls } from "@/lib/uploads/signedUpload";
 import PfLocationPicker from "./PfLocationPicker";
 import type { PropertyWithRelations } from "@/types/supabase-entities.types";
 import { Button } from "@/components/ui/button";
@@ -114,6 +119,12 @@ const PROJECT_STATUSES = [
 ];
 const MAX_IMAGES = 12;
 const MAX_FLOOR_PLANS = 6;
+
+/** What the property-images bucket accepts, minus GIF — PropertyFinder only
+ *  takes JPEG/PNG/WebP and every image here is portal-bound. */
+const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+/** The bucket's own per-file ceiling. */
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 const FIELD =
   "h-9 rounded-md bg-background border-input shadow-sm";
@@ -570,6 +581,12 @@ export default function PropertyForm({
     TAB_FIELDS[tab].some((field) => Boolean(errors[field]));
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Non-null while files are travelling to storage, so the save button can say
+   *  what is happening instead of appearing frozen on a slow connection. */
+  const [uploadProgress, setUploadProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const [imagesFiles, setImagesFiles] = useState<File[]>([]);
   const [existingImageUrls, setExistingImageUrls] = useState<string[]>(
     (property?.images ?? []) as string[],
@@ -671,7 +688,40 @@ export default function PropertyForm({
     );
   };
 
-  const addFilesRespectingLimit = (files: File[]) => {
+  /**
+   * Reject unsupported types and oversized files here rather than letting them
+   * fail mid-upload: storage enforces both, but only after the agent has
+   * waited for the transfer. HEIC is the common one — iPhones hand it over
+   * whenever the "Most Compatible" camera setting is off.
+   */
+  const acceptUploadableImages = (files: File[]): File[] => {
+    const usable: File[] = [];
+    for (const file of files) {
+      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+        toast.error(
+          t('"{{name}}" is not a supported image type. Use JPG, PNG or WebP.', {
+            name: file.name,
+          }),
+        );
+        continue;
+      }
+      if (file.size > MAX_IMAGE_BYTES) {
+        toast.error(
+          t('"{{name}}" is larger than {{limit}} MB.', {
+            name: file.name,
+            limit: MAX_IMAGE_BYTES / (1024 * 1024),
+          }),
+        );
+        continue;
+      }
+      usable.push(file);
+    }
+    return usable;
+  };
+
+  const addFilesRespectingLimit = (rawFiles: File[]) => {
+    const files = acceptUploadableImages(rawFiles);
+    if (files.length === 0) return;
     const remaining = MAX_IMAGES - existingImageUrls.length - imagesFiles.length;
     if (files.length > remaining) {
       toast.warning(t("Maximum 12 images allowed."));
@@ -683,7 +733,9 @@ export default function PropertyForm({
 
   const floorPlanCount = existingFloorPlanUrls.length + floorPlanFiles.length;
 
-  const addFloorPlanFilesRespectingLimit = (files: File[]) => {
+  const addFloorPlanFilesRespectingLimit = (rawFiles: File[]) => {
+    const files = acceptUploadableImages(rawFiles);
+    if (files.length === 0) return;
     const remaining = MAX_FLOOR_PLANS - floorPlanCount;
     if (files.length > remaining) {
       toast.warning(t("Maximum 6 floor plans allowed."));
@@ -716,9 +768,49 @@ export default function PropertyForm({
       return;
     }
     setIsSubmitting(true);
+    // Paths of files this submit put in storage, so they can be cleaned up if
+    // the save itself fails — otherwise a rejected submit leaves orphans.
+    let uploadedPaths: string[] = [];
+    let uploadedImageUrls: string[] = [];
+    let uploadedFloorPlanUrls: string[] = [];
     try {
       const finalEmployeeId =
         mode === "create" && isEmployee ? currentUser.id : values.employee_id;
+
+      // Send the files straight to storage first and post only their URLs with
+      // the form. Routing them through the Server Action instead capped a
+      // property at the platform's request-body limit (4.5 MB on Vercel) and
+      // failed with an opaque 413 as soon as agents attached phone photos.
+      if (imagesFiles.length > 0 || floorPlanFiles.length > 0) {
+        setUploadProgress({ done: 0, total: imagesFiles.length + floorPlanFiles.length });
+        const ticketResult = await createPropertyUploadTickets(company.id, [
+          ...imagesFiles.map((f) => ({
+            name: f.name,
+            type: f.type,
+            size: f.size,
+            kind: "image" as const,
+          })),
+          ...floorPlanFiles.map((f) => ({
+            name: f.name,
+            type: f.type,
+            size: f.size,
+            kind: "floor_plan" as const,
+          })),
+        ]);
+        if (ticketResult.error) throw new Error(ticketResult.error);
+
+        const tickets = ticketResult.data ?? [];
+        uploadedPaths = tickets.map((t) => t.path);
+        let done = 0;
+        const total = tickets.length;
+        const urls = await uploadAllToSignedUrls(
+          tickets,
+          [...imagesFiles, ...floorPlanFiles],
+          () => setUploadProgress({ done: ++done, total }),
+        );
+        uploadedImageUrls = urls.slice(0, imagesFiles.length);
+        uploadedFloorPlanUrls = urls.slice(imagesFiles.length);
+      }
 
       const portalPayload = {
         title_ar: values.title_ar || "",
@@ -771,9 +863,9 @@ export default function PropertyForm({
         note_ar: values.note_ar || "",
         status: values.status || "Available",
         advertising_permit_number: values.advertising_permit_number || "",
-        images: imagesFiles,
+        image_urls: uploadedImageUrls,
         keepImages: existingImageUrls,
-        floor_plans: floorPlanFiles,
+        floor_plan_urls: uploadedFloorPlanUrls,
         keepFloorPlans: existingFloorPlanUrls,
         ...portalPayload,
       };
@@ -839,7 +931,7 @@ export default function PropertyForm({
                 : imagesFiles.length || imagesRemoved.length
                   ? ["images"]
                   : changedFields,
-            imageFiles: imagesFiles,
+            imagesAdded: uploadedImageUrls,
             imagesRemoved,
           });
           toast.success(t("Change request submitted for review"));
@@ -874,8 +966,14 @@ export default function PropertyForm({
       }
     } catch (err) {
       console.error("Property Save Error:", err);
+      // The files are already in storage but nothing references them — drop
+      // them rather than accumulating orphans on every failed attempt.
+      if (uploadedPaths.length > 0) {
+        void discardPropertyUploads(company.id, uploadedPaths);
+      }
       toast.error((err as Error).message || t("Error saving property."));
     } finally {
+      setUploadProgress(null);
       setIsSubmitting(false);
     }
   });
@@ -1777,6 +1875,13 @@ export default function PropertyForm({
                     <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                       {t("Select up to 12 images. High quality (870x600px recommended).")}
                     </p>
+                    {/* Portals downscale to 1920x1080 regardless, so a 5 MB
+                        original buys nothing but a slower upload for the agent. */}
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      {t(
+                        "JPG, PNG or WebP, up to 20 MB each. Portals resize everything to 1920x1080, so shrinking large photos before uploading only makes them upload faster — no quality is lost.",
+                      )}
+                    </p>
                   </div>
                   <Badge variant="outline" className="tabular-nums shrink-0" dir="ltr">
                     {imageCount} / {MAX_IMAGES}
@@ -2072,7 +2177,10 @@ export default function PropertyForm({
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="me-2 w-4 h-4 animate-spin" /> {t("Saving...")}
+                  <Loader2 className="me-2 w-4 h-4 animate-spin" />{" "}
+                  {uploadProgress
+                    ? t("Uploading images {{done}}/{{total}}…", uploadProgress)
+                    : t("Saving...")}
                 </>
               ) : agentEditingApproved ? (
                 t("Submit Change Request")

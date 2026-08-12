@@ -26,6 +26,7 @@ import PropertyApprovalActions from "./PropertyApprovalActions";
 import PublishToPortalsModal from "./PublishToPortalsModal";
 import StatusHistoryDisplay from "@/components/common/StatusHistoryDisplay";
 import StatusUpdateModal from "@/components/common/StatusUpdateModal";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -145,6 +146,7 @@ export default function PropertyDetailView({ propertyId }: Props) {
 
   const [isEditing, setIsEditing] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<string | null>(null);
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
 
@@ -158,12 +160,12 @@ export default function PropertyDetailView({ propertyId }: Props) {
 
   const handleDelete = async () => {
     if (!propertyId) return;
-    if (!window.confirm(t("Delete this property? This cannot be undone."))) return;
     const result = await deleteMutation.mutateAsync(propertyId);
     if (result.error) {
       toast.error(t("Error deleting property."));
       return;
     }
+    setDeleteOpen(false);
     toast.success(t("Property deleted."));
     router.push("/company/properties");
   };
@@ -458,7 +460,7 @@ export default function PropertyDetailView({ propertyId }: Props) {
                 variant="ghost"
                 size="icon"
                 className="h-9 w-9 text-muted-foreground hover:text-destructive"
-                onClick={handleDelete}
+                onClick={() => setDeleteOpen(true)}
               >
                 <Trash2 className="w-4 h-4" />
               </Button>
@@ -1132,6 +1134,20 @@ export default function PropertyDetailView({ propertyId }: Props) {
         property={property}
         isOpen={publishOpen && showPublish}
         onClose={() => setPublishOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={t("Delete this property?")}
+        description={t(
+          "The listing and its images will be removed permanently. This cannot be undone.",
+        )}
+        detailLabel={t("Property code")}
+        detailValue={property?.code ?? undefined}
+        confirmLabel={t("Delete property")}
+        isSubmitting={deleteMutation.isPending}
+        onConfirm={handleDelete}
       />
     </div>
   );

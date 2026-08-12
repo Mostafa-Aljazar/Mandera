@@ -863,6 +863,126 @@ async function uploadPropertyFloorPlans(
   return urls;
 }
 
+// --- Direct-to-storage uploads --------------------------------------------
+//
+// Posting the image files themselves through a Server Action caps a property
+// at whatever the platform allows in one request body (4.5 MB on Vercel), and
+// blew up as a bare 413 once agents started attaching phone photos. Instead the
+// browser asks for a short-lived signed URL per file and PUTs straight to
+// Supabase Storage, so the bytes never traverse our server at all. The
+// per-file ceiling becomes the bucket's own 20 MB and the number of files stops
+// mattering.
+//
+// The browser still holds no Supabase client — a signed URL is an ordinary
+// `fetch` target — so the "only src/actions talks to Supabase" rule holds.
+
+/** Mirrors the property-images bucket allowlist, minus GIF: the bucket accepts
+ *  it, but PropertyFinder only takes JPEG/PNG/WebP, and every image here is
+ *  portal-bound. */
+const PROPERTY_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/** The bucket's own per-file limit (20 MB); rejecting here just gives a better
+ *  message than storage's raw error. */
+const PROPERTY_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
+
+/** Guards against a malformed client flooding storage with signed URLs. */
+const MAX_UPLOAD_TICKETS = 32;
+
+export interface PropertyUploadRequest {
+  name: string;
+  type: string;
+  size: number;
+  kind: "image" | "floor_plan";
+}
+
+export interface PropertyUploadTicket {
+  /** Short-lived URL the browser PUTs the file to. */
+  signedUrl: string;
+  /** Public URL to persist on the property once the upload succeeds. */
+  publicUrl: string;
+  path: string;
+}
+
+/** Strip anything that could climb out of the company's folder. */
+function safeFileName(name: string): string {
+  return (
+    name
+      .replace(/[/\\]/g, "-")
+      .replace(/[^\w.\-؀-ۿ]/g, "_")
+      .slice(-120) || "file"
+  );
+}
+
+/**
+ * Issue one signed upload URL per file, after checking the caller may write to
+ * this company. Returns the public URL alongside so the caller can persist it
+ * without a second round trip.
+ */
+export async function createPropertyUploadTickets(
+  companyId: string,
+  files: PropertyUploadRequest[],
+): Promise<ActionResult<PropertyUploadTicket[]>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
+  if (files.length === 0) return { data: [] };
+  if (files.length > MAX_UPLOAD_TICKETS) {
+    return { error: `Too many files in one request (max ${MAX_UPLOAD_TICKETS}).` };
+  }
+
+  for (const file of files) {
+    if (!PROPERTY_IMAGE_MIME_TYPES.includes(file.type)) {
+      return {
+        error: `"${file.name}" is not a supported image type. Use JPG, PNG or WebP.`,
+      };
+    }
+    if (file.size > PROPERTY_IMAGE_MAX_BYTES) {
+      return {
+        error: `"${file.name}" is larger than ${PROPERTY_IMAGE_MAX_BYTES / (1024 * 1024)} MB.`,
+      };
+    }
+  }
+
+  const supabase = await getServerSupabase();
+  const tickets: PropertyUploadTicket[] = [];
+
+  for (const file of files) {
+    const prefix = file.kind === "floor_plan" ? `${companyId}/floor-plans` : companyId;
+    const path = `${prefix}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
+
+    const { data, error } = await supabase.storage
+      .from("property-images")
+      .createSignedUploadUrl(path);
+    if (error) return { error: `Could not start upload: ${error.message}` };
+
+    const { data: pub } = supabase.storage.from("property-images").getPublicUrl(path);
+    tickets.push({ signedUrl: data.signedUrl, publicUrl: pub.publicUrl, path });
+  }
+
+  return { data: tickets };
+}
+
+/**
+ * Remove files uploaded for a property save that then failed — without this,
+ * an abandoned or rejected submit leaves orphans in the bucket. Best-effort:
+ * the caller is already handling an error and must not be handed a second one.
+ */
+export async function discardPropertyUploads(
+  companyId: string,
+  paths: string[],
+): Promise<ActionResult<null>> {
+  const access = await assertCompanyMember(companyId);
+  if (access.error || !access.data) return { error: access.error || "Access denied" };
+
+  // Never let a caller delete outside its own company's prefix.
+  const owned = paths.filter((p) => p.startsWith(`${companyId}/`));
+  if (owned.length === 0) return { data: null };
+
+  const supabase = await getServerSupabase();
+  await supabase.storage.from("property-images").remove(owned);
+  return { data: null };
+}
+
 async function generatePropertyCode(
   companyId: string,
   companyCode: string,
@@ -972,6 +1092,11 @@ export interface CreatePropertyInput extends PropertyPortalFields {
   advertising_permit_number?: string | null;
   /** Agents may only create as draft (PDF matrix). Submit for review is a separate action. */
   approval_status?: "draft" | "pending_review" | "approved" | "rejected";
+  /** Public URLs of files the browser already uploaded via a signed URL —
+   *  the normal path. `images`/`floor_plans` remain for callers that still
+   *  hand over the files themselves, subject to the request body limit. */
+  image_urls?: string[];
+  floor_plan_urls?: string[];
   images?: File[];
   floor_plans?: File[];
 }
@@ -1005,8 +1130,14 @@ export async function createProperty(
       input.companyCode,
       input.listing_type,
     );
-    const imageUrls = await uploadPropertyImages(input.companyId, input.images ?? []);
-    const floorPlanUrls = await uploadPropertyFloorPlans(input.companyId, input.floor_plans ?? []);
+    const imageUrls = [
+      ...(input.image_urls ?? []),
+      ...(await uploadPropertyImages(input.companyId, input.images ?? [])),
+    ];
+    const floorPlanUrls = [
+      ...(input.floor_plan_urls ?? []),
+      ...(await uploadPropertyFloorPlans(input.companyId, input.floor_plans ?? [])),
+    ];
 
     const { data, error } = await supabase
       .from("properties")
@@ -1096,6 +1227,9 @@ export interface UpdatePropertyInput extends PropertyPortalFields {
   note_ar?: string | null;
   status?: string | null;
   advertising_permit_number?: string | null;
+  /** Public URLs of newly added files already uploaded via a signed URL. */
+  image_urls?: string[];
+  floor_plan_urls?: string[];
   images?: File[];
   /** Remaining existing image URLs after client-side removals. */
   keepImages?: string[];
@@ -1152,11 +1286,17 @@ export async function updateProperty(
       return { error: "Access denied" };
     }
 
-    const newImageUrls = await uploadPropertyImages(input.companyId, input.images ?? []);
+    const newImageUrls = [
+      ...(input.image_urls ?? []),
+      ...(await uploadPropertyImages(input.companyId, input.images ?? [])),
+    ];
     const keptImages = input.keepImages ?? ((existing.images as string[] | null) ?? []);
     const images = [...keptImages, ...newImageUrls];
 
-    const newFloorPlanUrls = await uploadPropertyFloorPlans(input.companyId, input.floor_plans ?? []);
+    const newFloorPlanUrls = [
+      ...(input.floor_plan_urls ?? []),
+      ...(await uploadPropertyFloorPlans(input.companyId, input.floor_plans ?? [])),
+    ];
     const keptFloorPlans =
       input.keepFloorPlans ?? ((existing.floor_plan_urls as string[] | null) ?? []);
     const floorPlanUrls = [...keptFloorPlans, ...newFloorPlanUrls];

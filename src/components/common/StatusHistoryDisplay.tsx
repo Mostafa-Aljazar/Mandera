@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import ConfirmDialog from '@/components/common/ConfirmDialog';
 import {
   History,
   Trash2,
@@ -125,21 +126,27 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
 
   const canDeleteHistory = canEditActivityHistory(currentUser?.role);
 
-  const handleDelete = async (recordId: string) => {
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const requestDelete = (recordId: string) => {
     if (!canDeleteHistory || !company?.id) {
       toast.error(t('You do not have permission to delete this record.'));
       return;
     }
+    setPendingDeleteId(recordId);
+  };
 
-    if (!window.confirm(t('Are you sure you want to delete this status history record?'))) return;
+  const handleDelete = async () => {
+    if (!pendingDeleteId || !company?.id) return;
 
     try {
       const result = await deleteRecord.mutateAsync({
         entityType,
-        recordId,
+        recordId: pendingDeleteId,
         companyId: company.id,
       });
       if (result.error) throw new Error(result.error);
+      setPendingDeleteId(null);
       toast.success(t('Record deleted successfully'));
     } catch {
       toast.error(t('Failed to delete record.'));
@@ -257,7 +264,7 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
                             variant="ghost"
                             size="icon"
                             className="hover:bg-destructive/10 -me-1 w-7 h-7 text-destructive sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                            onClick={() => handleDelete(h.id)}
+                            onClick={() => requestDelete(h.id)}
                             title={t('Delete Record')}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -307,6 +314,20 @@ export default function StatusHistoryDisplay({ entityType, entityId, refreshTrig
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteId(null);
+        }}
+        title={t('Delete this record?')}
+        description={t(
+          'This status history entry will be removed permanently. This cannot be undone.',
+        )}
+        confirmLabel={t('Delete record')}
+        isSubmitting={deleteRecord.isPending}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 };

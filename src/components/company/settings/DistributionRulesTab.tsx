@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Edit2, Trash2, Plus, Shuffle } from "lucide-react";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import type { ClientDistributionRule } from "@/types/supabase-entities.types";
@@ -115,15 +116,18 @@ export default function DistributionRulesTab() {
     }
   };
 
-  const handleDelete = async (rule: ClientDistributionRule) => {
-    if (!company?.id) return;
-    if (!window.confirm(t("Delete this distribution rule?"))) return;
+  const [rulePendingDelete, setRulePendingDelete] =
+    useState<ClientDistributionRule | null>(null);
+
+  const handleDelete = async () => {
+    if (!company?.id || !rulePendingDelete) return;
     try {
       const result = await deleteMutation.mutateAsync({
-        id: rule.id,
+        id: rulePendingDelete.id,
         companyId: company.id,
       });
       if (result.error) throw new Error(result.error);
+      setRulePendingDelete(null);
       toast.success(t("Distribution rule deleted"));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("Something went wrong"));
@@ -267,7 +271,7 @@ export default function DistributionRulesTab() {
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 text-destructive"
-                        onClick={() => handleDelete(rule)}
+                        onClick={() => setRulePendingDelete(rule)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -279,6 +283,21 @@ export default function DistributionRulesTab() {
           </Table>
         )}
       </SettingsTableShell>
+
+      <ConfirmDialog
+        open={rulePendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setRulePendingDelete(null);
+        }}
+        title={t("Delete this distribution rule?")}
+        description={t(
+          "New clients will stop being assigned by this rule. This cannot be undone.",
+        )}
+        detailValue={rulePendingDelete?.name ?? undefined}
+        confirmLabel={t("Delete rule")}
+        isSubmitting={deleteMutation.isPending}
+        onConfirm={handleDelete}
+      />
     </SettingsSection>
   );
 }
