@@ -392,14 +392,14 @@ function PortalReadinessPanel({
         {ready ? (
           <p className="flex items-start gap-2 text-xs text-emerald-800 leading-relaxed">
             <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-            <span>{t("This listing meets the requirements for Bayut, dubizzle and PropertyFinder.")}</span>
+            <span>{t("This listing meets the requirements for Bayut, Dubizzle and PropertyFinder.")}</span>
           </p>
         ) : (
           <p className="flex items-start gap-2 text-xs text-muted-foreground leading-relaxed">
             <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-600" />
             <span>
               {t(
-                "Fill all required fields to publish this listing to Bayut, dubizzle and PropertyFinder.",
+                "Fill all required fields to publish this listing to Bayut, Dubizzle and PropertyFinder.",
               )}
             </span>
           </p>
@@ -1317,7 +1317,7 @@ export default function PropertyForm({
                     <div className="min-w-0">
                       <h3 className="font-semibold text-sm">{t("Bilingual listing content")}</h3>
                       <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                        {t("English and Arabic title & description are required for Bayut, dubizzle and PropertyFinder.")}
+                        {t("English and Arabic title & description are required for Bayut, Dubizzle and PropertyFinder.")}
                       </p>
                     </div>
                     <div className="flex gap-1.5 shrink-0">
@@ -1978,7 +1978,7 @@ export default function PropertyForm({
                   <div className="min-w-0">
                     <Label className="text-sm font-medium">{t("Floor Plans")}</Label>
                     <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                      {t("Optional. Used by Bayut & dubizzle only — PropertyFinder does not accept floor plans on individual listings.")}
+                      {t("Optional. Used by Bayut & Dubizzle only — PropertyFinder does not accept floor plans on individual listings.")}
                     </p>
                   </div>
                   <Badge variant="outline" className="tabular-nums shrink-0" dir="ltr">
@@ -2045,7 +2045,7 @@ export default function PropertyForm({
                 <div className="text-start">
                   <Label className="text-sm font-medium">{t("Property Video")}</Label>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    {t("Optional. A YouTube/Vimeo tour link. Bayut & dubizzle can list several; PropertyFinder uses only the first one.")}
+                    {t("Optional. A YouTube/Vimeo tour link. Bayut & Dubizzle can list several; PropertyFinder uses only the first one.")}
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -2112,7 +2112,7 @@ export default function PropertyForm({
                 <SectionHeader
                   icon={FileCheck2}
                   title={t("Compliance")}
-                  description={t("Permit details required to publish on Bayut, dubizzle and PropertyFinder.")}
+                  description={t("Permit details required to publish on Bayut, Dubizzle and PropertyFinder.")}
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FieldBlock label={t("Permit Type")} required error={errors.permit_type?.message}>

@@ -206,7 +206,7 @@ export default function PropertyDetailView({ propertyId }: Props) {
                 </h1>
                 <p className="mt-2 text-muted-foreground text-sm sm:text-[15px] leading-relaxed">
                   {t(
-                    "Complete all required fields so this property can be published to Bayut, dubizzle and PropertyFinder.",
+                    "Complete all required fields so this property can be published to Bayut, Dubizzle and PropertyFinder.",
                   )}
                 </p>
               </div>
