@@ -16,7 +16,7 @@ export default function TrialBannerSection() {
           <div className="space-y-8 px-8 md:px-12 py-10 md:py-12 text-center">
             <div className="space-y-3">
               <h2 className="font-outfit font-bold text-foreground text-2xl md:text-3xl tracking-tight">
-                <span className="text-primary">14</span>{" "}
+                <span className="text-primary">{t("trial_banner_title_duration")}</span>{" "}
                 {t("trial_banner_title_suffix")}
               </h2>
               <p className="text-muted-foreground text-base leading-relaxed">

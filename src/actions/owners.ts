@@ -1,6 +1,7 @@
 "use server";
 
 import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
+import { sendAssignmentNotification } from "@/lib/email/assignmentNotification";
 import type {
   Owner,
   OwnerStatus,
@@ -651,8 +652,21 @@ export async function updateOwner(
     .single();
 
   if (error) return { error: error.message };
-  // TODO: send assignment-change notification email if assigned_employee_id
-  // changed (deferred per user decision — see project_supabase_migration memory).
+
+  const newAssignedEmployeeId = patch.assigned_employee_id as string | null | undefined;
+  if (newAssignedEmployeeId && existing.assigned_employee_id !== newAssignedEmployeeId) {
+    const owner = data as Owner;
+    void sendAssignmentNotification({
+      entityType: "owner",
+      employeeId: newAssignedEmployeeId,
+      entityName: owner.name_en || owner.name_ar || "",
+      detailLines: [
+        { labelEn: "Owner Name", labelAr: "اسم المالك", value: owner.name_en || owner.name_ar || "" },
+        { labelEn: "Phone", labelAr: "الهاتف", value: owner.phone || "N/A" },
+      ],
+    });
+  }
+
   return { data: data as Owner };
 }
 
@@ -718,12 +732,34 @@ export async function bulkReassignOwners(
   }
 
   const supabase = await getServerSupabase();
+
+  const { data: ownersToReassign, error: fetchError } = await supabase
+    .from("owners")
+    .select("id, assigned_employee_id, name_en, name_ar, phone")
+    .in("id", ownerIds)
+    .eq("company_id", companyId);
+  if (fetchError) return { error: fetchError.message };
+
   const { error } = await supabase
     .from("owners")
     .update({ assigned_employee_id: targetEmployeeId })
     .in("id", ownerIds)
     .eq("company_id", companyId);
   if (error) return { error: error.message };
+
+  for (const owner of ownersToReassign ?? []) {
+    if (owner.assigned_employee_id === targetEmployeeId) continue;
+    void sendAssignmentNotification({
+      entityType: "owner",
+      employeeId: targetEmployeeId,
+      entityName: owner.name_en || owner.name_ar || "",
+      detailLines: [
+        { labelEn: "Owner Name", labelAr: "اسم المالك", value: owner.name_en || owner.name_ar || "" },
+        { labelEn: "Phone", labelAr: "الهاتف", value: owner.phone || "N/A" },
+      ],
+    });
+  }
+
   return { data: null };
 }
 

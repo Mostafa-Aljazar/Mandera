@@ -20,6 +20,7 @@ import {
   maskPhone,
 } from "@/lib/identity";
 import { notifyCompanyAdministrators, bilingualActorNotifyLabel } from "@/actions/notifications";
+import { sendAssignmentNotification } from "@/lib/email/assignmentNotification";
 import {
   formatNotifyAgentLine,
   formatNotifyPropertyLine,
@@ -1342,10 +1343,18 @@ export async function updateProperty(
 
     if (error) return { error: error.message };
 
-    // TODO: send assignment-change notification email if employee_id changed
-    // (deferred per user decision — see project_supabase_migration memory).
     if (existing.employee_id !== employeeId) {
-      // Intentionally not implemented yet.
+      const prop = data as Property;
+      void sendAssignmentNotification({
+        entityType: "property",
+        employeeId,
+        entityName: prop.title,
+        detailLines: [
+          { labelEn: "Property Code", labelAr: "رمز العقار", value: prop.code },
+          { labelEn: "Title", labelAr: "العنوان", value: prop.title },
+          { labelEn: "Price", labelAr: "السعر", value: String(prop.price) },
+        ],
+      });
     }
 
     // Administrator notifications: Agent edits property data / adds photos / removes photos.

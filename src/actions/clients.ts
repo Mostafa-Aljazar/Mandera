@@ -1,6 +1,7 @@
 "use server";
 
 import { getServerSupabase, getSupabaseAdmin } from "@/lib/supabase/server";
+import { sendAssignmentNotification } from "@/lib/email/assignmentNotification";
 import type {
   Client,
   ClientWithRelations,
@@ -577,6 +578,22 @@ export async function updateClient(
     .single();
 
   if (error) return { error: error.message };
+
+  const newEmployeeId = patch.employee_id as string | undefined;
+  if (newEmployeeId && existing.employee_id !== newEmployeeId) {
+    const client = data as Client;
+    void sendAssignmentNotification({
+      entityType: "client",
+      employeeId: newEmployeeId,
+      entityName: client.name_en || client.name_ar || "",
+      detailLines: [
+        { labelEn: "Client Name", labelAr: "اسم العميل", value: client.name_en || client.name_ar || "" },
+        { labelEn: "Phone", labelAr: "الهاتف", value: client.phone || "N/A" },
+        { labelEn: "Interest Type", labelAr: "نوع الاهتمام", value: client.interest_type || "N/A" },
+      ],
+    });
+  }
+
   return { data: data as Client };
 }
 
@@ -664,7 +681,7 @@ export async function bulkAssignClients(
 
   const { data: clientsToAssign, error: fetchError } = await supabase
     .from("clients")
-    .select("id, employee_id")
+    .select("id, employee_id, name_en, name_ar, phone, interest_type")
     .in("id", input.clientIds);
 
   if (fetchError) return { error: fetchError.message };
@@ -675,6 +692,19 @@ export async function bulkAssignClients(
       .update({ employee_id: input.employeeId })
       .eq("id", client.id);
     if (updateError) return { error: updateError.message };
+
+    if (client.employee_id !== input.employeeId) {
+      void sendAssignmentNotification({
+        entityType: "client",
+        employeeId: input.employeeId,
+        entityName: client.name_en || client.name_ar || "",
+        detailLines: [
+          { labelEn: "Client Name", labelAr: "اسم العميل", value: client.name_en || client.name_ar || "" },
+          { labelEn: "Phone", labelAr: "الهاتف", value: client.phone || "N/A" },
+          { labelEn: "Interest Type", labelAr: "نوع الاهتمام", value: client.interest_type || "N/A" },
+        ],
+      });
+    }
 
     let resolvedStatusId = input.statusId;
     if (!resolvedStatusId) {
